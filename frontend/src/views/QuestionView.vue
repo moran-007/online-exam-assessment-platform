@@ -1,0 +1,1289 @@
+<template>
+  <div class="page">
+    <div class="page-head question-page-head">
+      <h1 class="page-title">题库管理</h1>
+      <div class="toolbar question-toolbar">
+        <el-input
+          v-model="filter.keyword"
+          clearable
+          placeholder="题目关键词"
+          style="width: 180px"
+          @keyup.enter="loadFirstPage"
+          @clear="loadFirstPage"
+        />
+        <el-select v-model="filter.courseId" clearable placeholder="课程" style="width: 170px" @change="handleFilterCourseChange">
+          <el-option v-for="course in courses" :key="course.id" :label="course.name" :value="course.id" />
+        </el-select>
+        <el-tree-select
+          v-model="filter.knowledgePointId"
+          :data="filterKnowledgeTreeOptions"
+          check-strictly
+          clearable
+          filterable
+          placeholder="知识点"
+          style="width: 180px"
+          :disabled="!filter.courseId"
+          @change="loadFirstPage"
+        />
+        <el-select v-model="filter.tagId" clearable filterable placeholder="标签" style="width: 170px" @change="loadFirstPage">
+          <el-option v-for="tag in tags" :key="tag.id" :label="tag.name" :value="tag.id" />
+        </el-select>
+        <el-select v-model="filter.status" clearable placeholder="状态" style="width: 130px" @change="loadFirstPage">
+          <el-option v-for="status in statusOptions" :key="status.value" :label="status.label" :value="status.value" />
+        </el-select>
+        <el-select v-model="filter.type" clearable placeholder="题型" style="width: 130px" @change="loadFirstPage">
+          <el-option v-for="type in typeOptions" :key="type.value" :label="type.label" :value="type.value" />
+        </el-select>
+        <el-switch
+          v-model="editMode"
+          active-text="编辑模式"
+          inactive-text="答题模式"
+          inline-prompt
+          style="--el-switch-on-color: #d97706; --el-switch-off-color: #256f78"
+          @change="onEditModeChange"
+        />
+        <el-button :icon="Search" @click="loadFirstPage">查询</el-button>
+        <el-button :icon="Refresh" @click="refreshAll">刷新</el-button>
+        <el-button v-if="editMode" :icon="Upload" @click="router.push('/question-import')">题目导入</el-button>
+        <template v-if="editMode">
+          <el-select v-model="bulkQuestionStatus" clearable placeholder="批量状态" style="width: 132px">
+            <el-option v-for="status in statusOptions" :key="status.value" :label="status.label" :value="status.value" />
+          </el-select>
+          <el-button
+            :icon="Check"
+            :disabled="!selectedQuestionIds.length || !bulkQuestionStatus"
+            @click="bulkUpdateQuestionStatus"
+          >
+            批量设置
+          </el-button>
+          <el-button
+            :icon="Download"
+            :disabled="!selectedQuestionIds.length"
+            @click="openQuestionExportDialog(selectedQuestionIds)"
+          >
+            导出选中
+          </el-button>
+        </template>
+        <el-button
+          v-if="editMode"
+          type="danger"
+          plain
+          :icon="Delete"
+          :disabled="!selectedQuestionIds.length"
+          @click="bulkDeleteQuestions"
+        >
+          批量删除
+        </el-button>
+      </div>
+    </div>
+
+    <div class="question-list-only">
+      <el-dialog v-model="editorVisible" :title="editorTitle" width="980px" destroy-on-close @closed="resetForm">
+        <div class="question-editor-dialog">
+          <el-alert
+            type="warning"
+            show-icon
+            :closable="false"
+            title="风险操作提示：修改题干、答案、选项或状态会影响后续使用；已生成的试卷快照不会自动同步。复制会创建草稿副本，不覆盖原题。"
+          />
+        <el-tabs v-model="entryMode">
+          <el-tab-pane label="编辑题目" name="single">
+            <div class="edit-state">
+              <el-tag type="warning">编辑中</el-tag>
+              <span class="muted">{{ form.title || '未命名题目' }}</span>
+              <el-button size="small" :icon="Close" @click="closeEditor">取消编辑</el-button>
+            </div>
+
+            <el-form :model="form" label-width="86px">
+              <el-form-item label="课程">
+                <el-select v-model="form.courseId" filterable style="width: 100%" @change="handleFormCourseChange">
+                  <el-option v-for="course in courses" :key="course.id" :label="course.name" :value="course.id" />
+                </el-select>
+              </el-form-item>
+              <el-form-item label="知识点">
+                <el-tree-select
+                  v-model="form.knowledgePointIds"
+                  :data="formKnowledgeTreeOptions"
+                  multiple
+                  check-strictly
+                  collapse-tags
+                  collapse-tags-tooltip
+                  clearable
+                  filterable
+                  placeholder="选择所属知识点"
+                  style="width: 100%"
+                />
+              </el-form-item>
+              <el-form-item label="题型">
+                <el-select v-model="form.type" filterable style="width: 100%" @change="resetOptions">
+                  <el-option v-for="type in typeOptions" :key="type.value" :label="type.label" :value="type.value" />
+                </el-select>
+              </el-form-item>
+              <el-form-item v-if="isEditing" label="状态">
+                <el-segmented v-model="form.status" :options="statusSegmentOptions" />
+              </el-form-item>
+              <el-form-item label="标题">
+                <el-input v-model="form.title" placeholder="请输入题目标题" />
+              </el-form-item>
+              <el-form-item label="标签">
+                <div class="tag-field">
+                  <el-select
+                    v-model="form.tagNames"
+                    multiple
+                    filterable
+                    allow-create
+                    default-first-option
+                    placeholder="可选择已有标签，也可直接输入新标签"
+                    style="width: 100%"
+                  >
+                    <el-option v-for="tag in tags" :key="tag.id" :label="tag.name" :value="tag.name" />
+                  </el-select>
+                  <div class="tag-suggestions">
+                    <el-tag
+                      v-for="tag in quickTags"
+                      :key="tag.id"
+                      effect="plain"
+                      size="small"
+                      @click="appendTag(tag.name)"
+                    >
+                      {{ tag.name }}
+                    </el-tag>
+                  </div>
+                </div>
+              </el-form-item>
+              <el-form-item label="题干">
+                <div style="width: 100%">
+                  <div class="toolbar" style="margin-bottom: 8px">
+                    <el-button size="small" :icon="DocumentAdd" @click="insertCodeBlock(form, 'content')">
+                      代码块
+                    </el-button>
+                    <el-button size="small" :icon="View" @click="previewVisible = !previewVisible">
+                      预览
+                    </el-button>
+                  </div>
+                  <el-input
+                    v-model="form.content"
+                    type="textarea"
+                    :rows="8"
+                    resize="vertical"
+                    placeholder="支持 Markdown，例如 ```python"
+                  />
+                  <div v-if="previewVisible" class="panel markdown-preview">
+                    <MarkdownRenderer :source="form.content" />
+                  </div>
+                </div>
+              </el-form-item>
+              <el-form-item label="难度">
+                <div class="inline-control">
+                  <el-rate v-model="form.difficulty" :max="5" />
+                  <span class="muted">From 1-5</span>
+                </div>
+              </el-form-item>
+              <el-form-item label="分值">
+                <el-input-number v-model="form.defaultScore" :min="0" :step="1" />
+              </el-form-item>
+
+              <template v-if="isChoice">
+                <el-form-item label="选项">
+                  <div class="choice-editor">
+                    <div class="toolbar">
+                      <el-button v-if="form.type !== 'true_false'" size="small" :icon="Plus" @click="addOption">
+                        增加选项
+                      </el-button>
+                      <span class="muted">单选/判断只允许一个正确项，多选至少两个正确项。</span>
+                    </div>
+                    <div v-for="(option, index) in form.options" :key="option.optionKey" class="option-editor">
+                      <el-radio
+                        v-if="form.type === 'single_choice' || form.type === 'true_false'"
+                        v-model="correctChoiceKey"
+                        :label="option.optionKey"
+                      />
+                      <el-checkbox v-else v-model="option.isCorrect" />
+                      <el-tag>{{ option.optionKey }}</el-tag>
+                      <div class="option-content">
+                        <el-input v-model="option.content" type="textarea" :rows="2" resize="vertical" />
+                        <MarkdownRenderer v-if="option.content" :source="option.content" />
+                      </div>
+                      <el-button
+                        v-if="form.type !== 'true_false'"
+                        size="small"
+                        plain
+                        :icon="Delete"
+                        :disabled="form.options.length <= 2"
+                        @click="removeOption(index)"
+                      >
+                        删除
+                      </el-button>
+                    </div>
+                  </div>
+                </el-form-item>
+              </template>
+              <el-form-item v-else-if="form.type === 'fill_blank'" label="答案">
+                <el-input v-model="blankAnswers" placeholder="多个可接受答案用英文逗号分隔" />
+              </el-form-item>
+              <el-form-item v-else label="参考答案">
+                <el-input
+                  v-model="answerReference"
+                  type="textarea"
+                  :rows="3"
+                  resize="vertical"
+                  placeholder="可选，简答题/编程题可填写参考答案或评测说明"
+                />
+              </el-form-item>
+              <el-form-item label="解析">
+                <div style="width: 100%">
+                  <el-input v-model="form.analysis" type="textarea" :rows="3" resize="vertical" />
+                  <MarkdownRenderer v-if="form.analysis" :source="form.analysis" />
+                </div>
+              </el-form-item>
+              <div class="toolbar">
+                <el-button type="primary" :icon="Edit" :loading="saving" @click="saveQuestion(false)">保存修改</el-button>
+                <el-button type="success" :icon="Check" :loading="saving" @click="saveQuestion(true)">保存并发布</el-button>
+                <el-button type="warning" :icon="DocumentCopy" :loading="saving" @click="copyQuestion">复制为新题</el-button>
+                <el-button :icon="Close" @click="closeEditor">取消</el-button>
+              </div>
+            </el-form>
+          </el-tab-pane>
+
+        </el-tabs>
+        </div>
+      </el-dialog>
+
+      <div class="panel question-table-panel">
+        <el-table
+          class="question-list-table"
+          :data="items"
+          height="100%"
+          :default-sort="{ prop: filter.sortBy, order: filter.sortOrder === 'asc' ? 'ascending' : 'descending' }"
+          highlight-current-row
+          @row-click="handleQuestionRowClick"
+          @selection-change="handleSelectionChange"
+          @sort-change="handleQuestionSortChange"
+        >
+          <el-table-column v-if="editMode" type="selection" width="48" />
+          <el-table-column prop="title" label="题目" min-width="300" sortable="custom">
+            <template #default="{ row }">
+              <div class="question-title-cell">
+                <strong>{{ row.title }}</strong>
+                <el-tag
+                  v-if="row.occupiedByExam"
+                  size="small"
+                  type="warning"
+                  class="clickable-tag"
+                  @click.stop="openRelatedExams(row)"
+                >
+                  隐藏
+                </el-tag>
+              </div>
+            </template>
+          </el-table-column>
+          <el-table-column prop="type" label="题型" width="96" sortable="custom">
+            <template #default="{ row }">{{ typeLabel(row.type) }}</template>
+          </el-table-column>
+          <el-table-column prop="difficulty" label="难度" width="74" sortable="custom" />
+          <el-table-column v-if="showMediumColumns" prop="defaultScore" label="分值" width="74" sortable="custom" />
+          <el-table-column v-if="showMediumColumns" label="知识点" min-width="120">
+            <template #default="{ row }">
+              <div class="table-tag-list">
+                <el-tag
+                  v-for="point in row.knowledgePoints || []"
+                  :key="point.id"
+                  size="small"
+                  type="success"
+                  effect="plain"
+                  class="clickable-tag"
+                  @click.stop="filterByKnowledgePoint(point)"
+                >
+                  {{ point.name }}
+                </el-tag>
+                <span v-if="!(row.knowledgePoints || []).length" class="muted">-</span>
+              </div>
+            </template>
+          </el-table-column>
+          <el-table-column v-if="showMediumColumns" label="标签" min-width="120">
+            <template #default="{ row }">
+              <div class="table-tag-list">
+                <el-tag
+                  v-for="tag in row.tags || []"
+                  :key="tag.id"
+                  size="small"
+                  effect="plain"
+                  class="clickable-tag"
+                  @click.stop="filterByTag(tag)"
+                >
+                  {{ tag.name }}
+                </el-tag>
+                <span v-if="!(row.tags || []).length" class="muted">-</span>
+              </div>
+            </template>
+          </el-table-column>
+          <el-table-column prop="status" label="状态" width="86" sortable="custom">
+            <template #default="{ row }">
+              <el-tag :type="statusTagType(row.status)">{{ statusLabel(row.status) }}</el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column v-if="showLowColumns" prop="createdAt" label="录入时间" width="148" sortable="custom">
+            <template #default="{ row }">{{ formatDateTime(row.createdAt) }}</template>
+          </el-table-column>
+          <el-table-column label="操作" width="96" fixed="right">
+            <template #default="{ row }">
+              <div class="question-actions">
+              <template v-if="!editMode">
+                <el-button size="small" :icon="View" @click.stop="openPracticeQuestion(row)">答题</el-button>
+              </template>
+              <template v-else>
+                <el-dropdown trigger="click" @command="(command) => handleQuestionCommand(row, command)">
+                  <el-button size="small" :icon="MoreFilled" @click.stop>操作</el-button>
+                  <template #dropdown>
+                    <el-dropdown-menu>
+                      <el-dropdown-item command="edit" :icon="Edit">编辑/复制</el-dropdown-item>
+                      <el-dropdown-item v-if="row.status !== 'published'" command="publish" :icon="Check">发布</el-dropdown-item>
+                      <el-dropdown-item v-if="row.status === 'published'" command="unpublish" :icon="Close">取消发布</el-dropdown-item>
+                      <el-dropdown-item v-if="row.status !== 'disabled'" command="hide" :icon="Hide">隐藏</el-dropdown-item>
+                      <el-dropdown-item v-if="row.status === 'disabled'" command="show" :icon="View">显示</el-dropdown-item>
+                      <el-dropdown-item command="download" :icon="Download">下载</el-dropdown-item>
+                      <el-dropdown-item command="delete" :icon="Delete" divided>删除</el-dropdown-item>
+                    </el-dropdown-menu>
+                  </template>
+                </el-dropdown>
+              </template>
+              </div>
+            </template>
+          </el-table-column>
+        </el-table>
+        <div class="table-footer question-table-footer">
+          <span class="muted">共 {{ pagination.total }} 道题</span>
+          <el-pagination
+            v-model:current-page="pagination.page"
+            v-model:page-size="pagination.pageSize"
+            background
+            small
+            :pager-count="5"
+            layout="sizes, prev, pager, next"
+            :page-sizes="pageSizes"
+            :total="pagination.total"
+            @size-change="handleSizeChange"
+            @current-change="handleCurrentChange"
+          />
+        </div>
+      </div>
+    </div>
+
+    <el-dialog v-model="practiceVisible" title="题目作答" width="780px">
+      <template v-if="practiceDetail">
+        <div class="paper-preview-head">
+          <div>
+            <h2>{{ practiceDetail.title }}</h2>
+            <span class="muted">{{ typeLabel(practiceDetail.type) }} · {{ practiceDetail.defaultScore }} 分</span>
+          </div>
+          <el-tag :type="practiceDetail.status === 'published' ? 'success' : 'warning'">
+            {{ statusLabel(practiceDetail.status) || practiceDetail.status }}
+          </el-tag>
+        </div>
+        <MarkdownRenderer :source="practiceDetail.content || ''" />
+
+        <el-radio-group
+          v-if="['single_choice', 'true_false'].includes(practiceDetail.type)"
+          v-model="practiceAnswer.selectedOptionIds[0]"
+          class="answer-options"
+        >
+          <el-radio v-for="option in practiceOptions" :key="option.optionId" :label="option.optionId" class="answer-option">
+            <span class="option-choice">
+              <strong>{{ option.label }}.</strong>
+              <MarkdownRenderer :source="option.content" />
+            </span>
+          </el-radio>
+        </el-radio-group>
+
+        <el-checkbox-group v-else-if="practiceDetail.type === 'multiple_choice'" v-model="practiceAnswer.selectedOptionIds" class="answer-options">
+          <el-checkbox v-for="option in practiceOptions" :key="option.optionId" :label="option.optionId" class="answer-option">
+            <span class="option-choice">
+              <strong>{{ option.label }}.</strong>
+              <MarkdownRenderer :source="option.content" />
+            </span>
+          </el-checkbox>
+        </el-checkbox-group>
+
+        <el-input v-else-if="practiceDetail.type === 'fill_blank'" v-model="practiceAnswer.blanks[0].value" placeholder="填写答案" />
+        <el-input v-else v-model="practiceAnswer.text" type="textarea" :rows="5" placeholder="填写答案" />
+
+        <el-alert
+          v-if="practiceDetail.status !== 'published'"
+          title="未发布题目只可预览或进入编辑模式，发布后才能按学生方式判分。"
+          type="warning"
+          show-icon
+          :closable="false"
+          class="batch-alert"
+        />
+        <el-alert
+          v-if="practiceResult"
+          :title="`${practiceResult.message}，得分 ${practiceResult.score} / ${practiceResult.totalScore}`"
+          :type="practiceResult.isCorrect ? 'success' : practiceResult.isCorrect === false ? 'error' : 'warning'"
+          show-icon
+          :closable="false"
+          class="batch-alert"
+        />
+
+        <AnswerFeedback :result="practiceResult" />
+      </template>
+      <template #footer>
+        <el-button @click="practiceVisible = false">关闭</el-button>
+        <el-button :icon="Edit" @click="practiceDetail && editQuestionFromPractice()">进入编辑模式</el-button>
+        <el-button type="primary" :disabled="practiceDetail?.status !== 'published'" @click="checkPracticeAnswer">提交作答</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog v-model="questionExportVisible" title="题目导出设置" width="520px">
+      <el-form label-width="96px">
+        <el-form-item label="导出数量">
+          <span>{{ pendingExportQuestionIds.length }} 道题</span>
+        </el-form-item>
+        <el-form-item label="导出格式">
+          <el-radio-group v-model="questionExportOptions.format">
+            <el-radio-button label="zip">题目压缩包</el-radio-button>
+            <el-radio-button label="json">JSON</el-radio-button>
+            <el-radio-button label="csv">CSV</el-radio-button>
+            <el-radio-button label="pdf">PDF</el-radio-button>
+            <el-radio-button label="docx">Word</el-radio-button>
+          </el-radio-group>
+        </el-form-item>
+        <el-form-item label="包含内容">
+          <el-checkbox v-model="questionExportOptions.includeAnswers">答案</el-checkbox>
+          <el-checkbox v-model="questionExportOptions.includeAnalysis">解析</el-checkbox>
+        </el-form-item>
+        <el-alert
+          type="info"
+          show-icon
+          :closable="false"
+          title="ZIP、JSON、CSV 与题目导入字段保持对应；取消答案后导出的题目需要补充答案再导入。"
+        />
+      </el-form>
+      <template #footer>
+        <el-button @click="questionExportVisible = false">取消</el-button>
+        <el-button type="primary" :icon="Download" @click="confirmQuestionExport">生成导出</el-button>
+      </template>
+    </el-dialog>
+  </div>
+</template>
+
+<script setup>
+import { computed, onMounted, reactive, ref } from 'vue';
+import { useRouter } from 'vue-router';
+import { ElMessage, ElMessageBox } from 'element-plus';
+import {
+  Check,
+  Close,
+  Delete,
+  Download,
+  DocumentAdd,
+  DocumentCopy,
+  Edit,
+  Hide,
+  MoreFilled,
+  Plus,
+  Refresh,
+  Search,
+  Upload,
+  View,
+} from '@element-plus/icons-vue';
+import { api, buildQuery } from '../api';
+import AnswerFeedback from '../components/AnswerFeedback.vue';
+import MarkdownRenderer from '../components/MarkdownRenderer.vue';
+import { useResponsiveColumns } from '../composables/useResponsiveColumns';
+
+const router = useRouter();
+const { showMediumColumns, showLowColumns } = useResponsiveColumns();
+const typeOptions = [
+  { label: '单选题', value: 'single_choice' },
+  { label: '多选题', value: 'multiple_choice' },
+  { label: '判断题', value: 'true_false' },
+  { label: '填空题', value: 'fill_blank' },
+  { label: '简答题', value: 'short_answer' },
+  { label: '编程题', value: 'programming' },
+  { label: '材料题', value: 'material' },
+  { label: '文件上传题', value: 'file_upload' },
+  { label: 'Scratch 项目题', value: 'scratch_project' },
+  { label: 'Arduino 项目题', value: 'arduino_project' },
+];
+const statusOptions = [
+  { label: '草稿', value: 'draft' },
+  { label: '待审核', value: 'pending_review' },
+  { label: '已发布', value: 'published' },
+  { label: '已隐藏', value: 'disabled' },
+];
+const statusSegmentOptions = statusOptions.map((item) => ({ label: item.label, value: item.value }));
+
+const courses = ref([]);
+const tags = ref([]);
+const formKnowledgeTree = ref([]);
+const filterKnowledgeTree = ref([]);
+const items = ref([]);
+const blankAnswers = ref('print');
+const answerReference = ref('');
+const previewVisible = ref(true);
+const entryMode = ref('single');
+const saving = ref(false);
+const editingId = ref('');
+const editMode = ref(false);
+const editorVisible = ref(false);
+const selectedQuestionRows = ref([]);
+const filter = reactive({
+  courseId: '',
+  knowledgePointId: '',
+  tagId: '',
+  status: '',
+  type: '',
+  keyword: '',
+  sortBy: 'createdAt',
+  sortOrder: 'desc',
+});
+const pagination = reactive({ page: 1, pageSize: 20, total: 0 });
+const pageSizes = [20, 50, 100];
+const bulkQuestionStatus = ref('');
+const questionExportVisible = ref(false);
+const pendingExportQuestionIds = ref([]);
+const questionExportOptions = reactive({
+  format: 'zip',
+  includeAnswers: true,
+  includeAnalysis: true,
+});
+const form = reactive(baseForm());
+const practiceVisible = ref(false);
+const practiceDetail = ref(null);
+const practiceResult = ref(null);
+const practiceAnswer = reactive(emptyPracticeAnswer());
+
+const isEditing = computed(() => Boolean(editingId.value));
+const isChoice = computed(() => isChoiceType(form.type));
+const quickTags = computed(() => tags.value.slice(0, 3));
+const formKnowledgeTreeOptions = computed(() => convertKnowledgeTree(formKnowledgeTree.value));
+const filterKnowledgeTreeOptions = computed(() => convertKnowledgeTree(filterKnowledgeTree.value));
+const editorTitle = computed(() => (isEditing.value ? '编辑题目 / 复制题目' : '题目编辑'));
+const selectedQuestionIds = computed(() => selectedQuestionRows.value.map((row) => row.id));
+const practiceOptions = computed(() =>
+  (practiceDetail.value?.options ?? []).map((option, index) => ({
+    optionId: option.id ?? option.optionId,
+    label: option.optionKey ?? option.label ?? optionKeyForIndex(index),
+    content: option.content ?? '',
+  })),
+);
+const correctChoiceKey = computed({
+  get() {
+    return form.options.find((option) => option.isCorrect)?.optionKey ?? '';
+  },
+  set(value) {
+    form.options.forEach((option) => {
+      option.isCorrect = option.optionKey === value;
+    });
+  },
+});
+
+function baseForm() {
+  return {
+    courseId: '',
+    type: 'single_choice',
+    status: 'draft',
+    title: '',
+    knowledgePointIds: [],
+    tagNames: [],
+    content: '',
+    difficulty: 1,
+    defaultScore: 2,
+    analysis: '',
+    options: [
+      { optionKey: 'A', content: '', isCorrect: false, sortOrder: 1 },
+      { optionKey: 'B', content: '', isCorrect: true, sortOrder: 2 },
+      { optionKey: 'C', content: '', isCorrect: false, sortOrder: 3 },
+      { optionKey: 'D', content: '', isCorrect: false, sortOrder: 4 },
+    ],
+  };
+}
+
+async function loadCourses() {
+  const data = await api('/courses?pageSize=100');
+  courses.value = data.items;
+  if (!form.courseId) form.courseId = courses.value[0]?.id ?? '';
+  await loadFormKnowledgeTree();
+  await loadFilterKnowledgeTree();
+}
+
+async function loadFormKnowledgeTree() {
+  formKnowledgeTree.value = form.courseId ? await api(`/knowledge-points/tree?courseId=${form.courseId}`) : [];
+}
+
+async function loadFilterKnowledgeTree() {
+  filterKnowledgeTree.value = filter.courseId ? await api(`/knowledge-points/tree?courseId=${filter.courseId}`) : [];
+}
+
+async function handleFormCourseChange() {
+  form.knowledgePointIds = [];
+  await loadFormKnowledgeTree();
+}
+
+async function handleFilterCourseChange() {
+  filter.knowledgePointId = '';
+  await loadFilterKnowledgeTree();
+  await loadFirstPage();
+}
+
+async function loadTags() {
+  const data = await api('/tags?pageSize=100&type=QUESTION');
+  tags.value = data.items;
+}
+
+async function load() {
+  const data = await api(
+    `/questions${buildQuery({
+      page: pagination.page,
+      pageSize: pagination.pageSize,
+      courseId: filter.courseId,
+      tagId: filter.tagId,
+      knowledgePointId: filter.knowledgePointId,
+      status: filter.status,
+      type: filter.type,
+      keyword: filter.keyword,
+      sortBy: filter.sortBy,
+      sortOrder: filter.sortOrder,
+    })}`,
+  );
+  items.value = data.items;
+  pagination.page = data.page;
+  pagination.pageSize = data.pageSize;
+  pagination.total = data.total;
+}
+
+async function refreshAll() {
+  await Promise.all([loadTags(), load()]);
+}
+
+function loadFirstPage() {
+  pagination.page = 1;
+  return load();
+}
+
+function handleQuestionSortChange({ prop, order }) {
+  filter.sortBy = prop || 'createdAt';
+  filter.sortOrder = order === 'ascending' ? 'asc' : 'desc';
+  return loadFirstPage();
+}
+
+async function filterByTag(tag) {
+  filter.tagId = tag.id;
+  await loadFirstPage();
+}
+
+async function filterByKnowledgePoint(point) {
+  if (point.courseId && filter.courseId !== point.courseId) {
+    filter.courseId = point.courseId;
+    await loadFilterKnowledgeTree();
+  }
+  filter.knowledgePointId = point.id;
+  await loadFirstPage();
+}
+
+function handleSizeChange(size) {
+  pagination.pageSize = size;
+  pagination.page = 1;
+  load();
+}
+
+function handleCurrentChange(page) {
+  pagination.page = page;
+  load();
+}
+
+function resetOptions() {
+  if (form.type === 'true_false') {
+    form.options = [
+      { optionKey: 'A', content: '正确', isCorrect: true, sortOrder: 1 },
+      { optionKey: 'B', content: '错误', isCorrect: false, sortOrder: 2 },
+    ];
+    return;
+  }
+
+  if (isChoice.value) {
+    form.options = baseForm().options.map((option) => ({ ...option }));
+    return;
+  }
+
+  form.options = [];
+}
+
+function addOption() {
+  const sortOrder = form.options.length + 1;
+  form.options.push({
+    optionKey: optionKeyForIndex(form.options.length),
+    content: '',
+    isCorrect: false,
+    sortOrder,
+  });
+}
+
+function removeOption(index) {
+  form.options.splice(index, 1);
+  renumberOptions();
+  if ((form.type === 'single_choice' || form.type === 'true_false') && !form.options.some((option) => option.isCorrect)) {
+    form.options[0].isCorrect = true;
+  }
+}
+
+function renumberOptions() {
+  form.options.forEach((option, index) => {
+    option.optionKey = optionKeyForIndex(index);
+    option.sortOrder = index + 1;
+  });
+}
+
+function optionKeyForIndex(index) {
+  return index < 26 ? String.fromCharCode(65 + index) : `X${index + 1}`;
+}
+
+function appendTag(name) {
+  if (!form.tagNames.includes(name)) {
+    form.tagNames.push(name);
+  }
+}
+
+function insertCodeBlock(target, field) {
+  const block = '\n```python\nprint("hello")\n```\n';
+  target[field] = `${target[field] || ''}${block}`;
+}
+
+function validateForm() {
+  validatePayload({ ...form, courseId: form.courseId }, '当前题目');
+}
+
+function validatePayload(payload, label) {
+  if (!payload.courseId) throw new Error(`${label}：请选择课程`);
+  if (!payload.title?.trim()) throw new Error(`${label}：请填写标题`);
+  if (!payload.content?.trim()) throw new Error(`${label}：请填写题干`);
+  if (!Number.isFinite(Number(payload.difficulty)) || payload.difficulty < 1 || payload.difficulty > 5) {
+    throw new Error(`${label}：难度必须是 1-5`);
+  }
+  if (!Number.isFinite(Number(payload.defaultScore)) || payload.defaultScore < 0) {
+    throw new Error(`${label}：分值不能小于 0`);
+  }
+
+  if (isChoiceType(payload.type)) {
+    const options = payload.options ?? [];
+    const correctCount = options.filter((option) => option.isCorrect).length;
+    if (options.length < 2 || options.some((option) => !option.content?.trim())) {
+      throw new Error(`${label}：请至少填写两个完整选项`);
+    }
+    if ((payload.type === 'single_choice' || payload.type === 'true_false') && correctCount !== 1) {
+      throw new Error(`${label}：单选/判断题必须有且只有一个正确选项`);
+    }
+    if (payload.type === 'multiple_choice' && correctCount < 2) {
+      throw new Error(`${label}：多选题至少需要两个正确选项`);
+    }
+  }
+}
+
+async function buildQuestionPayload(options = {}) {
+  const { includeStatus = isEditing.value } = options;
+  validateForm();
+  const tagIds = await resolveTagIds(form.tagNames);
+  const payload = {
+    courseId: form.courseId,
+    type: form.type,
+    title: form.title.trim(),
+    content: form.content.trim(),
+    difficulty: Number(form.difficulty),
+    defaultScore: Number(form.defaultScore),
+    analysis: form.analysis?.trim() || '',
+    knowledgePointIds: [...form.knowledgePointIds],
+    tagIds,
+    options: isChoice.value
+      ? form.options.map((option, index) => ({
+          optionKey: option.optionKey,
+          content: option.content.trim(),
+          isCorrect: Boolean(option.isCorrect),
+          sortOrder: index + 1,
+        }))
+      : [],
+  };
+
+  if (includeStatus) {
+    payload.status = form.status;
+  }
+
+  if (form.type === 'fill_blank') {
+    payload.answer = buildBlankAnswer(blankAnswers.value, payload.defaultScore);
+  } else if (!isChoice.value && answerReference.value.trim()) {
+    payload.answer = { reference: answerReference.value.trim() };
+  }
+
+  return payload;
+}
+
+async function saveQuestion(shouldPublish) {
+  saving.value = true;
+  try {
+    const payload = await buildQuestionPayload();
+    const result = isEditing.value
+      ? await api(`/questions/${editingId.value}`, { method: 'PATCH', body: payload })
+      : await api('/questions', { method: 'POST', body: payload });
+
+    const id = editingId.value || result.id;
+    if (shouldPublish) {
+      await api(`/questions/${id}/publish`, { method: 'POST' });
+    }
+
+    ElMessage.success(shouldPublish ? '已保存并发布' : isEditing.value ? '已保存修改' : '已创建');
+    editorVisible.value = false;
+    resetForm();
+    await refreshAll();
+  } catch (error) {
+    ElMessage.error(error.message);
+  } finally {
+    saving.value = false;
+  }
+}
+
+async function editQuestion(row) {
+  let detail;
+  try {
+    detail = await api(`/questions/${row.id}`);
+  } catch (error) {
+    ElMessage.error(error.message);
+    return;
+  }
+  editMode.value = true;
+  editorVisible.value = true;
+  editingId.value = detail.id;
+  entryMode.value = 'single';
+  Object.assign(form, {
+    courseId: detail.courseId,
+    type: detail.type,
+    status: detail.status,
+    title: detail.title,
+    knowledgePointIds: (detail.knowledgePoints ?? []).map((point) => point.id),
+    tagNames: (detail.tags ?? []).map((tag) => tag.name),
+    content: detail.content,
+    difficulty: detail.difficulty,
+    defaultScore: Number(detail.defaultScore),
+    analysis: detail.analysis ?? '',
+    options: (detail.options ?? []).map((option, index) => ({
+      optionKey: option.optionKey || optionKeyForIndex(index),
+      content: option.content,
+      isCorrect: option.isCorrect,
+      sortOrder: option.sortOrder ?? index + 1,
+    })),
+  });
+  await loadFormKnowledgeTree();
+  if (isChoice.value && !form.options.length) resetOptions();
+
+  const answerJson = detail.answer?.answerJson ?? {};
+  blankAnswers.value = answerJson.blanks?.[0]?.answers?.join(', ') ?? '';
+  answerReference.value = answerJson.reference ?? '';
+}
+
+async function copyQuestion() {
+  if (!isEditing.value) {
+    ElMessage.warning('请先选择一道题目');
+    return;
+  }
+
+  saving.value = true;
+  try {
+    const payload = await buildQuestionPayload({ includeStatus: false });
+    payload.title = `${payload.title}（副本）`;
+    const created = await api('/questions', { method: 'POST', body: payload });
+    ElMessage.success('已复制为草稿题目');
+    await refreshAll();
+    await editQuestion({ id: created.id });
+  } catch (error) {
+    ElMessage.error(error.message);
+  } finally {
+    saving.value = false;
+  }
+}
+
+function handleQuestionRowClick(row) {
+  if (editMode.value) {
+    editQuestion(row);
+    return;
+  }
+
+  openPracticeQuestion(row);
+}
+
+function handleSelectionChange(rows) {
+  selectedQuestionRows.value = rows;
+}
+
+function openRelatedExams(row) {
+  const examId = row.occupationExams?.[0]?.id;
+  router.push(examId ? `/exams?focusExamId=${examId}` : '/exams');
+}
+
+function onEditModeChange(value) {
+  if (!value) {
+    closeEditor();
+    ElMessage.info('已退出编辑模式，点击题目将进入答题');
+    return;
+  }
+
+  ElMessage.warning('已进入编辑模式，点击题目将打开编辑/复制窗口');
+}
+
+async function bulkDeleteQuestions() {
+  if (!selectedQuestionIds.value.length) {
+    ElMessage.warning('请选择需要删除的题目');
+    return;
+  }
+
+  try {
+    await ElMessageBox.confirm(
+      `风险操作提示：将批量归档 ${selectedQuestionIds.value.length} 道题目，题库列表将不再显示；已生成试卷快照不会自动同步。`,
+      '批量删除题目',
+      {
+        type: 'warning',
+        confirmButtonText: '批量删除',
+        cancelButtonText: '取消',
+      },
+    );
+    const result = await api('/questions/batch/delete', {
+      method: 'POST',
+      body: { ids: selectedQuestionIds.value },
+    });
+    const failedText = result.failed?.length ? `，${result.failed.length} 道失败` : '';
+    ElMessage.success(`已删除 ${result.successCount} 道题${failedText}`);
+    selectedQuestionRows.value = [];
+    await refreshAll();
+  } catch (error) {
+    if (error !== 'cancel') {
+      ElMessage.error(error.message);
+    }
+  }
+}
+
+async function bulkUpdateQuestionStatus() {
+  if (!selectedQuestionIds.value.length || !bulkQuestionStatus.value) {
+    ElMessage.warning('请选择题目和目标状态');
+    return;
+  }
+
+  try {
+    await ElMessageBox.confirm(
+      `风险操作提示：将批量把 ${selectedQuestionIds.value.length} 道题设置为“${statusLabel(bulkQuestionStatus.value)}”，会影响题库可见性和后续组卷。`,
+      '批量设置题目状态',
+      {
+        type: 'warning',
+        confirmButtonText: '批量设置',
+        cancelButtonText: '取消',
+      },
+    );
+    const result = await api('/questions/batch/status', {
+      method: 'PATCH',
+      body: { ids: selectedQuestionIds.value, status: bulkQuestionStatus.value },
+    });
+    const failedText = result.failed?.length ? `，${result.failed.length} 道失败` : '';
+    ElMessage.success(`已设置 ${result.successCount} 道题为${statusLabel(result.status)}${failedText}`);
+    selectedQuestionRows.value = [];
+    await refreshAll();
+  } catch (error) {
+    if (error !== 'cancel') {
+      ElMessage.error(error.message);
+    }
+  }
+}
+
+function openQuestionExportDialog(questionIds) {
+  const ids = [...questionIds];
+  if (!ids.length) {
+    ElMessage.warning('请先选择需要导出的题目');
+    return;
+  }
+
+  pendingExportQuestionIds.value = ids;
+  questionExportVisible.value = true;
+}
+
+async function exportSelectedQuestions() {
+  if (!selectedQuestionIds.value.length) {
+    ElMessage.warning('请先选择需要导出的题目');
+    return;
+  }
+
+  openQuestionExportDialog(selectedQuestionIds.value);
+}
+
+async function exportQuestion(row) {
+  openQuestionExportDialog([row.id]);
+}
+
+function handleQuestionCommand(row, command) {
+  const actions = {
+    edit: () => editQuestion(row),
+    publish: () => changeStatus(row, 'published'),
+    unpublish: () => changeStatus(row, 'draft'),
+    hide: () => changeStatus(row, 'disabled'),
+    show: () => changeStatus(row, 'draft'),
+    download: () => exportQuestion(row),
+    delete: () => removeQuestion(row),
+  };
+  return actions[command]?.();
+}
+
+async function exportQuestions(questionIds) {
+  try {
+    const task = await api('/exports', {
+      method: 'POST',
+      body: {
+        type: 'question_bank',
+        format: questionExportOptions.format,
+        questionIds,
+        includeAnswers: questionExportOptions.includeAnswers,
+        includeAnalysis: questionExportOptions.includeAnalysis,
+      },
+    });
+    ElMessage.success('题目导出已生成');
+    if (task.fileUrl) window.open(task.fileUrl, '_blank');
+  } catch (error) {
+    ElMessage.error(error.message || '题目导出失败');
+  }
+}
+
+async function confirmQuestionExport() {
+  await exportQuestions(pendingExportQuestionIds.value);
+  questionExportVisible.value = false;
+}
+
+function closeEditor() {
+  editorVisible.value = false;
+  resetForm();
+}
+
+async function openPracticeQuestion(row) {
+  try {
+    practiceDetail.value = await api(`/questions/${row.id}`);
+    clearPracticeAnswer();
+    practiceVisible.value = true;
+  } catch (error) {
+    ElMessage.error(error.message);
+  }
+}
+
+function editQuestionFromPractice() {
+  const detail = practiceDetail.value;
+  practiceVisible.value = false;
+  if (detail) {
+    editMode.value = true;
+    editQuestion(detail);
+  }
+}
+
+async function checkPracticeAnswer() {
+  if (!practiceDetail.value) return;
+  try {
+    practiceResult.value = await api(`/questions/${practiceDetail.value.id}/check-answer`, {
+      method: 'POST',
+      body: payloadForPracticeAnswer(),
+    });
+  } catch (error) {
+    ElMessage.error(error.message);
+  }
+}
+
+function emptyPracticeAnswer() {
+  return {
+    selectedOptionIds: [],
+    blanks: [{ index: 1, value: '' }],
+    text: '',
+  };
+}
+
+function clearPracticeAnswer() {
+  Object.assign(practiceAnswer, emptyPracticeAnswer());
+  practiceResult.value = null;
+}
+
+function payloadForPracticeAnswer() {
+  if (practiceAnswer.selectedOptionIds.filter(Boolean).length) {
+    return { selectedOptionIds: practiceAnswer.selectedOptionIds.filter(Boolean) };
+  }
+  if (practiceAnswer.blanks.some((blank) => String(blank.value ?? '').trim())) {
+    return { blanks: practiceAnswer.blanks };
+  }
+  if (String(practiceAnswer.text ?? '').trim()) {
+    return { text: practiceAnswer.text };
+  }
+  return {};
+}
+
+function resetForm() {
+  editingId.value = '';
+  Object.assign(form, baseForm(), { courseId: courses.value[0]?.id ?? '' });
+  blankAnswers.value = 'print';
+  answerReference.value = '';
+  loadFormKnowledgeTree();
+}
+
+async function changeStatus(row, status) {
+  try {
+    if (editMode.value) {
+      await ElMessageBox.confirm(
+        `风险操作提示：将“${row.title}”设置为${statusLabel(status)}会影响题库可见性和后续组卷，已生成试卷快照不会自动同步。`,
+        '确认状态变更',
+        {
+          type: 'warning',
+          confirmButtonText: `设置为${statusLabel(status)}`,
+          cancelButtonText: '取消',
+        },
+      );
+    }
+    if (status === 'published') {
+      await api(`/questions/${row.id}/publish`, { method: 'POST' });
+    } else {
+      await api(`/questions/${row.id}`, { method: 'PATCH', body: { status } });
+    }
+    ElMessage.success(`已设置为${statusLabel(status)}`);
+    await load();
+  } catch (error) {
+    if (error !== 'cancel') {
+      ElMessage.error(error.message);
+    }
+  }
+}
+
+async function removeQuestion(row) {
+  try {
+    await ElMessageBox.confirm(`确认删除题目“${row.title}”？删除后会归档并从列表隐藏。`, '删除题目', {
+      type: 'warning',
+      confirmButtonText: '删除',
+      cancelButtonText: '取消',
+    });
+    await api(`/questions/${row.id}`, { method: 'DELETE' });
+    ElMessage.success('已删除');
+    if (editingId.value === row.id) resetForm();
+    await load();
+  } catch (error) {
+    if (error !== 'cancel') {
+      ElMessage.error(error.message ?? '已取消');
+    }
+  }
+}
+
+async function resolveTagIds(tagNames = []) {
+  const names = [...new Set(tagNames.map((name) => String(name).trim()).filter(Boolean))];
+  const ids = [];
+
+  for (const [index, name] of names.entries()) {
+    const existing = tags.value.find((tag) => tag.name === name);
+    if (existing) {
+      ids.push(existing.id);
+      continue;
+    }
+
+    const created = await api('/tags', {
+      method: 'POST',
+      body: {
+        name,
+        code: makeTagCode(name, index),
+        type: 'QUESTION',
+      },
+    });
+    ids.push(created.id);
+    tags.value.unshift(created);
+  }
+
+  return ids;
+}
+
+function makeTagCode(name, index) {
+  const ascii = name.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 24);
+  return `q_${ascii || 'tag'}_${Date.now()}_${index}`;
+}
+
+function isChoiceType(type) {
+  return ['single_choice', 'multiple_choice', 'true_false'].includes(type);
+}
+
+function normalizeType(value) {
+  const key = String(value || '').trim().toLowerCase();
+  const map = {
+    单选: 'single_choice',
+    单选题: 'single_choice',
+    single: 'single_choice',
+    single_choice: 'single_choice',
+    多选: 'multiple_choice',
+    多选题: 'multiple_choice',
+    multiple: 'multiple_choice',
+    multiple_choice: 'multiple_choice',
+    判断: 'true_false',
+    判断题: 'true_false',
+    true_false: 'true_false',
+    填空: 'fill_blank',
+    填空题: 'fill_blank',
+    fill_blank: 'fill_blank',
+    简答: 'short_answer',
+    简答题: 'short_answer',
+    short_answer: 'short_answer',
+    编程: 'programming',
+    编程题: 'programming',
+    programming: 'programming',
+    材料: 'material',
+    材料题: 'material',
+    material: 'material',
+    文件上传: 'file_upload',
+    文件上传题: 'file_upload',
+    file_upload: 'file_upload',
+    scratch: 'scratch_project',
+    scratch_project: 'scratch_project',
+    arduino: 'arduino_project',
+    arduino_project: 'arduino_project',
+  };
+  return map[key] ?? key;
+}
+
+function typeLabel(value) {
+  return typeOptions.find((item) => item.value === value)?.label ?? value ?? '';
+}
+
+function statusLabel(value) {
+  return statusOptions.find((item) => item.value === value)?.label ?? value ?? '';
+}
+
+function statusTagType(value) {
+  const map = {
+    draft: 'info',
+    pending_review: 'warning',
+    published: 'success',
+    disabled: 'danger',
+  };
+  return map[value] ?? 'info';
+}
+
+function formatDateTime(value) {
+  if (!value) return '-';
+  return new Date(value).toLocaleString('zh-CN', { hour12: false });
+}
+
+function convertKnowledgeTree(items) {
+  return items.map((item) => ({
+    label: `${item.sortOrder ? `${item.sortOrder}. ` : ''}${item.name}`,
+    value: item.id,
+    children: convertKnowledgeTree(item.children ?? []),
+  }));
+}
+
+function buildBlankAnswer(value, score) {
+  return {
+    blanks: [
+      {
+        index: 1,
+        answers: String(value || '').split(/[,，|]/).map((item) => item.trim()).filter(Boolean),
+        ignoreCase: true,
+        trimSpace: true,
+        score,
+      },
+    ],
+  };
+}
+
+onMounted(async () => {
+  await Promise.all([loadCourses(), loadTags()]);
+  await load();
+});
+</script>
