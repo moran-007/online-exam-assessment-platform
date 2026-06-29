@@ -3,6 +3,7 @@
     <div class="page-head">
       <h1 class="page-title">导出中心</h1>
       <div class="toolbar">
+        <el-button :icon="Delete" @click="cleanupExpired">清理过期</el-button>
         <el-button :icon="Refresh" @click="loadAll">刷新</el-button>
       </div>
     </div>
@@ -58,8 +59,10 @@
                     <template #dropdown>
                       <el-dropdown-menu>
                         <el-dropdown-item command="student-pdf">PDF 学生版</el-dropdown-item>
-                        <el-dropdown-item command="answer-pdf">PDF 答案解析</el-dropdown-item>
-                        <el-dropdown-item command="answer-docx">Word 答案解析</el-dropdown-item>
+                        <el-dropdown-item command="teacher-pdf">PDF 教师讲义</el-dropdown-item>
+                        <el-dropdown-item command="answer-book-pdf">PDF 答案册</el-dropdown-item>
+                        <el-dropdown-item command="teacher-docx">Word 教师讲义</el-dropdown-item>
+                        <el-dropdown-item command="answer-book-docx">Word 答案册</el-dropdown-item>
                         <el-dropdown-item command="transfer-csv">CSV 迁移表</el-dropdown-item>
                         <el-dropdown-item command="transfer-json">JSON 迁移表</el-dropdown-item>
                         <el-dropdown-item command="transfer-zip">ZIP 迁移包</el-dropdown-item>
@@ -133,8 +136,9 @@
                       <el-dropdown-menu>
                         <el-dropdown-item command="results-csv">成绩 CSV</el-dropdown-item>
                         <el-dropdown-item command="grading-csv">批改记录 CSV</el-dropdown-item>
-                        <el-dropdown-item command="paper-pdf">试卷 PDF</el-dropdown-item>
-                        <el-dropdown-item command="paper-answer-pdf">试卷答案 PDF</el-dropdown-item>
+                        <el-dropdown-item command="paper-pdf">试卷 PDF 学生版</el-dropdown-item>
+                        <el-dropdown-item command="paper-teacher-pdf">试卷 PDF 教师讲义</el-dropdown-item>
+                        <el-dropdown-item command="paper-answer-book-pdf">试卷 PDF 答案册</el-dropdown-item>
                         <el-dropdown-item command="paper-transfer-csv">试卷 CSV 迁移表</el-dropdown-item>
                         <el-dropdown-item command="paper-transfer-json">试卷 JSON 迁移表</el-dropdown-item>
                         <el-dropdown-item command="paper-transfer-zip">试卷 ZIP 迁移包</el-dropdown-item>
@@ -176,6 +180,13 @@
               </el-tag>
             </template>
           </el-table-column>
+          <el-table-column prop="progress" label="进度" width="150">
+            <template #default="{ row }">
+              <el-progress :percentage="Number(row.progress || 0)" :stroke-width="8" :show-text="false" />
+              <span class="mini-muted">{{ Number(row.progress || 0) }}%</span>
+            </template>
+          </el-table-column>
+          <el-table-column v-if="showMediumColumns" prop="retryCount" label="重试" width="76" />
           <el-table-column v-if="showMediumColumns" prop="createdAt" label="创建时间" width="180">
             <template #default="{ row }">{{ formatDate(row.createdAt) }}</template>
           </el-table-column>
@@ -185,7 +196,12 @@
           <el-table-column v-if="showMediumColumns" prop="errorMessage" label="说明" min-width="180" show-overflow-tooltip />
           <el-table-column label="操作" width="110">
             <template #default="{ row }">
-              <el-button size="small" :disabled="row.status !== 'success'" @click="downloadTask(row)">下载</el-button>
+              <div class="toolbar tiny-actions">
+                <el-button size="small" :disabled="row.status !== 'success'" @click="downloadTask(row)">下载</el-button>
+                <el-button v-if="['failed', 'expired'].includes(row.status)" size="small" type="warning" plain @click="retryTask(row)">
+                  重试
+                </el-button>
+              </div>
             </template>
           </el-table-column>
         </el-table>
@@ -209,9 +225,9 @@
 </template>
 
 <script setup>
-import { onMounted, reactive, ref } from 'vue';
+import { onBeforeUnmount, onMounted, reactive, ref } from 'vue';
 import { ElMessage } from 'element-plus';
-import { Download, Refresh, Search } from '@element-plus/icons-vue';
+import { Delete, Download, Refresh, Search } from '@element-plus/icons-vue';
 import { api, buildQuery } from '../api';
 import { useResponsiveColumns } from '../composables/useResponsiveColumns';
 
@@ -238,6 +254,7 @@ const paperFilter = reactive({ keyword: '', courseId: '', status: '', sortBy: 'c
 const examFilter = reactive({ keyword: '', courseId: '', classId: '', status: '', sortBy: 'startTime', sortOrder: 'desc' });
 const taskFilter = reactive({ type: '' });
 const taskPagination = reactive({ page: 1, pageSize: 20, total: 0 });
+let taskPollTimer = null;
 
 async function loadBase() {
   const [coursePage, classPage] = await Promise.all([
@@ -289,6 +306,7 @@ async function loadTasks() {
   taskPagination.page = data.page;
   taskPagination.pageSize = data.pageSize;
   taskPagination.total = data.total;
+  scheduleTaskPolling();
 }
 
 async function loadAll() {
@@ -297,9 +315,11 @@ async function loadAll() {
 
 async function exportPaper(row, command) {
   const configs = {
-    'student-pdf': { format: 'pdf', includeAnswers: false, includeAnalysis: false },
-    'answer-pdf': { format: 'pdf', includeAnswers: true, includeAnalysis: true },
-    'answer-docx': { format: 'docx', includeAnswers: true, includeAnalysis: true },
+    'student-pdf': { format: 'pdf', template: 'student', includeAnswers: false, includeAnalysis: false },
+    'teacher-pdf': { format: 'pdf', template: 'teacher', includeAnswers: true, includeAnalysis: true },
+    'answer-book-pdf': { format: 'pdf', template: 'answer_book', includeAnswers: true, includeAnalysis: true },
+    'teacher-docx': { format: 'docx', template: 'teacher', includeAnswers: true, includeAnalysis: true },
+    'answer-book-docx': { format: 'docx', template: 'answer_book', includeAnswers: true, includeAnalysis: true },
     'transfer-csv': { format: 'csv', includeAnswers: true, includeAnalysis: true },
     'transfer-json': { format: 'json', includeAnswers: true, includeAnalysis: true },
     'transfer-zip': { format: 'zip', includeAnswers: true, includeAnalysis: true },
@@ -317,8 +337,9 @@ async function exportExam(row, command) {
   const configs = {
     'results-csv': { type: 'exam_results', format: 'csv', examId: row.id },
     'grading-csv': { type: 'grading', format: 'csv', examId: row.id },
-    'paper-pdf': { type: 'paper_document', format: 'pdf', paperId: row.paperId, includeAnswers: false, includeAnalysis: false },
-    'paper-answer-pdf': { type: 'paper_document', format: 'pdf', paperId: row.paperId, includeAnswers: true, includeAnalysis: true },
+    'paper-pdf': { type: 'paper_document', format: 'pdf', template: 'student', paperId: row.paperId, includeAnswers: false, includeAnalysis: false },
+    'paper-teacher-pdf': { type: 'paper_document', format: 'pdf', template: 'teacher', paperId: row.paperId, includeAnswers: true, includeAnalysis: true },
+    'paper-answer-book-pdf': { type: 'paper_document', format: 'pdf', template: 'answer_book', paperId: row.paperId, includeAnswers: true, includeAnalysis: true },
     'paper-transfer-csv': { type: 'paper_document', format: 'csv', paperId: row.paperId, includeAnswers: true, includeAnalysis: true },
     'paper-transfer-json': { type: 'paper_document', format: 'json', paperId: row.paperId, includeAnswers: true, includeAnalysis: true },
     'paper-transfer-zip': { type: 'paper_document', format: 'zip', paperId: row.paperId, includeAnswers: true, includeAnalysis: true },
@@ -338,8 +359,7 @@ async function directExport(payload) {
   try {
     const body = Object.fromEntries(Object.entries(payload).filter(([, value]) => value !== undefined && value !== null && value !== ''));
     const task = await api('/exports', { method: 'POST', body });
-    ElMessage.success('导出已生成，正在打开文件');
-    if (task.fileUrl) window.open(task.fileUrl, '_blank');
+    ElMessage.success('导出任务已加入队列，可在导出记录查看进度');
     taskPagination.page = 1;
     await loadTasks();
   } catch (error) {
@@ -347,6 +367,29 @@ async function directExport(payload) {
   } finally {
     exporting.value = false;
   }
+}
+
+async function retryTask(row) {
+  await api(`/exports/${row.id}/retry`, { method: 'POST' });
+  ElMessage.success('已重新加入导出队列');
+  await loadTasks();
+}
+
+async function cleanupExpired() {
+  const result = await api('/exports/maintenance/cleanup-expired', { method: 'POST' });
+  ElMessage.success(`已清理 ${result.cleaned || 0} 个过期导出任务`);
+  await loadTasks();
+}
+
+function scheduleTaskPolling() {
+  if (taskPollTimer) {
+    clearTimeout(taskPollTimer);
+    taskPollTimer = null;
+  }
+  if (!tasks.value.some((task) => ['pending', 'processing'].includes(task.status))) return;
+  taskPollTimer = setTimeout(() => {
+    loadTasks();
+  }, 1500);
 }
 
 async function downloadTask(row) {
@@ -401,6 +444,9 @@ function formatDate(value) {
 }
 
 onMounted(loadAll);
+onBeforeUnmount(() => {
+  if (taskPollTimer) clearTimeout(taskPollTimer);
+});
 </script>
 
 <style scoped>
@@ -433,5 +479,14 @@ onMounted(loadAll);
 
 .section-head h3 {
   margin: 0 0 4px;
+}
+
+.tiny-actions {
+  gap: 6px;
+}
+
+.mini-muted {
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
 }
 </style>

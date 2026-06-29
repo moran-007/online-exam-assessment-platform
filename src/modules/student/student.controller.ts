@@ -8,6 +8,7 @@ import {
   BatchWrongQuestionDto,
   GenerateWrongQuestionPaperDto,
   QueryStudentExamDto,
+  RecordWrongQuestionPracticeDto,
   SaveAnswerDto,
   SaveAnswersDto,
   SimulateSaveAnswersDto,
@@ -80,6 +81,16 @@ export class StudentController {
     return this.studentService.wrongQuestions(user);
   }
 
+  @Get('wrong-questions/insights')
+  wrongQuestionInsights(@CurrentUser() user: RequestUser) {
+    return this.studentService.wrongQuestionInsights(user);
+  }
+
+  @Get('wrong-questions/:questionId/events')
+  wrongQuestionEvents(@Param('questionId') questionId: string, @CurrentUser() user: RequestUser) {
+    return this.studentService.wrongQuestionEvents(user, questionId);
+  }
+
   @Post('wrong-questions')
   addWrongQuestion(@Body() dto: AddWrongQuestionDto, @CurrentUser() user: RequestUser) {
     return this.studentService.addWrongQuestion(user, dto);
@@ -97,6 +108,15 @@ export class StudentController {
     @CurrentUser() user: RequestUser,
   ) {
     return this.studentService.updateWrongQuestionStatus(user, questionId, dto);
+  }
+
+  @Post('wrong-questions/:questionId/practice-result')
+  recordWrongQuestionPractice(
+    @Param('questionId') questionId: string,
+    @Body() dto: RecordWrongQuestionPracticeDto,
+    @CurrentUser() user: RequestUser,
+  ) {
+    return this.studentService.recordWrongQuestionPractice(user, questionId, dto);
   }
 
   @Post('wrong-questions/paper')

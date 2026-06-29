@@ -186,6 +186,7 @@ model User {
   teachingClasses       ClassTeacher[]         @relation("ClassTeacherUser")
   examAnnouncements     ExamAnnouncement[]     @relation("ExamAnnouncementCreator")
   examAnnouncementReads ExamAnnouncementRead[]
+  wrongQuestionEvents   WrongQuestionEvent[]
 
   @@index([userType])
   @@index([status])
@@ -441,6 +442,7 @@ model Question {
   paperQuestions   PaperQuestion[]
   answerRecords    AnswerRecord[]
   wrongQuestions   WrongQuestion[]
+  wrongQuestionEvents WrongQuestionEvent[]
   programmingRef   ProgrammingProblemRef?
   judgeSubmissions JudgeSubmission[]
 
@@ -771,7 +773,8 @@ model WrongQuestion {
   createdAt         DateTime                @default(now()) @map("created_at")
   updatedAt         DateTime                @updatedAt @map("updated_at")
 
-  question Question @relation(fields: [questionId], references: [id])
+  question Question             @relation(fields: [questionId], references: [id])
+  events   WrongQuestionEvent[]
 
   @@unique([studentId, questionId])
   @@index([studentId])
@@ -779,6 +782,33 @@ model WrongQuestion {
   @@index([sourceType])
   @@index([masteryStatus])
   @@map("wrong_questions")
+}
+
+model WrongQuestionEvent {
+  id              String                  @id @default(uuid()) @db.Uuid
+  wrongQuestionId String?                 @map("wrong_question_id") @db.Uuid
+  studentId       String                  @map("student_id") @db.Uuid
+  questionId      String                  @map("question_id") @db.Uuid
+  sourceType      WrongQuestionSourceType @map("source_type")
+  sourceId        String?                 @map("source_id") @db.Uuid
+  eventType       String                  @map("event_type") @db.VarChar(32)
+  isCorrect       Boolean?                @map("is_correct")
+  score           Decimal?                @db.Decimal(8, 2)
+  masteryStatus   MasteryStatus?          @map("mastery_status")
+  eventJson       Json?                   @map("event_json")
+  happenedAt      DateTime                @default(now()) @map("happened_at")
+  createdAt       DateTime                @default(now()) @map("created_at")
+
+  wrongQuestion WrongQuestion? @relation(fields: [wrongQuestionId], references: [id])
+  student       User           @relation(fields: [studentId], references: [id])
+  question      Question       @relation(fields: [questionId], references: [id])
+
+  @@index([wrongQuestionId])
+  @@index([studentId, happenedAt])
+  @@index([questionId, happenedAt])
+  @@index([sourceType])
+  @@index([eventType])
+  @@map("wrong_question_events")
 }
 
 model PracticeSession {
@@ -947,16 +977,22 @@ model ExportTask {
   type         String       @db.VarChar(64)
   paramsJson   Json         @map("params_json")
   status       ExportStatus @default(PENDING)
+  progress     Int          @default(0)
+  retryCount   Int          @default(0) @map("retry_count")
+  maxRetries   Int          @default(2) @map("max_retries")
   fileUrl      String?      @map("file_url") @db.Text
   errorMessage String?      @map("error_message") @db.Text
   createdBy    String?      @map("created_by") @db.Uuid
   createdAt    DateTime     @default(now()) @map("created_at")
+  updatedAt    DateTime     @updatedAt @map("updated_at")
   finishedAt   DateTime?    @map("finished_at")
+  expiresAt    DateTime?    @map("expires_at")
 
   @@index([type])
   @@index([status])
   @@index([createdBy])
   @@index([createdAt])
+  @@index([expiresAt])
   @@map("export_tasks")
 }
 

@@ -29,6 +29,7 @@ import {
   BatchWrongQuestionDto,
   GenerateWrongQuestionPaperDto,
   QueryStudentExamDto,
+  RecordWrongQuestionPracticeDto,
   SaveAnswerDto,
   SaveAnswersDto,
   UpdateWrongQuestionStatusDto,
@@ -633,7 +634,7 @@ export class StudentService {
         });
 
         if (grading.isCorrect === false) {
-          await tx.wrongQuestion.upsert({
+          const wrongItem = await tx.wrongQuestion.upsert({
             where: {
               studentId_questionId: {
                 studentId: user.id,
@@ -656,6 +657,24 @@ export class StudentService {
               wrongAnswerJson: answerJson as Prisma.InputJsonObject,
               correctAnswerJson: (paperQuestion.snapshot.answer ?? {}) as Prisma.InputJsonObject,
               score: grading.score,
+            },
+          });
+          await tx.wrongQuestionEvent.create({
+            data: {
+              wrongQuestionId: wrongItem.id,
+              studentId: user.id,
+              questionId: paperQuestion.questionId,
+              sourceType: WrongQuestionSourceType.EXAM,
+              sourceId: attempt.examId,
+              eventType: 'exam_wrong',
+              isCorrect: false,
+              score: grading.score,
+              masteryStatus: MasteryStatus.UNMASTERED,
+              eventJson: {
+                attemptId,
+                selectedAnswer: answerJson,
+                correctAnswer: paperQuestion.snapshot.answer ?? {},
+              } as Prisma.InputJsonObject,
             },
           });
         }
@@ -772,6 +791,10 @@ export class StudentService {
         question: { deletedAt: null },
       },
       include: {
+        events: {
+          orderBy: { happenedAt: 'desc' },
+          take: 5,
+        },
         question: {
           select: {
             id: true,
@@ -804,6 +827,16 @@ export class StudentService {
       score: Number(item.score),
       masteryStatus: toApiEnum(item.masteryStatus),
       sourceType: toApiEnum(item.sourceType),
+      nextReviewAt: this.nextReviewAt(item.lastWrongAt, item.wrongCount, item.masteryStatus),
+      recentEvents: item.events.map((event) => ({
+        id: event.id,
+        sourceType: toApiEnum(event.sourceType),
+        eventType: event.eventType,
+        isCorrect: event.isCorrect,
+        score: event.score === null ? null : Number(event.score),
+        masteryStatus: event.masteryStatus ? toApiEnum(event.masteryStatus) : null,
+        happenedAt: event.happenedAt,
+      })),
       question: {
         ...item.question,
         type: toApiEnum(item.question.type),
@@ -863,6 +896,20 @@ export class StudentService {
         score: 0,
         wrongCount: 0,
         masteryStatus: MasteryStatus.REVIEWING,
+      },
+    });
+    await this.prisma.wrongQuestionEvent.create({
+      data: {
+        wrongQuestionId: item.id,
+        studentId: user.id,
+        questionId: dto.questionId,
+        sourceType: WrongQuestionSourceType.MANUAL,
+        sourceId: dto.questionId,
+        eventType: 'manual_add',
+        isCorrect: null,
+        score: 0,
+        masteryStatus: MasteryStatus.REVIEWING,
+        eventJson: {} as Prisma.InputJsonObject,
       },
     });
 
@@ -933,9 +980,26 @@ export class StudentService {
       throw new NotFoundException('错题不存在');
     }
 
-    await this.prisma.wrongQuestion.update({
+    const updated = await this.prisma.wrongQuestion.update({
       where: { id: item.id },
       data: { masteryStatus },
+    });
+    await this.prisma.wrongQuestionEvent.create({
+      data: {
+        wrongQuestionId: item.id,
+        studentId: user.id,
+        questionId,
+        sourceType: item.sourceType,
+        sourceId: item.sourceId,
+        eventType: 'status_change',
+        isCorrect: masteryStatus === MasteryStatus.MASTERED ? true : null,
+        score: updated.score,
+        masteryStatus,
+        eventJson: {
+          from: toApiEnum(item.masteryStatus),
+          to: toApiEnum(masteryStatus),
+        } as Prisma.InputJsonObject,
+      },
     });
 
     await this.audit.log({
@@ -948,6 +1012,156 @@ export class StudentService {
     });
 
     return true;
+  }
+
+  async recordWrongQuestionPractice(user: RequestUser, questionId: string, dto: RecordWrongQuestionPracticeDto) {
+    this.ensureStudent(user);
+    const item = await this.prisma.wrongQuestion.findUnique({
+      where: {
+        studentId_questionId: {
+          studentId: user.id,
+          questionId,
+        },
+      },
+      include: { question: { include: { answer: true } } },
+    });
+    if (!item) throw new NotFoundException('错题不存在');
+
+    const masteryStatus = dto.isCorrect ? MasteryStatus.MASTERED : MasteryStatus.UNMASTERED;
+    const updated = await this.prisma.wrongQuestion.update({
+      where: { id: item.id },
+      data: dto.isCorrect
+        ? { masteryStatus }
+        : {
+            sourceType: WrongQuestionSourceType.PRACTICE,
+            sourceId: questionId,
+            wrongAnswerJson: (dto.answer ?? {}) as Prisma.InputJsonObject,
+            correctAnswerJson: (item.question.answer?.answerJson ?? item.correctAnswerJson ?? {}) as Prisma.InputJsonObject,
+            score: dto.score ?? 0,
+            masteryStatus,
+            wrongCount: { increment: 1 },
+            lastWrongAt: new Date(),
+          },
+    });
+
+    await this.prisma.wrongQuestionEvent.create({
+      data: {
+        wrongQuestionId: item.id,
+        studentId: user.id,
+        questionId,
+        sourceType: WrongQuestionSourceType.PRACTICE,
+        sourceId: questionId,
+        eventType: dto.isCorrect ? 'practice_correct' : 'practice_wrong',
+        isCorrect: dto.isCorrect,
+        score: dto.score ?? 0,
+        masteryStatus,
+        eventJson: {
+          answer: dto.answer ?? {},
+          totalScore: dto.totalScore ?? null,
+        } as Prisma.InputJsonObject,
+      },
+    });
+
+    return {
+      mastered: dto.isCorrect,
+      masteryStatus: toApiEnum(updated.masteryStatus),
+      wrongCount: updated.wrongCount,
+      nextReviewAt: this.nextReviewAt(updated.lastWrongAt, updated.wrongCount, updated.masteryStatus),
+    };
+  }
+
+  async wrongQuestionEvents(user: RequestUser, questionId: string) {
+    this.ensureStudent(user);
+    const exists = await this.prisma.wrongQuestion.findUnique({
+      where: { studentId_questionId: { studentId: user.id, questionId } },
+      select: { id: true },
+    });
+    if (!exists) throw new NotFoundException('错题不存在');
+
+    const events = await this.prisma.wrongQuestionEvent.findMany({
+      where: { studentId: user.id, questionId },
+      orderBy: { happenedAt: 'desc' },
+      take: 100,
+    });
+    return events.map((event) => ({
+      id: event.id,
+      sourceType: toApiEnum(event.sourceType),
+      sourceId: event.sourceId,
+      eventType: event.eventType,
+      isCorrect: event.isCorrect,
+      score: event.score === null ? null : Number(event.score),
+      masteryStatus: event.masteryStatus ? toApiEnum(event.masteryStatus) : null,
+      happenedAt: event.happenedAt,
+      eventJson: event.eventJson,
+    }));
+  }
+
+  async wrongQuestionInsights(user: RequestUser) {
+    this.ensureStudent(user);
+    const [items, events] = await this.prisma.$transaction([
+      this.prisma.wrongQuestion.findMany({
+        where: { studentId: user.id, question: { deletedAt: null } },
+        include: { question: { select: { id: true, title: true, course: { select: { name: true } } } } },
+        orderBy: { lastWrongAt: 'desc' },
+      }),
+      this.prisma.wrongQuestionEvent.findMany({
+        where: { studentId: user.id },
+        include: { question: { select: { id: true, title: true } } },
+        orderBy: { happenedAt: 'asc' },
+        take: 500,
+      }),
+    ]);
+
+    const sourceSummary = new Map<string, number>();
+    for (const item of items) {
+      const key = toApiEnum(item.sourceType);
+      sourceSummary.set(key, (sourceSummary.get(key) ?? 0) + 1);
+    }
+
+    const curve = new Map<string, { date: string; wrong: number; mastered: number; manual: number }>();
+    for (const event of events) {
+      const date = event.happenedAt.toISOString().slice(0, 10);
+      const current = curve.get(date) ?? { date, wrong: 0, mastered: 0, manual: 0 };
+      if (['exam_wrong', 'practice_wrong'].includes(event.eventType)) current.wrong += 1;
+      if (event.eventType === 'manual_add') current.manual += 1;
+      if (event.eventType === 'practice_correct' || event.masteryStatus === MasteryStatus.MASTERED) current.mastered += 1;
+      curve.set(date, current);
+    }
+
+    const reminders = items
+      .filter((item) => item.masteryStatus === MasteryStatus.UNMASTERED || item.masteryStatus === MasteryStatus.REVIEWING)
+      .map((item) => {
+        const nextReviewAt = this.nextReviewAt(item.lastWrongAt, item.wrongCount, item.masteryStatus);
+        return {
+          questionId: item.questionId,
+          title: item.question.title,
+          courseName: item.question.course.name,
+          sourceType: toApiEnum(item.sourceType),
+          wrongCount: item.wrongCount,
+          masteryStatus: toApiEnum(item.masteryStatus),
+          lastWrongAt: item.lastWrongAt,
+          nextReviewAt,
+          overdue: nextReviewAt <= new Date(),
+        };
+      })
+      .sort((a, b) => a.nextReviewAt.getTime() - b.nextReviewAt.getTime())
+      .slice(0, 12);
+
+    return {
+      sourceSummary: [...sourceSummary.entries()].map(([sourceType, count]) => ({ sourceType, count })),
+      masteryCurve: [...curve.values()],
+      reviewReminders: reminders,
+      recentEvents: events.slice(-20).reverse().map((event) => ({
+        id: event.id,
+        questionId: event.questionId,
+        questionTitle: event.question.title,
+        sourceType: toApiEnum(event.sourceType),
+        eventType: event.eventType,
+        isCorrect: event.isCorrect,
+        masteryStatus: event.masteryStatus ? toApiEnum(event.masteryStatus) : null,
+        happenedAt: event.happenedAt,
+      })),
+    };
   }
 
   async generateWrongQuestionPaper(user: RequestUser, dto: GenerateWrongQuestionPaperDto) {
@@ -1569,6 +1783,16 @@ export class StudentService {
       result = result.toLowerCase();
     }
     return result;
+  }
+
+  private nextReviewAt(lastWrongAt: Date, wrongCount: number, status: MasteryStatus) {
+    if (status === MasteryStatus.MASTERED || status === MasteryStatus.IGNORED) {
+      return lastWrongAt;
+    }
+    const intervalDays = status === MasteryStatus.REVIEWING
+      ? 3
+      : Math.min(Math.max(wrongCount || 1, 1), 7);
+    return new Date(lastWrongAt.getTime() + intervalDays * 24 * 60 * 60 * 1000);
   }
 
   private pickRandom<T>(items: T[], count: number) {

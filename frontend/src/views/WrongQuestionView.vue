@@ -40,6 +40,61 @@
       </div>
     </div>
 
+    <div class="wrong-insight-grid">
+      <div class="panel wrong-insight-card">
+        <div class="section-head compact">
+          <h2>来源追踪</h2>
+          <span class="muted">考试 / 练习 / 手动</span>
+        </div>
+        <div class="source-stack">
+          <div v-for="item in insights.sourceSummary" :key="item.sourceType" class="source-item">
+            <span>{{ sourceLabel(item.sourceType) }}</span>
+            <strong>{{ item.count }}</strong>
+          </div>
+          <el-empty v-if="!insights.sourceSummary.length" description="暂无来源记录" :image-size="48" />
+        </div>
+      </div>
+      <div class="panel wrong-insight-card">
+        <div class="section-head compact">
+          <h2>掌握曲线</h2>
+          <span class="muted">最近记录</span>
+        </div>
+        <div class="curve-list">
+          <div v-for="item in insights.masteryCurve.slice(-7)" :key="item.date" class="curve-row">
+            <span class="curve-date">{{ item.date.slice(5) }}</span>
+            <div class="curve-bars">
+              <span class="curve-bar wrong" :style="{ width: barWidth(item.wrong) }" />
+              <span class="curve-bar mastered" :style="{ width: barWidth(item.mastered) }" />
+              <span class="curve-bar manual" :style="{ width: barWidth(item.manual) }" />
+            </div>
+            <span class="muted">{{ item.wrong }}/{{ item.mastered }}/{{ item.manual }}</span>
+          </div>
+          <el-empty v-if="!insights.masteryCurve.length" description="暂无练习曲线" :image-size="48" />
+        </div>
+      </div>
+      <div class="panel wrong-insight-card wrong-reminder-card">
+        <div class="section-head compact">
+          <h2>复习提醒</h2>
+          <span class="muted">优先处理到期题</span>
+        </div>
+        <div class="reminder-list">
+          <button
+            v-for="item in insights.reviewReminders.slice(0, 5)"
+            :key="item.questionId"
+            class="plain-row-button reminder-item"
+            type="button"
+            @click="openReminder(item.questionId)"
+          >
+            <span class="ellipsis">{{ item.title }}</span>
+            <el-tag size="small" :type="item.overdue ? 'danger' : 'info'">
+              {{ item.overdue ? '待复习' : formatShortDate(item.nextReviewAt) }}
+            </el-tag>
+          </button>
+          <el-empty v-if="!insights.reviewReminders.length" description="暂无复习提醒" :image-size="48" />
+        </div>
+      </div>
+    </div>
+
     <div class="panel question-table-panel wrong-table-panel">
       <el-table :data="items" height="100%" highlight-current-row @row-click="openPractice">
         <el-table-column label="题目" min-width="280">
@@ -66,15 +121,18 @@
         <el-table-column v-if="showLowColumns" prop="lastWrongAt" label="最近记录" width="180" />
         <el-table-column label="操作" width="100">
           <template #default="{ row }">
-            <el-dropdown trigger="click" @command="(command) => handleWrongCommand(row, command)" @click.stop>
-              <el-button size="small">操作</el-button>
-              <template #dropdown>
-                <el-dropdown-menu>
-                  <el-dropdown-item command="practice">作答</el-dropdown-item>
-                  <el-dropdown-item command="hide">移出</el-dropdown-item>
-                </el-dropdown-menu>
-              </template>
-            </el-dropdown>
+            <div class="row-action-cell" @click.stop @mousedown.stop>
+              <el-dropdown trigger="click" @command="(command) => handleWrongCommand(row, command)">
+                <el-button size="small" @click.stop>操作</el-button>
+                <template #dropdown>
+                  <el-dropdown-menu>
+                    <el-dropdown-item command="practice">作答</el-dropdown-item>
+                    <el-dropdown-item command="events">来源记录</el-dropdown-item>
+                    <el-dropdown-item command="hide">移出</el-dropdown-item>
+                  </el-dropdown-menu>
+                </template>
+              </el-dropdown>
+            </div>
           </template>
         </el-table-column>
       </el-table>
@@ -158,6 +216,26 @@
         <el-button type="primary" :icon="Download" @click="exportWrongQuestions">生成并下载</el-button>
       </template>
     </el-dialog>
+
+    <el-drawer v-model="traceVisible" title="错题来源记录" size="420px">
+      <h3 class="drawer-title">{{ traceTitle }}</h3>
+      <el-timeline>
+        <el-timeline-item
+          v-for="event in traceEvents"
+          :key="event.id"
+          :timestamp="formatDateTime(event.happenedAt)"
+          :type="event.isCorrect ? 'success' : event.isCorrect === false ? 'danger' : 'info'"
+        >
+          <div class="trace-event-title">{{ eventLabel(event.eventType) }}</div>
+          <div class="muted">
+            {{ sourceLabel(event.sourceType) }}
+            <span v-if="event.score !== null"> · {{ event.score }} 分</span>
+            <span v-if="event.masteryStatus"> · {{ masteryLabel(event.masteryStatus) }}</span>
+          </div>
+        </el-timeline-item>
+      </el-timeline>
+      <el-empty v-if="!traceEvents.length" description="暂无来源记录" />
+    </el-drawer>
   </div>
 </template>
 
@@ -181,6 +259,15 @@ const practice = ref(null);
 const practiceVisible = ref(false);
 const practiceResult = ref(null);
 const exportVisible = ref(false);
+const traceVisible = ref(false);
+const traceEvents = ref([]);
+const traceTitle = ref('');
+const insights = reactive({
+  sourceSummary: [],
+  masteryCurve: [],
+  reviewReminders: [],
+  recentEvents: [],
+});
 const answer = reactive(emptyAnswer());
 const exportForm = reactive({
   format: 'pdf',
@@ -190,7 +277,17 @@ const exportForm = reactive({
 });
 
 async function load() {
-  items.value = await api('/student/wrong-questions');
+  const [wrongItems, insightData] = await Promise.all([
+    api('/student/wrong-questions'),
+    api('/student/wrong-questions/insights'),
+  ]);
+  items.value = wrongItems;
+  Object.assign(insights, {
+    sourceSummary: insightData.sourceSummary ?? [],
+    masteryCurve: insightData.masteryCurve ?? [],
+    reviewReminders: insightData.reviewReminders ?? [],
+    recentEvents: insightData.recentEvents ?? [],
+  });
 }
 
 async function loadCandidates() {
@@ -239,8 +336,7 @@ async function exportWrongQuestions() {
     },
   });
   exportVisible.value = false;
-  ElMessage.success('错题导出已生成');
-  if (task.fileUrl) window.open(task.fileUrl, '_blank');
+  ElMessage.success(`错题导出任务已加入队列：${task.id?.slice?.(0, 8) ?? ''}，请到导出中心下载`);
 }
 
 function pickRandom() {
@@ -256,13 +352,32 @@ function openPractice(row) {
 
 async function checkPractice() {
   if (!practice.value) return;
+  const payload = payloadForAnswer();
   practiceResult.value = await api(`/questions/${practice.value.question.id}/check-answer`, {
     method: 'POST',
-    body: payloadForAnswer(),
+    body: payload,
   });
+  if (practiceResult.value?.isCorrect !== null && practiceResult.value?.isCorrect !== undefined) {
+    await api(`/student/wrong-questions/${practice.value.question.id}/practice-result`, {
+      method: 'POST',
+      body: {
+        answer: payload,
+        isCorrect: Boolean(practiceResult.value.isCorrect),
+        score: practiceResult.value.score ?? 0,
+        totalScore: practiceResult.value.totalScore ?? practice.value.question.defaultScore ?? 0,
+      },
+    });
+  }
   if (practiceResult.value?.isCorrect) {
-    await updateWrongQuestionStatus(practice.value, 'mastered');
+    const questionId = practice.value.question.id;
+    items.value = items.value.filter((item) => item.question.id !== questionId);
+    practice.value = null;
+    practiceVisible.value = false;
+    await load();
     ElMessage.success('回答正确，已自动从错题本隐藏');
+  } else if (practiceResult.value?.isCorrect === false) {
+    await load();
+    ElMessage.warning('已记录本次错题练习');
   }
 }
 
@@ -273,7 +388,19 @@ async function hideWrongQuestion(row) {
 
 function handleWrongCommand(row, command) {
   if (command === 'practice') return openPractice(row);
+  if (command === 'events') return showEvents(row);
   if (command === 'hide') return hideWrongQuestion(row);
+}
+
+function openReminder(questionId) {
+  const row = items.value.find((item) => item.question.id === questionId);
+  if (row) openPractice(row);
+}
+
+async function showEvents(row) {
+  traceTitle.value = row.question.title;
+  traceEvents.value = await api(`/student/wrong-questions/${row.question.id}/events`);
+  traceVisible.value = true;
 }
 
 async function hideCurrent() {
@@ -291,6 +418,7 @@ async function updateWrongQuestionStatus(row, masteryStatus) {
     practice.value = null;
     practiceVisible.value = false;
   }
+  await load();
 }
 
 function emptyAnswer() {
@@ -355,7 +483,155 @@ function sourceLabel(value) {
   return map[value] ?? value;
 }
 
+function eventLabel(value) {
+  const map = {
+    exam_wrong: '考试错题',
+    practice_wrong: '练习答错',
+    practice_correct: '练习答对',
+    manual_add: '手动加入',
+    status_change: '状态调整',
+  };
+  return map[value] ?? value;
+}
+
+function formatDateTime(value) {
+  if (!value) return '-';
+  return new Date(value).toLocaleString();
+}
+
+function formatShortDate(value) {
+  if (!value) return '-';
+  return new Date(value).toLocaleDateString();
+}
+
+function barWidth(value) {
+  const max = Math.max(
+    1,
+    ...insights.masteryCurve.flatMap((item) => [item.wrong || 0, item.mastered || 0, item.manual || 0]),
+  );
+  return `${Math.max(8, Math.round(((value || 0) / max) * 100))}%`;
+}
+
 onMounted(async () => {
   await Promise.all([load(), loadCandidates()]);
 });
 </script>
+
+<style scoped>
+.wrong-insight-grid {
+  display: grid;
+  grid-template-columns: minmax(220px, 0.9fr) minmax(260px, 1.1fr) minmax(280px, 1.2fr);
+  gap: 12px;
+  min-height: 0;
+}
+
+.wrong-insight-card {
+  min-height: 148px;
+  padding: 14px 16px;
+  overflow: hidden;
+}
+
+.section-head.compact {
+  margin-bottom: 10px;
+}
+
+.section-head.compact h2 {
+  font-size: 16px;
+}
+
+.source-stack,
+.curve-list,
+.reminder-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+}
+
+.source-item,
+.reminder-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 6px;
+  padding: 8px 10px;
+  background: #fff;
+}
+
+.source-item strong {
+  color: var(--el-color-primary);
+}
+
+.curve-row {
+  display: grid;
+  grid-template-columns: 48px minmax(80px, 1fr) 64px;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.curve-date {
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+}
+
+.curve-bars {
+  display: flex;
+  gap: 3px;
+  align-items: center;
+  min-width: 0;
+}
+
+.curve-bar {
+  display: inline-block;
+  height: 8px;
+  min-width: 8px;
+  border-radius: 999px;
+}
+
+.curve-bar.wrong {
+  background: var(--el-color-danger-light-3);
+}
+
+.curve-bar.mastered {
+  background: var(--el-color-success-light-3);
+}
+
+.curve-bar.manual {
+  background: var(--el-color-warning-light-3);
+}
+
+.plain-row-button {
+  border: 0;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+
+.plain-row-button:hover {
+  border-color: var(--el-color-primary-light-5);
+  color: var(--el-color-primary);
+}
+
+.drawer-title {
+  margin: 0 0 16px;
+  font-size: 16px;
+}
+
+.trace-event-title {
+  font-weight: 600;
+}
+
+@media (max-width: 1180px) {
+  .wrong-insight-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .wrong-insight-card {
+    min-height: auto;
+  }
+}
+</style>

@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException, OnModuleInit } from '@nestjs/common';
 import { ExportStatus, MasteryStatus, Prisma, UserType } from '@prisma/client';
 import {
   AlignmentType,
@@ -10,7 +10,7 @@ import {
 } from 'docx';
 import PDFDocument = require('pdfkit');
 import { existsSync } from 'node:fs';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises';
 import { basename, extname, isAbsolute, join, resolve } from 'node:path';
 import { toPagination } from '../../common/dto/pagination-query.dto';
 import { toApiEnum } from '../../common/utils/enum-normalizer';
@@ -51,6 +51,7 @@ type DocumentExportContent = {
   includeAnswers: boolean;
   includeAnalysis: boolean;
   includeWrongInfo: boolean;
+  template?: string;
 };
 
 type MarkdownSegment =
@@ -74,16 +75,29 @@ type ZipEntry = {
 };
 
 @Injectable()
-export class ExportsService {
+export class ExportsService implements OnModuleInit {
   private readonly exportDir = join(process.cwd(), 'uploads', 'exports');
   private readonly fontPath = this.resolveFontPath();
   private readonly crc32Table = ExportsService.makeCrc32Table();
+  private readonly exportExpireDays = 7;
+  private readonly queue = new Set<string>();
+  private processingQueue = false;
+  private cleanupTimer?: NodeJS.Timeout;
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly dataScope: DataScopeService,
   ) {}
+
+  onModuleInit() {
+    void this.resumeQueuedTasks();
+    void this.cleanupExpiredTasks();
+    this.cleanupTimer = setInterval(() => {
+      void this.cleanupExpiredTasks();
+    }, 60 * 60 * 1000);
+    this.cleanupTimer.unref?.();
+  }
 
   async list(query: QueryExportDto, userId: string) {
     const { page, pageSize, skip, take } = toPagination(query);
@@ -116,45 +130,28 @@ export class ExportsService {
   async create(dto: CreateExportDto, user: RequestUser) {
     const format =
       dto.format ?? (['paper_document', 'wrong_questions'].includes(dto.type) ? 'pdf' : dto.type === 'question_bank' ? 'zip' : 'csv');
+    const payload = this.withPermissionSnapshot({ ...dto, format }, user);
     const task = await this.prisma.exportTask.create({
       data: {
         type: dto.type,
-        paramsJson: this.withPermissionSnapshot(dto, user),
-        status: ExportStatus.PROCESSING,
+        paramsJson: payload,
+        status: ExportStatus.PENDING,
+        progress: 0,
+        maxRetries: 2,
         createdBy: user.id,
       },
     });
 
-    try {
-      const fileUrl = await this.writeExport(task.id, dto, format, user);
-      const updated = await this.prisma.exportTask.update({
-        where: { id: task.id },
-        data: {
-          status: ExportStatus.SUCCESS,
-          fileUrl,
-          finishedAt: new Date(),
-        },
-      });
-      await this.audit.log({
-        userId: user.id,
-        action: 'export:create',
-        module: 'export',
-        targetType: 'export_task',
-        targetId: task.id,
-        afterData: { type: dto.type, format, fileUrl },
-      });
-      return { ...updated, status: toApiEnum(updated.status) };
-    } catch (error) {
-      await this.prisma.exportTask.update({
-        where: { id: task.id },
-        data: {
-          status: ExportStatus.FAILED,
-          errorMessage: error instanceof Error ? error.message : '导出失败',
-          finishedAt: new Date(),
-        },
-      });
-      throw error;
-    }
+    await this.audit.log({
+      userId: user.id,
+      action: 'export:queue',
+      module: 'export',
+      targetType: 'export_task',
+      targetId: task.id,
+      afterData: { type: dto.type, format },
+    });
+    this.enqueue(task.id);
+    return this.formatTask(task);
   }
 
   async createWrongQuestionExport(dto: CreateExportDto, user: RequestUser) {
@@ -184,6 +181,147 @@ export class ExportsService {
       throw new BadRequestException('导出文件尚未生成');
     }
     return { url: task.fileUrl };
+  }
+
+  async retry(id: string, user: RequestUser) {
+    const task = await this.prisma.exportTask.findFirst({ where: { id, createdBy: user.id } });
+    if (!task) throw new NotFoundException('导出任务不存在');
+    if (task.status !== ExportStatus.FAILED && task.status !== ExportStatus.EXPIRED) {
+      throw new BadRequestException('只有失败或过期任务可以重试');
+    }
+    const updated = await this.prisma.exportTask.update({
+      where: { id },
+      data: {
+        status: ExportStatus.PENDING,
+        progress: 0,
+        errorMessage: null,
+        fileUrl: null,
+        finishedAt: null,
+        expiresAt: null,
+      },
+    });
+    await this.audit.log({
+      userId: user.id,
+      action: 'export:retry',
+      module: 'export',
+      targetType: 'export_task',
+      targetId: id,
+      afterData: { type: task.type, retryCount: task.retryCount },
+    });
+    this.enqueue(id);
+    return this.formatTask(updated);
+  }
+
+  async cleanupExpiredTasks() {
+    const now = new Date();
+    const tasks = await this.prisma.exportTask.findMany({
+      where: {
+        status: ExportStatus.SUCCESS,
+        expiresAt: { lte: now },
+      },
+      select: { id: true, fileUrl: true },
+      take: 100,
+    });
+    for (const task of tasks) {
+      await this.deleteExportFile(task.fileUrl);
+      await this.prisma.exportTask.update({
+        where: { id: task.id },
+        data: {
+          status: ExportStatus.EXPIRED,
+          fileUrl: null,
+          errorMessage: '导出文件已过期清理',
+        },
+      });
+    }
+    return { cleaned: tasks.length };
+  }
+
+  private enqueue(taskId: string) {
+    this.queue.add(taskId);
+    setTimeout(() => {
+      void this.processQueue();
+    }, 0);
+  }
+
+  private async resumeQueuedTasks() {
+    const stale = await this.prisma.exportTask.findMany({
+      where: { status: { in: [ExportStatus.PENDING, ExportStatus.PROCESSING] } },
+      select: { id: true },
+      orderBy: { createdAt: 'asc' },
+      take: 50,
+    });
+    stale.forEach((task) => this.enqueue(task.id));
+  }
+
+  private async processQueue() {
+    if (this.processingQueue) return;
+    this.processingQueue = true;
+    try {
+      while (this.queue.size) {
+        const taskId = this.queue.values().next().value as string | undefined;
+        if (!taskId) break;
+        this.queue.delete(taskId);
+        await this.processTask(taskId);
+      }
+    } finally {
+      this.processingQueue = false;
+    }
+  }
+
+  private async processTask(taskId: string) {
+    const task = await this.prisma.exportTask.findUnique({ where: { id: taskId } });
+    if (!task || (task.status !== ExportStatus.PENDING && task.status !== ExportStatus.PROCESSING)) return;
+
+    const payload = this.toRecord(task.paramsJson);
+    const dto = payload as unknown as CreateExportDto;
+    const format =
+      dto.format ?? (['paper_document', 'wrong_questions'].includes(dto.type) ? 'pdf' : dto.type === 'question_bank' ? 'zip' : 'csv');
+    const user = this.userFromExportPayload(payload, task.createdBy ?? '');
+
+    try {
+      await this.prisma.exportTask.update({
+        where: { id: taskId },
+        data: { status: ExportStatus.PROCESSING, progress: 10, errorMessage: null },
+      });
+      const fileUrl = await this.writeExport(task.id, dto, format, user);
+      const updated = await this.prisma.exportTask.update({
+        where: { id: task.id },
+        data: {
+          status: ExportStatus.SUCCESS,
+          progress: 100,
+          fileUrl,
+          finishedAt: new Date(),
+          expiresAt: this.futureDate(this.exportExpireDays),
+        },
+      });
+      await this.audit.log({
+        userId: user.id,
+        action: 'export:complete',
+        module: 'export',
+        targetType: 'export_task',
+        targetId: task.id,
+        afterData: { type: dto.type, format, fileUrl },
+      });
+      return this.formatTask(updated);
+    } catch (error) {
+      const nextRetry = task.retryCount + 1;
+      const message = error instanceof Error ? error.message : '导出失败';
+      const retryable = nextRetry <= task.maxRetries;
+      await this.prisma.exportTask.update({
+        where: { id: task.id },
+        data: {
+          status: retryable ? ExportStatus.PENDING : ExportStatus.FAILED,
+          progress: retryable ? 0 : 100,
+          retryCount: nextRetry,
+          errorMessage: retryable ? `${message}；准备第 ${nextRetry} 次重试` : message,
+          finishedAt: retryable ? null : new Date(),
+        },
+      });
+      if (retryable) {
+        setTimeout(() => this.enqueue(task.id), Math.min(1000 * nextRetry, 5000));
+      }
+      return null;
+    }
   }
 
   private async buildRows(dto: CreateExportDto, user: RequestUser) {
@@ -450,11 +588,12 @@ export class ExportsService {
 
     return {
       title: paper.name,
-      subtitle: `${paper.course.name} · ${questions.length} 题 · ${Number(paper.totalScore)} 分 · ${paper.durationMinutes} 分钟`,
+      subtitle: `${this.documentTemplateLabel(dto.template)} · ${paper.course.name} · ${questions.length} 题 · ${Number(paper.totalScore)} 分 · ${paper.durationMinutes} 分钟`,
       questions,
-      includeAnswers: dto.includeAnswers ?? false,
-      includeAnalysis: dto.includeAnalysis ?? false,
+      includeAnswers: dto.template === 'answer_book' ? true : dto.includeAnswers ?? false,
+      includeAnalysis: dto.template === 'answer_book' ? true : dto.includeAnalysis ?? false,
       includeWrongInfo: false,
+      template: dto.template ?? 'student',
     };
   }
 
@@ -501,6 +640,7 @@ export class ExportsService {
       includeAnswers: dto.includeAnswers ?? true,
       includeAnalysis: dto.includeAnalysis ?? true,
       includeWrongInfo: dto.includeWrongInfo ?? true,
+      template: dto.template ?? 'teacher',
     };
   }
 
@@ -518,6 +658,7 @@ export class ExportsService {
       includeAnswers: dto.includeAnswers ?? true,
       includeAnalysis: dto.includeAnalysis ?? true,
       includeWrongInfo: false,
+      template: dto.template ?? 'teacher',
     };
   }
 
@@ -583,12 +724,56 @@ export class ExportsService {
       ...(dto as unknown as Record<string, unknown>),
       permissionSnapshot: {
         userId: user.id,
+        username: user.username,
+        realName: user.realName,
         userType: user.userType,
         roles: user.roles,
         permissions: user.permissions,
         capturedAt: new Date().toISOString(),
       },
     } as Prisma.InputJsonObject;
+  }
+
+  private userFromExportPayload(payload: Record<string, unknown>, fallbackUserId: string): RequestUser {
+    const snapshot = this.toRecord(payload.permissionSnapshot);
+    return {
+      id: String(snapshot.userId ?? fallbackUserId),
+      username: String(snapshot.username ?? 'export-worker'),
+      realName: typeof snapshot.realName === 'string' ? snapshot.realName : null,
+      userType: String(snapshot.userType ?? UserType.ADMIN),
+      roles: Array.isArray(snapshot.roles) ? snapshot.roles.map(String) : [],
+      permissions: Array.isArray(snapshot.permissions) ? snapshot.permissions.map(String) : [],
+    };
+  }
+
+  private formatTask<T extends { status: ExportStatus; paramsJson?: Prisma.JsonValue | null }>(task: T) {
+    return {
+      ...task,
+      status: toApiEnum(task.status),
+    };
+  }
+
+  private futureDate(days: number) {
+    return new Date(Date.now() + days * 24 * 60 * 60 * 1000);
+  }
+
+  private async deleteExportFile(fileUrl: string | null) {
+    const filePath = this.exportFilePath(fileUrl);
+    if (!filePath || !existsSync(filePath)) return;
+    try {
+      await unlink(filePath);
+    } catch {
+      // Best effort cleanup; the database status is still moved to expired.
+    }
+  }
+
+  private exportFilePath(fileUrl: string | null) {
+    if (!fileUrl || !fileUrl.startsWith('/uploads/exports/')) return '';
+    const candidate = resolve(process.cwd(), fileUrl.slice(1));
+    const exportRoot = resolve(this.exportDir);
+    const rootWithSep = exportRoot.endsWith('\\') ? exportRoot : `${exportRoot}\\`;
+    if (candidate !== exportRoot && !candidate.startsWith(rootWithSep)) return '';
+    return candidate;
   }
 
   private exportQuestionFromSnapshot(
@@ -744,6 +929,25 @@ export class ExportsService {
 
     const entries: ZipEntry[] = [
       {
+        name: 'metadata.json',
+        data: Buffer.from(
+          JSON.stringify(
+            {
+              packageType: 'question_bank',
+              schemaVersion: 1,
+              exportedAt,
+              includeAnswers,
+              includeAnalysis,
+              count: questions.length,
+              assetCount: assetMap.size,
+            },
+            null,
+            2,
+          ),
+          'utf8',
+        ),
+      },
+      {
         name: 'README.txt',
         data: Buffer.from(
           [
@@ -822,6 +1026,28 @@ export class ExportsService {
     };
 
     const entries: ZipEntry[] = [
+      {
+        name: 'metadata.json',
+        data: Buffer.from(
+          JSON.stringify(
+            {
+              packageType: 'paper_document',
+              schemaVersion: 2,
+              exportedAt,
+              includeAnswers,
+              includeAnalysis,
+              template: dto.template ?? 'teacher',
+              paperId: dto.paperId ?? '',
+              paperName: content.title,
+              count: content.questions.length,
+              assetCount: assetMap.size,
+            },
+            null,
+            2,
+          ),
+          'utf8',
+        ),
+      },
       {
         name: 'README.txt',
         data: Buffer.from(
@@ -1000,6 +1226,7 @@ export class ExportsService {
         doc.registerFont('body', this.fontPath);
         doc.font('body');
       }
+      const answerBook = content.template === 'answer_book';
       doc.fontSize(18).text(content.title, { align: 'center' });
       doc.moveDown(0.4);
       doc.fontSize(10).fillColor('#4b5563').text(content.subtitle, { align: 'center' });
@@ -1012,13 +1239,15 @@ export class ExportsService {
         if (content.includeWrongInfo && question.wrongCount !== undefined) {
           doc.fontSize(9).fillColor('#6b7280').text(`错题次数：${question.wrongCount} · 最近记录：${this.formatDate(question.lastWrongAt)}`);
         }
-        doc.moveDown(0.2);
-        doc.fontSize(10).fillColor('#111827');
-        this.renderPdfMarkdown(doc, question.content);
-        for (const option of question.options) {
-          const suffix = content.includeAnswers && option.isCorrect ? '  [正确答案]' : '';
-          doc.fontSize(10).fillColor('#111827').text(`${option.label}. ${suffix}`, { continued: false });
-          this.renderPdfMarkdown(doc, option.content);
+        if (!answerBook) {
+          doc.moveDown(0.2);
+          doc.fontSize(10).fillColor('#111827');
+          this.renderPdfMarkdown(doc, question.content);
+          for (const option of question.options) {
+            const suffix = content.includeAnswers && option.isCorrect ? '  [正确答案]' : '';
+            doc.fontSize(10).fillColor('#111827').text(`${option.label}. ${suffix}`, { continued: false });
+            this.renderPdfMarkdown(doc, option.content);
+          }
         }
         if (content.includeAnswers) {
           doc.moveDown(0.2).fontSize(10).fillColor('#047857').text(`答案：${this.formatAnswer(question.answer, question.options) || '暂无'}`);
@@ -1042,6 +1271,7 @@ export class ExportsService {
   }
 
   private async renderDocx(content: DocumentExportContent) {
+    const answerBook = content.template === 'answer_book';
     const children: Paragraph[] = [
       new Paragraph({
         text: content.title,
@@ -1066,17 +1296,19 @@ export class ExportsService {
       if (content.includeWrongInfo && question.wrongCount !== undefined) {
         children.push(new Paragraph({ text: `错题次数：${question.wrongCount} · 最近记录：${this.formatDate(question.lastWrongAt)}` }));
       }
-      this.pushTextParagraphs(children, this.plainText(question.content));
-      for (const option of question.options) {
-        children.push(
-          new Paragraph({
-            children: [
-              new TextRun({ text: `${option.label}. `, bold: true }),
-              new TextRun({ text: this.plainText(option.content) }),
-              ...(content.includeAnswers && option.isCorrect ? [new TextRun({ text: '  正确答案', bold: true, color: '047857' })] : []),
-            ],
-          }),
-        );
+      if (!answerBook) {
+        this.pushTextParagraphs(children, this.plainText(question.content));
+        for (const option of question.options) {
+          children.push(
+            new Paragraph({
+              children: [
+                new TextRun({ text: `${option.label}. `, bold: true }),
+                new TextRun({ text: this.plainText(option.content) }),
+                ...(content.includeAnswers && option.isCorrect ? [new TextRun({ text: '  正确答案', bold: true, color: '047857' })] : []),
+              ],
+            }),
+          );
+        }
       }
       if (content.includeAnswers) {
         children.push(new Paragraph({ children: [new TextRun({ text: '答案：', bold: true }), new TextRun({ text: this.formatAnswer(question.answer, question.options) || '暂无' })] }));
@@ -1570,6 +1802,15 @@ export class ExportsService {
       arduino_project: 'Arduino 项目题',
     };
     return map[value] ?? value;
+  }
+
+  private documentTemplateLabel(value?: string) {
+    const map: Record<string, string> = {
+      student: '学生版',
+      teacher: '教师讲义版',
+      answer_book: '答案册',
+    };
+    return map[value || 'student'] ?? '学生版';
   }
 
   private formatDate(value?: Date) {

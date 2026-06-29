@@ -1,5 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { AnswerRecordStatus, MasteryStatus, Prisma } from '@prisma/client';
+import { AnswerRecordStatus, MasteryStatus, Prisma, WrongQuestionSourceType } from '@prisma/client';
 import { toPagination } from '../../common/dto/pagination-query.dto';
 import { toApiEnum } from '../../common/utils/enum-normalizer';
 import { RequestUser } from '../../common/interfaces/request-user.interface';
@@ -236,6 +236,145 @@ export class StatisticsService {
     });
   }
 
+  async wrongQuestions(query: QueryStatisticsDto, user: RequestUser) {
+    const classWhere = await this.dataScope.classWhere(user, query.classId);
+    const classGroups = await this.prisma.classGroup.findMany({
+      where: { ...classWhere, deletedAt: null, courseId: query.courseId },
+      include: { students: { select: { studentId: true } } },
+    });
+    const scopedStudentIds = [...new Set(classGroups.flatMap((item) => item.students.map((student) => student.studentId)))];
+    const studentIdFilter = query.classId || !this.dataScope.isUnrestricted(user)
+      ? scopedStudentIds
+      : undefined;
+    const sourceType = this.normalizeWrongSourceType(query.sourceType);
+    const timeRange = this.dateRange(query);
+    const questionWhere: Prisma.QuestionWhereInput = {
+      deletedAt: null,
+      courseId: query.courseId,
+    };
+
+    const [wrongItems, events] = await this.prisma.$transaction([
+      this.prisma.wrongQuestion.findMany({
+        where: {
+          studentId: studentIdFilter ? { in: studentIdFilter } : undefined,
+          sourceType,
+          lastWrongAt: timeRange,
+          question: questionWhere,
+        },
+        include: {
+          question: {
+            include: {
+              course: { select: { name: true } },
+              knowledgePoints: { include: { knowledgePoint: { select: { name: true } } } },
+            },
+          },
+        },
+        orderBy: [{ wrongCount: 'desc' }, { lastWrongAt: 'desc' }],
+        take: 1000,
+      }),
+      this.prisma.wrongQuestionEvent.findMany({
+        where: {
+          studentId: studentIdFilter ? { in: studentIdFilter } : undefined,
+          sourceType,
+          eventType: { in: ['exam_wrong', 'practice_wrong', 'manual_add'] },
+          happenedAt: timeRange,
+          question: questionWhere,
+        },
+        include: {
+          question: {
+            include: {
+              course: { select: { name: true } },
+              knowledgePoints: { include: { knowledgePoint: { select: { name: true } } } },
+            },
+          },
+        },
+        orderBy: { happenedAt: 'desc' },
+        take: 2000,
+      }),
+    ]);
+
+    type WrongGroup = {
+      questionId: string;
+      title: string;
+      type: string;
+      difficulty: number;
+      courseName: string;
+      knowledgePointNames: Set<string>;
+      wrongCount: number;
+      eventWrongCount: number;
+      studentIds: Set<string>;
+      sourceCounts: Map<string, number>;
+      masteryCounts: Map<string, number>;
+      latestAt: Date;
+    };
+    const groups = new Map<string, WrongGroup>();
+    const ensureGroup = (
+      question: (typeof wrongItems)[number]['question'] | (typeof events)[number]['question'],
+      fallbackDate: Date,
+    ) => {
+      const existing = groups.get(question.id);
+      if (existing) return existing;
+      const group: WrongGroup = {
+        questionId: question.id,
+        title: question.title,
+        type: toApiEnum(question.type),
+        difficulty: question.difficulty,
+        courseName: question.course.name,
+        knowledgePointNames: new Set(question.knowledgePoints.map((item) => item.knowledgePoint.name)),
+        wrongCount: 0,
+        eventWrongCount: 0,
+        studentIds: new Set(),
+        sourceCounts: new Map(),
+        masteryCounts: new Map(),
+        latestAt: fallbackDate,
+      };
+      groups.set(question.id, group);
+      return group;
+    };
+
+    for (const item of wrongItems) {
+      const group = ensureGroup(item.question, item.lastWrongAt);
+      const source = toApiEnum(item.sourceType);
+      const mastery = toApiEnum(item.masteryStatus);
+      const count = Math.max(item.wrongCount, source === 'manual' ? 1 : 0);
+      group.wrongCount += count;
+      group.studentIds.add(item.studentId);
+      group.sourceCounts.set(source, (group.sourceCounts.get(source) ?? 0) + count);
+      group.masteryCounts.set(mastery, (group.masteryCounts.get(mastery) ?? 0) + 1);
+      if (item.lastWrongAt > group.latestAt) group.latestAt = item.lastWrongAt;
+    }
+
+    for (const event of events) {
+      const group = ensureGroup(event.question, event.happenedAt);
+      const source = toApiEnum(event.sourceType);
+      group.eventWrongCount += 1;
+      group.studentIds.add(event.studentId);
+      group.sourceCounts.set(source, (group.sourceCounts.get(source) ?? 0) + 1);
+      if (event.masteryStatus) {
+        const mastery = toApiEnum(event.masteryStatus);
+        group.masteryCounts.set(mastery, (group.masteryCounts.get(mastery) ?? 0) + 1);
+      }
+      if (event.happenedAt > group.latestAt) group.latestAt = event.happenedAt;
+    }
+
+    return [...groups.values()]
+      .map((group) => ({
+        questionId: group.questionId,
+        title: group.title,
+        type: group.type,
+        difficulty: group.difficulty,
+        courseName: group.courseName,
+        knowledgePointNames: [...group.knowledgePointNames],
+        wrongCount: Math.max(group.wrongCount, group.eventWrongCount),
+        studentCount: group.studentIds.size,
+        latestAt: group.latestAt,
+        sourceSummary: [...group.sourceCounts.entries()].map(([source, count]) => ({ source, count })),
+        masterySummary: [...group.masteryCounts.entries()].map(([masteryStatus, count]) => ({ masteryStatus, count })),
+      }))
+      .sort((a, b) => b.wrongCount - a.wrongCount || new Date(b.latestAt).getTime() - new Date(a.latestAt).getTime())
+      .slice(0, 50);
+  }
+
   private async attemptWhere(query: QueryStatisticsDto, user: RequestUser): Promise<Prisma.ExamAttemptWhereInput> {
     const examWhere = await this.examWhere(query, user);
     return {
@@ -261,6 +400,24 @@ export class StatisticsService {
 
   private average(scores: number[]) {
     return scores.length ? Number((scores.reduce((sum, score) => sum + score, 0) / scores.length).toFixed(2)) : 0;
+  }
+
+  private dateRange(query: QueryStatisticsDto): Prisma.DateTimeFilter | undefined {
+    if (!query.startDate && !query.endDate) return undefined;
+    return {
+      gte: query.startDate ? new Date(query.startDate) : undefined,
+      lte: query.endDate ? new Date(query.endDate) : undefined,
+    };
+  }
+
+  private normalizeWrongSourceType(value?: string): WrongQuestionSourceType | undefined {
+    const map: Record<string, WrongQuestionSourceType> = {
+      exam: WrongQuestionSourceType.EXAM,
+      practice: WrongQuestionSourceType.PRACTICE,
+      manual: WrongQuestionSourceType.MANUAL,
+      ai_recommendation: WrongQuestionSourceType.AI_RECOMMENDATION,
+    };
+    return value ? map[value] : undefined;
   }
 
   private async loadClassMap(classIds: string[]) {
