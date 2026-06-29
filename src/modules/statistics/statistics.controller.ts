@@ -24,6 +24,18 @@ export class StatisticsController {
     return this.statisticsService.exams(query, user);
   }
 
+  @Get('score-distribution')
+  @Permissions('statistics:read')
+  scoreDistribution(@Query() query: QueryStatisticsDto, @CurrentUser() user: RequestUser) {
+    return this.statisticsService.scoreDistribution(query, user);
+  }
+
+  @Get('class-comparison')
+  @Permissions('statistics:read')
+  classComparison(@Query() query: QueryStatisticsDto, @CurrentUser() user: RequestUser) {
+    return this.statisticsService.classComparison(query, user);
+  }
+
   @Get('exams/:examId')
   @Permissions('statistics:read')
   examDetail(@Param('examId') examId: string, @CurrentUser() user: RequestUser) {
@@ -36,10 +48,22 @@ export class StatisticsController {
     return this.statisticsService.knowledge(query, user);
   }
 
+  @Get('knowledge-trend')
+  @Permissions('statistics:read')
+  knowledgeTrend(@Query() query: QueryStatisticsDto, @CurrentUser() user: RequestUser) {
+    return this.statisticsService.knowledgeTrend(query, user);
+  }
+
   @Get('classes')
   @Permissions('statistics:read')
   classes(@Query() query: QueryStatisticsDto, @CurrentUser() user: RequestUser) {
     return this.statisticsService.classes(query, user);
+  }
+
+  @Get('question-diagnostics')
+  @Permissions('statistics:read')
+  questionDiagnostics(@Query() query: QueryStatisticsDto, @CurrentUser() user: RequestUser) {
+    return this.statisticsService.questionDiagnostics(query, user);
   }
 
   @Get('wrong-questions')

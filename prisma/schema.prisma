@@ -155,6 +155,7 @@ enum ExportStatus {
   SUCCESS    @map("success")
   FAILED     @map("failed")
   EXPIRED    @map("expired")
+  CANCELED   @map("canceled")
 }
 
 enum FileVisibility {

@@ -130,7 +130,7 @@ export class PapersController {
   @Post('generate-from-wrong-frequency')
   @Permissions('paper:create')
   generateFromWrongFrequency(@Body() dto: GeneratePaperFromWrongDto, @CurrentUser() user: RequestUser) {
-    return this.papersService.generateFromWrongFrequency(dto, user.id);
+    return this.papersService.generateFromWrongFrequency(dto, user);
   }
 
   @Post(':id/generate-by-rule')

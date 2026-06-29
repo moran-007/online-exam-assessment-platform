@@ -1,9 +1,30 @@
 import { Type } from 'class-transformer';
-import { IsInt, IsNumber, IsOptional, IsString, IsUUID, Min } from 'class-validator';
+import { IsDateString, IsIn, IsInt, IsNumber, IsOptional, IsString, IsUUID, Min } from 'class-validator';
 
 export class GeneratePaperFromWrongDto {
   @IsUUID()
   courseId: string;
+
+  @IsOptional()
+  @IsUUID()
+  classId?: string;
+
+  @IsOptional()
+  @IsUUID()
+  knowledgePointId?: string;
+
+  @IsOptional()
+  @IsString()
+  @IsIn(['exam', 'practice', 'manual', 'ai_recommendation'])
+  sourceType?: string;
+
+  @IsOptional()
+  @IsDateString()
+  startDate?: string;
+
+  @IsOptional()
+  @IsDateString()
+  endDate?: string;
 
   @IsOptional()
   @IsString()

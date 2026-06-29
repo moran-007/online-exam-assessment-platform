@@ -3,7 +3,7 @@
     <div class="page-head">
       <h1 class="page-title">导出中心</h1>
       <div class="toolbar">
-        <el-button :icon="Delete" @click="cleanupExpired">清理过期</el-button>
+        <el-button v-if="canManageGlobalTasks" :icon="Delete" @click="cleanupExpired">清理过期</el-button>
         <el-button :icon="Refresh" @click="loadAll">刷新</el-button>
       </div>
     </div>
@@ -165,17 +165,35 @@
             <h3>导出记录</h3>
             <span class="muted">直接导出会自动留下记录，可在这里重复下载。</span>
           </div>
-          <el-select v-model="taskFilter.type" clearable placeholder="记录类型" style="width: 160px" @change="loadTasks">
-            <el-option v-for="item in exportTypes" :key="item.value" :label="item.label" :value="item.value" />
-          </el-select>
+          <div class="toolbar export-task-toolbar">
+            <el-select v-model="taskFilter.scope" placeholder="范围" style="width: 116px" @change="loadTasks">
+              <el-option label="我的任务" value="mine" />
+              <el-option v-if="canManageGlobalTasks" label="全部任务" value="all" />
+            </el-select>
+            <el-select v-model="taskFilter.type" clearable placeholder="记录类型" style="width: 150px" @change="loadTasks">
+              <el-option v-for="item in exportTypes" :key="item.value" :label="item.label" :value="item.value" />
+            </el-select>
+            <el-select v-model="taskFilter.status" clearable placeholder="状态" style="width: 128px" @change="loadTasks">
+              <el-option label="等待中" value="pending" />
+              <el-option label="处理中" value="processing" />
+              <el-option label="成功" value="success" />
+              <el-option label="失败" value="failed" />
+              <el-option label="已取消" value="canceled" />
+              <el-option label="已过期" value="expired" />
+            </el-select>
+            <el-button type="warning" plain :disabled="!selectedTaskIds.length" @click="cancelSelectedTasks">
+              批量取消
+            </el-button>
+          </div>
         </div>
-        <el-table :data="tasks" height="100%" class="question-list-table">
+        <el-table :data="tasks" height="100%" class="question-list-table" @selection-change="handleTaskSelectionChange">
+          <el-table-column type="selection" width="46" :selectable="canCancel" />
           <el-table-column prop="type" label="类型" min-width="130">
             <template #default="{ row }">{{ typeLabel(row.type) }}</template>
           </el-table-column>
           <el-table-column prop="status" label="状态" width="100">
             <template #default="{ row }">
-              <el-tag :type="row.status === 'success' ? 'success' : row.status === 'failed' ? 'danger' : 'warning'">
+              <el-tag :type="statusTagType(row.status)">
                 {{ statusLabel(row.status) }}
               </el-tag>
             </template>
@@ -198,7 +216,10 @@
             <template #default="{ row }">
               <div class="toolbar tiny-actions">
                 <el-button size="small" :disabled="row.status !== 'success'" @click="downloadTask(row)">下载</el-button>
-                <el-button v-if="['failed', 'expired'].includes(row.status)" size="small" type="warning" plain @click="retryTask(row)">
+                <el-button v-if="canCancel(row)" size="small" type="warning" plain @click="cancelTask(row)">
+                  取消
+                </el-button>
+                <el-button v-if="['failed', 'expired', 'canceled'].includes(row.status)" size="small" type="warning" plain @click="retryTask(row)">
                   重试
                 </el-button>
               </div>
@@ -225,10 +246,10 @@
 </template>
 
 <script setup>
-import { onBeforeUnmount, onMounted, reactive, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue';
 import { ElMessage } from 'element-plus';
 import { Delete, Download, Refresh, Search } from '@element-plus/icons-vue';
-import { api, buildQuery } from '../api';
+import { api, buildQuery, getCurrentUser } from '../api';
 import { useResponsiveColumns } from '../composables/useResponsiveColumns';
 
 const exportTypes = [
@@ -248,13 +269,17 @@ const classes = ref([]);
 const papers = ref([]);
 const exams = ref([]);
 const tasks = ref([]);
+const selectedTasks = ref([]);
 const exporting = ref(false);
 const { showMediumColumns, showLowColumns } = useResponsiveColumns();
+const currentUser = getCurrentUser();
+const canManageGlobalTasks = ['SUPER_ADMIN', 'ADMIN'].includes(currentUser?.userType);
 const paperFilter = reactive({ keyword: '', courseId: '', status: '', sortBy: 'createdAt', sortOrder: 'desc' });
 const examFilter = reactive({ keyword: '', courseId: '', classId: '', status: '', sortBy: 'startTime', sortOrder: 'desc' });
-const taskFilter = reactive({ type: '' });
+const taskFilter = reactive({ type: '', status: '', scope: 'mine' });
 const taskPagination = reactive({ page: 1, pageSize: 20, total: 0 });
 let taskPollTimer = null;
+const selectedTaskIds = computed(() => selectedTasks.value.filter(canCancel).map((task) => task.id));
 
 async function loadBase() {
   const [coursePage, classPage] = await Promise.all([
@@ -295,11 +320,16 @@ async function loadExams() {
 }
 
 async function loadTasks() {
+  if (!canManageGlobalTasks && taskFilter.scope === 'all') {
+    taskFilter.scope = 'mine';
+  }
   const data = await api(
     `/exports${buildQuery({
       page: taskPagination.page,
       pageSize: taskPagination.pageSize,
       type: taskFilter.type,
+      status: taskFilter.status,
+      scope: taskFilter.scope,
     })}`,
   );
   tasks.value = data.items;
@@ -375,6 +405,27 @@ async function retryTask(row) {
   await loadTasks();
 }
 
+async function cancelTask(row) {
+  await api(`/exports/${row.id}/cancel`, { method: 'POST' });
+  ElMessage.success('已取消导出任务');
+  await loadTasks();
+}
+
+async function cancelSelectedTasks() {
+  if (!selectedTaskIds.value.length) {
+    ElMessage.warning('请选择等待中或处理中任务');
+    return;
+  }
+  const result = await api('/exports/batch/cancel', {
+    method: 'POST',
+    body: { ids: selectedTaskIds.value },
+  });
+  const failedText = result.failed?.length ? `，${result.failed.length} 个失败` : '';
+  ElMessage.success(`已取消 ${result.successCount} 个任务${failedText}`);
+  selectedTasks.value = [];
+  await loadTasks();
+}
+
 async function cleanupExpired() {
   const result = await api('/exports/maintenance/cleanup-expired', { method: 'POST' });
   ElMessage.success(`已清理 ${result.cleaned || 0} 个过期导出任务`);
@@ -395,6 +446,14 @@ function scheduleTaskPolling() {
 async function downloadTask(row) {
   const data = await api(`/exports/${row.id}/download`);
   window.open(data.url, '_blank');
+}
+
+function handleTaskSelectionChange(rows) {
+  selectedTasks.value = rows;
+}
+
+function canCancel(row) {
+  return ['pending', 'processing'].includes(row.status);
 }
 
 function handlePaperSortChange({ prop, order }) {
@@ -425,8 +484,13 @@ function typeLabel(type) {
 }
 
 function statusLabel(status) {
-  const map = { success: '成功', failed: '失败', processing: '处理中', pending: '等待中', expired: '已过期' };
+  const map = { success: '成功', failed: '失败', processing: '处理中', pending: '等待中', expired: '已过期', canceled: '已取消' };
   return map[status] ?? status;
+}
+
+function statusTagType(status) {
+  const map = { success: 'success', failed: 'danger', processing: 'warning', pending: 'info', expired: 'info', canceled: 'info' };
+  return map[status] ?? 'info';
 }
 
 function paperStatusLabel(value) {
