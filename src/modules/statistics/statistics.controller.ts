@@ -41,4 +41,10 @@ export class StatisticsController {
   classes(@Query() query: QueryStatisticsDto, @CurrentUser() user: RequestUser) {
     return this.statisticsService.classes(query, user);
   }
+
+  @Get('wrong-questions')
+  @Permissions('statistics:read')
+  wrongQuestions(@Query() query: QueryStatisticsDto, @CurrentUser() user: RequestUser) {
+    return this.statisticsService.wrongQuestions(query, user);
+  }
 }

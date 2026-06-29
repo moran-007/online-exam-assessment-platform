@@ -73,6 +73,23 @@ export class UpdateWrongQuestionStatusDto {
   masteryStatus: string;
 }
 
+export class RecordWrongQuestionPracticeDto {
+  @IsOptional()
+  @IsObject()
+  answer?: Record<string, unknown>;
+
+  @IsBoolean()
+  isCorrect: boolean;
+
+  @IsOptional()
+  @Type(() => Number)
+  score?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  totalScore?: number;
+}
+
 export class GenerateWrongQuestionPaperDto {
   @IsOptional()
   @IsString()

@@ -25,6 +25,18 @@ export class ExportsController {
     return this.exportsService.create(dto, user);
   }
 
+  @Post(':id/retry')
+  @Permissions('exam:result:export')
+  retry(@Param('id') id: string, @CurrentUser() user: RequestUser) {
+    return this.exportsService.retry(id, user);
+  }
+
+  @Post('maintenance/cleanup-expired')
+  @Permissions('exam:result:export')
+  cleanupExpired() {
+    return this.exportsService.cleanupExpiredTasks();
+  }
+
   @Post('student/wrong-questions')
   createWrongQuestionExport(@Body() dto: CreateExportDto, @CurrentUser() user: RequestUser) {
     return this.exportsService.createWrongQuestionExport(dto, user);

@@ -11,6 +11,11 @@ export class CreateExportDto {
   format?: string;
 
   @IsOptional()
+  @IsString()
+  @IsIn(['student', 'teacher', 'answer_book'])
+  template?: string;
+
+  @IsOptional()
   @IsUUID()
   paperId?: string;
 
