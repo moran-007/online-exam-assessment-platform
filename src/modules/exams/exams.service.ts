@@ -3,6 +3,8 @@ import { ExamStatus, PaperStatus, Prisma } from '@prisma/client';
 import { toPagination } from '../../common/dto/pagination-query.dto';
 import { normalizeExamStatus, toApiEnum } from '../../common/utils/enum-normalizer';
 import { AuditService } from '../audit/audit.service';
+import { RequestUser } from '../../common/interfaces/request-user.interface';
+import { DataScopeService } from '../data-scope/data-scope.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { BulkUpdateExamStatusDto } from './dto/bulk-update-exam-status.dto';
 import { CreateExamDto } from './dto/create-exam.dto';
@@ -14,16 +16,20 @@ export class ExamsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly dataScope: DataScopeService,
   ) {}
 
-  async list(query: QueryExamDto) {
+  async list(query: QueryExamDto, user: RequestUser) {
     const { page, pageSize, skip, take } = toPagination(query);
+    const scopeWhere = await this.dataScope.examWhere(user, query.classId);
     const where: Prisma.ExamWhereInput = {
       deletedAt: null,
       courseId: query.courseId,
-      classId: query.classId,
       status: query.status ? normalizeExamStatus(query.status) : undefined,
-      OR: query.keyword ? [{ name: { contains: query.keyword, mode: 'insensitive' } }] : undefined,
+      AND: [
+        scopeWhere,
+        query.keyword ? { OR: [{ name: { contains: query.keyword, mode: 'insensitive' } }] } : {},
+      ],
     };
 
     const [items, total] = await this.prisma.$transaction([
@@ -32,6 +38,11 @@ export class ExamsService {
         include: {
           course: { select: { name: true } },
           paper: { select: { name: true, totalScore: true } },
+          announcements: {
+            where: { isActive: true },
+            orderBy: { version: 'desc' },
+            take: 1,
+          },
           _count: { select: { attempts: true } },
         },
         orderBy: this.examOrderBy(query),
@@ -52,7 +63,9 @@ export class ExamsService {
         className: exam.classId ? classMap.get(exam.classId)?.name ?? '' : '公开',
         totalScore: Number(exam.paper.totalScore),
         attemptCount: exam._count.attempts,
-        announcement: this.extractAnnouncement(exam.antiCheatConfigJson),
+        announcement: this.activeAnnouncementText(exam),
+        announcementId: exam.announcements[0]?.id ?? null,
+        announcementVersion: exam.announcements[0]?.version ?? null,
         resultVisibility: this.extractResultVisibility(exam.antiCheatConfigJson),
       })),
       page,
@@ -61,7 +74,8 @@ export class ExamsService {
     };
   }
 
-  async create(dto: CreateExamDto, userId: string) {
+  async create(dto: CreateExamDto, user: RequestUser) {
+    await this.dataScope.assertClassWritable(user, dto.classId);
     const paper = await this.prisma.paper.findFirst({
       where: { id: dto.paperId, status: PaperStatus.PUBLISHED, deletedAt: null },
     });
@@ -76,26 +90,31 @@ export class ExamsService {
       throw new BadRequestException('考试时间不合法');
     }
 
-    const exam = await this.prisma.exam.create({
-      data: {
-        paperId: dto.paperId,
-        name: dto.name,
-        courseId: dto.courseId,
-        classId: dto.classId,
-        startTime,
-        endTime,
-        durationMinutes: dto.durationMinutes,
-        attemptLimit: dto.attemptLimit ?? 1,
-        showAnswerMode: this.normalizeShowAnswerMode(dto.showAnswerMode ?? 'after_exam_end'),
-        showScoreMode: this.normalizeShowScoreMode(dto.showScoreMode ?? 'after_submit'),
-        antiCheatConfigJson: this.buildAntiCheatConfig(dto.antiCheatConfig, dto.announcement),
-        createdBy: userId,
-        updatedBy: userId,
-      },
+    const exam = await this.prisma.$transaction(async (tx) => {
+      const created = await tx.exam.create({
+        data: {
+          paperId: dto.paperId,
+          name: dto.name,
+          courseId: dto.courseId,
+          classId: dto.classId,
+          startTime,
+          endTime,
+          durationMinutes: dto.durationMinutes,
+          attemptLimit: dto.attemptLimit ?? 1,
+          showAnswerMode: this.normalizeShowAnswerMode(dto.showAnswerMode ?? 'after_exam_end'),
+          showScoreMode: this.normalizeShowScoreMode(dto.showScoreMode ?? 'after_submit'),
+          antiCheatConfigJson: this.buildAntiCheatConfig(dto.antiCheatConfig),
+          createdBy: user.id,
+          updatedBy: user.id,
+        },
+      });
+
+      await this.syncAnnouncement(tx, created.id, dto.announcement, user.id);
+      return created;
     });
 
     await this.audit.log({
-      userId,
+      userId: user.id,
       action: 'exam:create',
       module: 'exam',
       targetType: 'exam',
@@ -106,12 +125,18 @@ export class ExamsService {
     return { id: exam.id };
   }
 
-  async detail(id: string) {
+  async detail(id: string, user: RequestUser) {
+    await this.dataScope.assertExamAccessible(user, id);
     const exam = await this.prisma.exam.findFirst({
       where: { id, deletedAt: null },
       include: {
         paper: true,
         course: true,
+        announcements: {
+          where: { isActive: true },
+          orderBy: { version: 'desc' },
+          take: 1,
+        },
       },
     });
 
@@ -125,13 +150,17 @@ export class ExamsService {
       ...exam,
       status: toApiEnum(exam.status),
       className: exam.classId ? classMap.get(exam.classId)?.name ?? '' : '公开',
-      announcement: this.extractAnnouncement(exam.antiCheatConfigJson),
+      announcement: this.activeAnnouncementText(exam),
+      announcementId: exam.announcements[0]?.id ?? null,
+      announcementVersion: exam.announcements[0]?.version ?? null,
       resultVisibility: this.extractResultVisibility(exam.antiCheatConfigJson),
       paper: { ...exam.paper, status: toApiEnum(exam.paper.status), totalScore: Number(exam.paper.totalScore) },
     };
   }
 
-  async update(id: string, dto: UpdateExamDto, userId: string) {
+  async update(id: string, dto: UpdateExamDto, user: RequestUser) {
+    await this.dataScope.assertExamAccessible(user, id);
+    await this.dataScope.assertClassWritable(user, dto.classId);
     const current = await this.prisma.exam.findFirst({
       where: { id, deletedAt: null },
     });
@@ -155,33 +184,39 @@ export class ExamsService {
       throw new BadRequestException('考试时间不合法');
     }
 
-    const updated = await this.prisma.exam.update({
-      where: { id },
-      data: {
-        paperId: dto.paperId,
-        name: dto.name,
-        courseId: dto.courseId,
-        classId: dto.classId,
-        startTime: dto.startTime ? nextStartTime : undefined,
-        endTime: dto.endTime ? nextEndTime : undefined,
-        durationMinutes: dto.durationMinutes,
-        attemptLimit: dto.attemptLimit,
-        status: dto.status ? normalizeExamStatus(dto.status) : undefined,
-        showAnswerMode: dto.showAnswerMode ? this.normalizeShowAnswerMode(dto.showAnswerMode) : undefined,
-        showScoreMode: dto.showScoreMode ? this.normalizeShowScoreMode(dto.showScoreMode) : undefined,
-        antiCheatConfigJson:
-          dto.antiCheatConfig !== undefined || dto.announcement !== undefined
-            ? this.buildAntiCheatConfig(
-                dto.antiCheatConfig ?? (current.antiCheatConfigJson as Record<string, unknown> | null) ?? undefined,
-                dto.announcement,
-              )
-            : undefined,
-        updatedBy: userId,
-      },
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const nextConfigSource =
+        dto.antiCheatConfig !== undefined
+          ? dto.antiCheatConfig
+          : (current.antiCheatConfigJson as Record<string, unknown> | null) ?? undefined;
+      const saved = await tx.exam.update({
+        where: { id },
+        data: {
+          paperId: dto.paperId,
+          name: dto.name,
+          courseId: dto.courseId,
+          classId: dto.classId,
+          startTime: dto.startTime ? nextStartTime : undefined,
+          endTime: dto.endTime ? nextEndTime : undefined,
+          durationMinutes: dto.durationMinutes,
+          attemptLimit: dto.attemptLimit,
+          status: dto.status ? normalizeExamStatus(dto.status) : undefined,
+          showAnswerMode: dto.showAnswerMode ? this.normalizeShowAnswerMode(dto.showAnswerMode) : undefined,
+          showScoreMode: dto.showScoreMode ? this.normalizeShowScoreMode(dto.showScoreMode) : undefined,
+          antiCheatConfigJson:
+            dto.antiCheatConfig !== undefined || dto.announcement !== undefined
+              ? this.buildAntiCheatConfig(nextConfigSource)
+              : undefined,
+          updatedBy: user.id,
+        },
+      });
+
+      await this.syncAnnouncement(tx, id, dto.announcement, user.id);
+      return saved;
     });
 
     await this.audit.log({
-      userId,
+      userId: user.id,
       action: 'exam:update',
       module: 'exam',
       targetType: 'exam',
@@ -193,7 +228,8 @@ export class ExamsService {
     return { id };
   }
 
-  async publish(id: string, userId: string) {
+  async publish(id: string, user: RequestUser) {
+    await this.dataScope.assertExamAccessible(user, id);
     const exam = await this.prisma.exam.findFirst({
       where: { id, deletedAt: null },
     });
@@ -212,11 +248,11 @@ export class ExamsService {
 
     const updated = await this.prisma.exam.update({
       where: { id },
-      data: { status, updatedBy: userId },
+      data: { status, updatedBy: user.id },
     });
 
     await this.audit.log({
-      userId,
+      userId: user.id,
       action: 'exam:publish',
       module: 'exam',
       targetType: 'exam',
@@ -227,7 +263,8 @@ export class ExamsService {
     return { id, status: toApiEnum(updated.status) };
   }
 
-  async unpublish(id: string, userId: string) {
+  async unpublish(id: string, user: RequestUser) {
+    await this.dataScope.assertExamAccessible(user, id);
     const exam = await this.prisma.exam.findFirst({
       where: { id, deletedAt: null },
     });
@@ -242,11 +279,11 @@ export class ExamsService {
 
     const updated = await this.prisma.exam.update({
       where: { id },
-      data: { status: ExamStatus.DRAFT, updatedBy: userId },
+      data: { status: ExamStatus.DRAFT, updatedBy: user.id },
     });
 
     await this.audit.log({
-      userId,
+      userId: user.id,
       action: 'exam:unpublish',
       module: 'exam',
       targetType: 'exam',
@@ -257,7 +294,7 @@ export class ExamsService {
     return { id, status: toApiEnum(updated.status) };
   }
 
-  async bulkUpdateStatus(dto: BulkUpdateExamStatusDto, userId: string) {
+  async bulkUpdateStatus(dto: BulkUpdateExamStatusDto, user: RequestUser) {
     const status = normalizeExamStatus(dto.status);
     const ids = [...new Set(dto.ids)];
     const failed: Array<{ id: string; message: string }> = [];
@@ -265,7 +302,7 @@ export class ExamsService {
 
     for (const id of ids) {
       try {
-        await this.update(id, { status: toApiEnum(status) }, userId);
+        await this.update(id, { status: toApiEnum(status) }, user);
         successCount += 1;
       } catch (error) {
         failed.push({ id, message: error instanceof Error ? error.message : '状态更新失败' });
@@ -273,7 +310,7 @@ export class ExamsService {
     }
 
     await this.audit.log({
-      userId,
+      userId: user.id,
       action: 'exam:bulk-update-status',
       module: 'exam',
       targetType: 'exam',
@@ -293,7 +330,8 @@ export class ExamsService {
     };
   }
 
-  async remove(id: string, userId: string) {
+  async remove(id: string, user: RequestUser) {
+    await this.dataScope.assertExamAccessible(user, id);
     const exam = await this.prisma.exam.findFirst({
       where: { id, deletedAt: null },
       include: { _count: { select: { attempts: true } } },
@@ -316,12 +354,12 @@ export class ExamsService {
       data: {
         status: ExamStatus.ARCHIVED,
         deletedAt: new Date(),
-        updatedBy: userId,
+        updatedBy: user.id,
       },
     });
 
     await this.audit.log({
-      userId,
+      userId: user.id,
       action: 'exam:delete',
       module: 'exam',
       targetType: 'exam',
@@ -331,7 +369,8 @@ export class ExamsService {
     return true;
   }
 
-  async results(id: string, query: QueryExamDto) {
+  async results(id: string, query: QueryExamDto, user: RequestUser) {
+    await this.dataScope.assertExamAccessible(user, id);
     const { page, pageSize, skip, take } = toPagination(query);
     const where: Prisma.ExamAttemptWhereInput = { examId: id };
     const [items, total, allAttempts] = await this.prisma.$transaction([
@@ -381,7 +420,8 @@ export class ExamsService {
     };
   }
 
-  async statistics(id: string) {
+  async statistics(id: string, user: RequestUser) {
+    await this.dataScope.assertExamAccessible(user, id);
     const attempts = await this.prisma.examAttempt.findMany({
       where: { examId: id, submittedAt: { not: null } },
       include: { answers: true },
@@ -450,17 +490,62 @@ export class ExamsService {
     return query.sortBy && query.sortBy !== 'createdAt' ? [primary, { createdAt: 'desc' }] : [primary];
   }
 
-  private buildAntiCheatConfig(config?: Record<string, unknown>, announcement?: string) {
+  private buildAntiCheatConfig(config?: Record<string, unknown> | null) {
     const next = { ...(config ?? {}) };
-    if (announcement !== undefined) {
-      const trimmed = announcement.trim();
-      if (trimmed) {
-        next.announcement = trimmed;
-      } else {
-        delete next.announcement;
-      }
-    }
+    delete next.announcement;
+    delete next.announcementVersion;
     return Object.keys(next).length ? (next as Prisma.InputJsonObject) : undefined;
+  }
+
+  private activeAnnouncementText(source: {
+    announcements?: Array<{ content: string }>;
+    antiCheatConfigJson?: Prisma.JsonValue | null;
+  }) {
+    return source.announcements?.[0]?.content ?? this.extractAnnouncement(source.antiCheatConfigJson ?? null);
+  }
+
+  private async syncAnnouncement(
+    tx: Prisma.TransactionClient,
+    examId: string,
+    rawAnnouncement: string | undefined,
+    userId: string,
+  ) {
+    if (rawAnnouncement === undefined) return;
+
+    const content = rawAnnouncement.trim();
+    const active = await tx.examAnnouncement.findFirst({
+      where: { examId, isActive: true },
+      orderBy: { version: 'desc' },
+    });
+
+    if (!content) {
+      if (active) {
+        await tx.examAnnouncement.updateMany({
+          where: { examId, isActive: true },
+          data: { isActive: false },
+        });
+      }
+      return;
+    }
+
+    if (active?.content === content) return;
+
+    await tx.examAnnouncement.updateMany({
+      where: { examId, isActive: true },
+      data: { isActive: false },
+    });
+    const latest = await tx.examAnnouncement.aggregate({
+      where: { examId },
+      _max: { version: true },
+    });
+    await tx.examAnnouncement.create({
+      data: {
+        examId,
+        version: (latest._max.version ?? 0) + 1,
+        content,
+        createdBy: userId,
+      },
+    });
   }
 
   private extractAnnouncement(config: Prisma.JsonValue | null) {

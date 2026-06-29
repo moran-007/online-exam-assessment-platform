@@ -10,6 +10,7 @@ import { AuditModule } from './modules/audit/audit.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { ClassesModule } from './modules/classes/classes.module';
 import { CoursesModule } from './modules/courses/courses.module';
+import { DataScopeModule } from './modules/data-scope/data-scope.module';
 import { ExamsModule } from './modules/exams/exams.module';
 import { ExportsModule } from './modules/exports/exports.module';
 import { GradingModule } from './modules/grading/grading.module';
@@ -38,6 +39,7 @@ import { UsersModule } from './modules/users/users.module';
     AuthModule,
     HealthModule,
     CoursesModule,
+    DataScopeModule,
     ClassesModule,
     KnowledgePointsModule,
     TagsModule,

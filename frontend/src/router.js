@@ -1,4 +1,5 @@
 import { createRouter, createWebHistory } from 'vue-router';
+import { canAccessByMeta, firstAccessiblePath } from './access';
 import { getCurrentUser, getRefreshToken, getToken } from './api';
 import LoginView from './views/LoginView.vue';
 import DashboardView from './views/DashboardView.vue';
@@ -25,25 +26,25 @@ const routes = [
   { path: '/login', component: LoginView, meta: { public: true } },
   { path: '/question-bank', component: PublicQuestionView, meta: { public: true } },
   { path: '/public/questions', redirect: '/question-bank', meta: { public: true } },
-  { path: '/', redirect: () => (getCurrentUser()?.userType === 'STUDENT' ? '/student/exams' : '/dashboard') },
-  { path: '/dashboard', component: DashboardView },
-  { path: '/courses', component: CourseView },
-  { path: '/classes', component: ClassView },
-  { path: '/knowledge', component: KnowledgeView },
-  { path: '/tags', component: TagView },
-  { path: '/questions', component: QuestionView },
-  { path: '/question-import', component: QuestionImportView },
-  { path: '/papers', component: PaperView },
+  { path: '/', redirect: () => firstAccessiblePath(getCurrentUser()) },
+  { path: '/dashboard', component: DashboardView, meta: { adminOnly: true, permissions: ['statistics:read'] } },
+  { path: '/courses', component: CourseView, meta: { adminOnly: true, permissions: ['course:read'] } },
+  { path: '/classes', component: ClassView, meta: { adminOnly: true, permissions: ['class:read'] } },
+  { path: '/knowledge', component: KnowledgeView, meta: { adminOnly: true, permissions: ['knowledge-point:read'] } },
+  { path: '/tags', component: TagView, meta: { adminOnly: true, permissions: ['tag:read'] } },
+  { path: '/questions', component: QuestionView, meta: { adminOnly: true, permissions: ['question:read'] } },
+  { path: '/question-import', component: QuestionImportView, meta: { adminOnly: true, permissions: ['question:create'] } },
+  { path: '/papers', component: PaperView, meta: { adminOnly: true, permissions: ['paper:read'] } },
   { path: '/papers/:paperId/answer', component: PaperAnswerView },
-  { path: '/exams', component: ExamView },
-  { path: '/grading', component: GradingView },
-  { path: '/exports', component: ExportView },
-  { path: '/statistics', component: StatisticsView },
-  { path: '/student/exams', component: StudentExamView },
-  { path: '/student/exams/:examId', component: ExamTakingView },
-  { path: '/student/attempts/:attemptId/result', component: ResultView },
-  { path: '/student/wrong-questions', component: WrongQuestionView },
-  { path: '/student/profile', component: StudentProfileView },
+  { path: '/exams', component: ExamView, meta: { adminOnly: true, permissions: ['exam:read'] } },
+  { path: '/grading', component: GradingView, meta: { adminOnly: true, permissions: ['grading:read'] } },
+  { path: '/exports', component: ExportView, meta: { adminOnly: true, permissions: ['exam:result:export'] } },
+  { path: '/statistics', component: StatisticsView, meta: { adminOnly: true, permissions: ['statistics:read'] } },
+  { path: '/student/exams', component: StudentExamView, meta: { studentOnly: true } },
+  { path: '/student/exams/:examId', component: ExamTakingView, meta: { studentOnly: true } },
+  { path: '/student/attempts/:attemptId/result', component: ResultView, meta: { studentOnly: true } },
+  { path: '/student/wrong-questions', component: WrongQuestionView, meta: { studentOnly: true } },
+  { path: '/student/profile', component: StudentProfileView, meta: { studentOnly: true } },
 ];
 
 const router = createRouter({
@@ -52,11 +53,15 @@ const router = createRouter({
 });
 
 router.beforeEach((to) => {
+  const user = getCurrentUser();
   if (!to.meta.public && !getToken() && !getRefreshToken()) {
     return '/login';
   }
   if (to.path === '/login' && getToken()) {
-    return '/';
+    return firstAccessiblePath(user);
+  }
+  if (!canAccessByMeta(user, to.meta)) {
+    return user ? firstAccessiblePath(user) : '/login';
   }
   return true;
 });

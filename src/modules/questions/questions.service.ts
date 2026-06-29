@@ -31,6 +31,20 @@ type QuestionAnswerJson = {
   [key: string]: unknown;
 };
 
+type ComparableQuestion = {
+  index: number;
+  id?: string;
+  courseId: string;
+  courseName?: string;
+  title: string;
+  type: string;
+  status?: string;
+  titleKey: string;
+  contentKey: string;
+  optionContentKey: string;
+  fullKey: string;
+};
+
 @Injectable()
 export class QuestionsService {
   constructor(
@@ -233,6 +247,138 @@ export class QuestionsService {
       status: toApiEnum(question.status),
       knowledgePoints: question.knowledgePoints.map((relation) => relation.knowledgePoint),
       tags: question.tags.map((relation) => relation.tag),
+    };
+  }
+
+  async checkDuplicates(questions: unknown[] = []) {
+    const incoming = questions.map((question, index) => this.toComparableQuestion(this.normalizeCheckQuestion(question), index));
+    if (!incoming.length) {
+      return { items: [], total: 0, duplicateCount: 0, conflictCount: 0, similarCount: 0 };
+    }
+
+    const courseIds = [...new Set(incoming.map((item) => item.courseId).filter(Boolean))];
+    const titles = [...new Set(incoming.map((item) => item.title).filter(Boolean))];
+    const candidates = courseIds.length && titles.length
+      ? await this.prisma.question.findMany({
+          where: {
+            deletedAt: null,
+            courseId: { in: courseIds },
+            OR: titles.map((title) => ({ title: { equals: title, mode: 'insensitive' } })),
+          },
+          include: {
+            course: { select: { name: true } },
+            options: { orderBy: { sortOrder: 'asc' } },
+            answer: true,
+          },
+        })
+      : [];
+    const existing = candidates.map((question, index) => this.toComparableQuestion(question, index, true));
+
+    const items = incoming.map((item, index) => {
+      const matches: Array<{
+        source: 'batch' | 'question_bank';
+        id?: string;
+        title: string;
+        type: string;
+        status?: string;
+        courseName?: string;
+        reason: 'duplicate' | 'conflict' | 'similar';
+        message: string;
+      }> = [];
+
+      for (const previous of incoming.slice(0, index)) {
+        if (previous.courseId !== item.courseId || previous.type !== item.type) continue;
+        if (previous.fullKey === item.fullKey) {
+          matches.push({
+            source: 'batch',
+            title: previous.title,
+            type: previous.type,
+            reason: 'duplicate',
+            message: `与本次导入第 ${previous.index + 1} 题完全重复`,
+          });
+          continue;
+        }
+        if (previous.titleKey === item.titleKey) {
+          matches.push({
+            source: 'batch',
+            title: previous.title,
+            type: previous.type,
+            reason: 'conflict',
+            message: `与本次导入第 ${previous.index + 1} 题标题相同，但题干、选项或答案不一致`,
+          });
+          continue;
+        }
+        if (previous.contentKey && previous.contentKey === item.contentKey && previous.optionContentKey === item.optionContentKey) {
+          matches.push({
+            source: 'batch',
+            title: previous.title,
+            type: previous.type,
+            reason: 'similar',
+            message: `与本次导入第 ${previous.index + 1} 题题干和选项相似`,
+          });
+        }
+      }
+
+      for (const candidate of existing) {
+        if (candidate.courseId !== item.courseId || candidate.type !== item.type) continue;
+        if (candidate.titleKey === item.titleKey) {
+          matches.push({
+            source: 'question_bank',
+            id: candidate.id,
+            title: candidate.title,
+            type: candidate.type,
+            status: candidate.status,
+            courseName: candidate.courseName,
+            reason: candidate.fullKey === item.fullKey ? 'duplicate' : 'conflict',
+            message:
+              candidate.fullKey === item.fullKey
+                ? '题库中已有完全相同题目'
+                : '题库中已有同标题题目，但题干、选项或答案不一致',
+          });
+          continue;
+        }
+        if (candidate.contentKey && candidate.contentKey === item.contentKey && candidate.optionContentKey === item.optionContentKey) {
+          matches.push({
+            source: 'question_bank',
+            id: candidate.id,
+            title: candidate.title,
+            type: candidate.type,
+            status: candidate.status,
+            courseName: candidate.courseName,
+            reason: 'similar',
+            message: '题库中存在题干和选项相似的题目',
+          });
+        }
+      }
+
+      const hasConflict = matches.some((match) => match.reason === 'conflict');
+      const hasDuplicate = matches.some((match) => match.reason === 'duplicate');
+      const hasSimilar = matches.some((match) => match.reason === 'similar');
+      const status = hasConflict ? 'conflict' : hasDuplicate ? 'duplicate' : hasSimilar ? 'similar' : 'ok';
+
+      return {
+        index,
+        title: item.title,
+        type: item.type,
+        status,
+        severity: hasConflict ? 'danger' : hasDuplicate || hasSimilar ? 'warning' : 'none',
+        message:
+          status === 'ok'
+            ? '未发现重复或冲突'
+            : matches
+                .slice(0, 3)
+                .map((match) => match.message)
+                .join('；'),
+        matches,
+      };
+    });
+
+    return {
+      items,
+      total: items.length,
+      duplicateCount: items.filter((item) => item.status === 'duplicate').length,
+      conflictCount: items.filter((item) => item.status === 'conflict').length,
+      similarCount: items.filter((item) => item.status === 'similar').length,
     };
   }
 
@@ -641,6 +787,182 @@ export class QuestionsService {
         name: relation.tag.name,
       })),
     };
+  }
+
+  private normalizeCheckQuestion(value: unknown): CreateQuestionDto {
+    const record = this.toPlainRecord(this.parseJsonish(value));
+    const importPayload = this.toPlainRecord(this.parseJsonish(record.importPayload));
+    const source = Object.keys(importPayload).length ? { ...record, ...importPayload } : record;
+    const options = this.normalizeCheckOptions(source.optionsJson ?? source.options);
+
+    return {
+      courseId: String(source.courseId ?? ''),
+      type: String(source.type ?? 'single_choice'),
+      title: String(source.title ?? '未命名题目'),
+      content: String(source.contentMarkdown ?? source.content ?? ''),
+      difficulty: Number(source.difficulty) || 1,
+      defaultScore: Number(source.defaultScore ?? source.score) || 0,
+      analysis: typeof source.analysisMarkdown === 'string'
+        ? source.analysisMarkdown
+        : typeof source.analysis === 'string'
+          ? source.analysis
+          : undefined,
+      allowOptionShuffle: typeof source.allowOptionShuffle === 'boolean' ? source.allowOptionShuffle : undefined,
+      knowledgePointIds: Array.isArray(source.knowledgePointIds) ? source.knowledgePointIds.map(String) : undefined,
+      tagIds: Array.isArray(source.tagIds) ? source.tagIds.map(String) : undefined,
+      options,
+      answer: this.toPlainRecord(this.parseJsonish(source.answerJson ?? source.answer)),
+      scoringRule: this.toPlainRecord(this.parseJsonish(source.scoringRuleJson ?? source.scoringRule)),
+    };
+  }
+
+  private toComparableQuestion(
+    value:
+      | CreateQuestionDto
+      | Prisma.QuestionGetPayload<{
+          include: {
+            course: { select: { name: true } };
+            options: true;
+            answer: true;
+          };
+        }>,
+    index: number,
+    fromEntity = false,
+  ): ComparableQuestion {
+    const type = fromEntity
+      ? toApiEnum(String((value as { type: string }).type))
+      : toApiEnum(normalizeQuestionType(String((value as CreateQuestionDto).type || 'single_choice')));
+    const title = String((value as { title?: string }).title ?? '').trim();
+    const content = String((value as { content?: string }).content ?? '').trim();
+    const options = this.comparableOptions(value);
+    const answer = this.comparableAnswer(value, type);
+    const titleKey = this.normalizeComparableText(title);
+    const contentKey = this.normalizeComparableText(content);
+    const optionContentKey = options.map((option) => this.normalizeComparableText(option.content)).join('|');
+    const optionFullKey = options
+      .map((option) => `${this.normalizeComparableText(option.content)}:${option.isCorrect ? '1' : '0'}`)
+      .join('|');
+
+    return {
+      index,
+      id: typeof (value as { id?: unknown }).id === 'string' ? ((value as { id: string }).id) : undefined,
+      courseId: String((value as { courseId?: string }).courseId ?? ''),
+      courseName: (value as { course?: { name?: string } }).course?.name,
+      title,
+      type,
+      status: fromEntity ? toApiEnum(String((value as { status?: string }).status ?? '')) : undefined,
+      titleKey,
+      contentKey,
+      optionContentKey,
+      fullKey: [
+        String((value as { courseId?: string }).courseId ?? ''),
+        type,
+        titleKey,
+        contentKey,
+        optionFullKey,
+        this.stableStringify(answer),
+      ].join('\n'),
+    };
+  }
+
+  private normalizeCheckOptions(value: unknown): CreateQuestionDto['options'] {
+    const parsed = this.parseJsonish(value);
+    if (!Array.isArray(parsed)) return [];
+    const options = parsed.map((option, index) => {
+      const item = this.toPlainRecord(option);
+      return {
+        optionKey: String(item.optionKey ?? item.label ?? String.fromCharCode(65 + index)),
+        content: String(item.contentMarkdown ?? item.content ?? ''),
+        isCorrect: item.isCorrect === true || item.isCorrect === 'true',
+        sortOrder: Number(item.sortOrder ?? index + 1) || index + 1,
+      };
+    });
+    return options;
+  }
+
+  private parseJsonish(value: unknown): unknown {
+    if (value && typeof value === 'object') return value;
+    const text = String(value ?? '').trim();
+    if (!text) return {};
+    try {
+      return JSON.parse(text);
+    } catch {
+      return value;
+    }
+  }
+
+  private toPlainRecord(value: unknown): Record<string, unknown> {
+    return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+  }
+
+  private comparableOptions(
+    value:
+      | CreateQuestionDto
+      | Prisma.QuestionGetPayload<{
+          include: {
+            course: { select: { name: true } };
+            options: true;
+            answer: true;
+          };
+        }>,
+  ) {
+    const options = ((value as CreateQuestionDto).options ??
+      (value as { options?: Array<{ optionKey: string; content: string; isCorrect: boolean; sortOrder: number }> }).options ??
+      []) as Array<{ optionKey?: string; content?: string; isCorrect?: boolean; sortOrder?: number }>;
+
+    return [...options]
+      .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0) || String(a.optionKey ?? '').localeCompare(String(b.optionKey ?? '')))
+      .map((option, index) => ({
+        optionKey: String(option.optionKey ?? String.fromCharCode(65 + index)).trim(),
+        content: String(option.content ?? '').trim(),
+        isCorrect: Boolean(option.isCorrect),
+      }));
+  }
+
+  private comparableAnswer(
+    value:
+      | CreateQuestionDto
+      | Prisma.QuestionGetPayload<{
+          include: {
+            course: { select: { name: true } };
+            options: true;
+            answer: true;
+          };
+        }>,
+    apiType: string,
+  ) {
+    const type = normalizeQuestionType(apiType);
+    if (this.isChoiceQuestion(type)) {
+      return {};
+    }
+
+    return (
+      (value as CreateQuestionDto).answer ??
+      (value as { answer?: { answerJson?: unknown } }).answer?.answerJson ??
+      {}
+    );
+  }
+
+  private normalizeComparableText(value: unknown) {
+    return String(value ?? '')
+      .replace(/!\[[^\]]*]\([^)]+\)/g, '![image]')
+      .replace(/\[[^\]]+]\([^)]+\)/g, '[link]')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .toLowerCase();
+  }
+
+  private stableStringify(value: unknown): string {
+    if (Array.isArray(value)) {
+      return `[${value.map((item) => this.stableStringify(item)).join(',')}]`;
+    }
+    if (value && typeof value === 'object') {
+      return `{${Object.keys(value as Record<string, unknown>)
+        .sort()
+        .map((key) => `${JSON.stringify(key)}:${this.stableStringify((value as Record<string, unknown>)[key])}`)
+        .join(',')}}`;
+    }
+    return JSON.stringify(value ?? null);
   }
 
   private async findOccupationMap(questionIds: string[]) {

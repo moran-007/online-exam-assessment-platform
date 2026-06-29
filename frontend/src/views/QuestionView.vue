@@ -455,7 +455,7 @@
           type="info"
           show-icon
           :closable="false"
-          title="ZIP、JSON、CSV 与题目导入字段保持对应；取消答案后导出的题目需要补充答案再导入。"
+          title="ZIP、JSON、CSV 与题目导入字段保持对应；可回导必需字段：schemaVersion、title、type、difficulty、defaultScore、contentMarkdown、optionsJson、answerJson、scoringRuleJson、analysisMarkdown、tagNames、knowledgePointNames。取消答案后需补充答案再导入。"
         />
       </el-form>
       <template #footer>

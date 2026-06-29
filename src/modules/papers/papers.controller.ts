@@ -8,6 +8,7 @@ import { AddPaperQuestionsByTagsDto } from './dto/add-paper-questions-by-tags.dt
 import { CreatePaperDto } from './dto/create-paper.dto';
 import { GeneratePaperRuleDto } from './dto/generate-paper-rule.dto';
 import { GeneratePaperFromWrongDto } from './dto/generate-paper-from-wrong.dto';
+import { ImportPaperDto } from './dto/import-paper.dto';
 import { MovePaperQuestionDto } from './dto/move-paper-question.dto';
 import { QueryPaperDto } from './dto/query-paper.dto';
 import { UpdatePaperQuestionDto } from './dto/update-paper-question.dto';
@@ -31,6 +32,12 @@ export class PapersController {
   @Permissions('paper:create')
   create(@Body() dto: CreatePaperDto, @CurrentUser() user: RequestUser) {
     return this.papersService.create(dto, user.id);
+  }
+
+  @Post('import')
+  @Permissions('paper:create')
+  importPaper(@Body() dto: ImportPaperDto, @CurrentUser() user: RequestUser) {
+    return this.papersService.importPaper(dto, user.id);
   }
 
   @Get(':id')

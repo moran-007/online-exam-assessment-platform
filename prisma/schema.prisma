@@ -59,108 +59,108 @@ enum TagStatus {
 }
 
 enum QuestionType {
-  SINGLE_CHOICE    @map("single_choice")
-  MULTIPLE_CHOICE  @map("multiple_choice")
-  TRUE_FALSE       @map("true_false")
-  FILL_BLANK       @map("fill_blank")
-  SHORT_ANSWER     @map("short_answer")
-  PROGRAMMING      @map("programming")
-  MATERIAL         @map("material")
-  FILE_UPLOAD      @map("file_upload")
-  SCRATCH_PROJECT  @map("scratch_project")
-  ARDUINO_PROJECT  @map("arduino_project")
+  SINGLE_CHOICE   @map("single_choice")
+  MULTIPLE_CHOICE @map("multiple_choice")
+  TRUE_FALSE      @map("true_false")
+  FILL_BLANK      @map("fill_blank")
+  SHORT_ANSWER    @map("short_answer")
+  PROGRAMMING     @map("programming")
+  MATERIAL        @map("material")
+  FILE_UPLOAD     @map("file_upload")
+  SCRATCH_PROJECT @map("scratch_project")
+  ARDUINO_PROJECT @map("arduino_project")
 }
 
 enum QuestionStatus {
-  DRAFT           @map("draft")
-  PENDING_REVIEW  @map("pending_review")
-  PUBLISHED       @map("published")
-  DISABLED        @map("disabled")
-  ARCHIVED        @map("archived")
+  DRAFT          @map("draft")
+  PENDING_REVIEW @map("pending_review")
+  PUBLISHED      @map("published")
+  DISABLED       @map("disabled")
+  ARCHIVED       @map("archived")
 }
 
 enum PaperType {
-  FIXED     @map("fixed")
-  RULE      @map("rule")
-  RANDOM    @map("random")
-  PRACTICE  @map("practice")
+  FIXED    @map("fixed")
+  RULE     @map("rule")
+  RANDOM   @map("random")
+  PRACTICE @map("practice")
 }
 
 enum PaperStatus {
-  DRAFT      @map("draft")
-  PUBLISHED  @map("published")
-  ARCHIVED   @map("archived")
+  DRAFT     @map("draft")
+  PUBLISHED @map("published")
+  ARCHIVED  @map("archived")
 }
 
 enum ExamStatus {
-  DRAFT      @map("draft")
-  SCHEDULED  @map("scheduled")
-  RUNNING    @map("running")
-  ENDED      @map("ended")
-  ARCHIVED   @map("archived")
+  DRAFT     @map("draft")
+  SCHEDULED @map("scheduled")
+  RUNNING   @map("running")
+  ENDED     @map("ended")
+  ARCHIVED  @map("archived")
 }
 
 enum ShowAnswerMode {
-  NEVER            @map("never")
-  AFTER_SUBMIT     @map("after_submit")
-  AFTER_EXAM_END   @map("after_exam_end")
-  AFTER_MANUAL     @map("after_manual")
+  NEVER          @map("never")
+  AFTER_SUBMIT   @map("after_submit")
+  AFTER_EXAM_END @map("after_exam_end")
+  AFTER_MANUAL   @map("after_manual")
 }
 
 enum ShowScoreMode {
-  NEVER            @map("never")
-  AFTER_SUBMIT     @map("after_submit")
-  AFTER_GRADED     @map("after_graded")
-  AFTER_EXAM_END   @map("after_exam_end")
-  AFTER_MANUAL     @map("after_manual")
+  NEVER          @map("never")
+  AFTER_SUBMIT   @map("after_submit")
+  AFTER_GRADED   @map("after_graded")
+  AFTER_EXAM_END @map("after_exam_end")
+  AFTER_MANUAL   @map("after_manual")
 }
 
 enum AttemptStatus {
-  NOT_STARTED        @map("not_started")
-  IN_PROGRESS        @map("in_progress")
-  SUBMITTED          @map("submitted")
-  GRADING            @map("grading")
-  GRADED             @map("graded")
-  CANCELLED          @map("cancelled")
-  TIMEOUT_SUBMITTED  @map("timeout_submitted")
+  NOT_STARTED       @map("not_started")
+  IN_PROGRESS       @map("in_progress")
+  SUBMITTED         @map("submitted")
+  GRADING           @map("grading")
+  GRADED            @map("graded")
+  CANCELLED         @map("cancelled")
+  TIMEOUT_SUBMITTED @map("timeout_submitted")
 }
 
 enum AnswerRecordStatus {
-  SAVED          @map("saved")
-  SUBMITTED      @map("submitted")
-  AUTO_GRADED    @map("auto_graded")
-  MANUAL_NEEDED  @map("manual_needed")
-  MANUAL_GRADED  @map("manual_graded")
-  JUDGE_PENDING  @map("judge_pending")
-  JUDGE_DONE     @map("judge_done")
+  SAVED         @map("saved")
+  SUBMITTED     @map("submitted")
+  AUTO_GRADED   @map("auto_graded")
+  MANUAL_NEEDED @map("manual_needed")
+  MANUAL_GRADED @map("manual_graded")
+  JUDGE_PENDING @map("judge_pending")
+  JUDGE_DONE    @map("judge_done")
 }
 
 enum WrongQuestionSourceType {
-  EXAM               @map("exam")
-  PRACTICE           @map("practice")
-  MANUAL             @map("manual")
-  AI_RECOMMENDATION  @map("ai_recommendation")
+  EXAM              @map("exam")
+  PRACTICE          @map("practice")
+  MANUAL            @map("manual")
+  AI_RECOMMENDATION @map("ai_recommendation")
 }
 
 enum MasteryStatus {
-  UNMASTERED  @map("unmastered")
-  REVIEWING   @map("reviewing")
-  MASTERED    @map("mastered")
-  IGNORED     @map("ignored")
+  UNMASTERED @map("unmastered")
+  REVIEWING  @map("reviewing")
+  MASTERED   @map("mastered")
+  IGNORED    @map("ignored")
 }
 
 enum ExportStatus {
-  PENDING     @map("pending")
-  PROCESSING  @map("processing")
-  SUCCESS     @map("success")
-  FAILED      @map("failed")
-  EXPIRED     @map("expired")
+  PENDING    @map("pending")
+  PROCESSING @map("processing")
+  SUCCESS    @map("success")
+  FAILED     @map("failed")
+  EXPIRED    @map("expired")
 }
 
 enum FileVisibility {
-  PUBLIC     @map("public")
-  PRIVATE    @map("private")
-  TEMPORARY  @map("temporary")
+  PUBLIC    @map("public")
+  PRIVATE   @map("private")
+  TEMPORARY @map("temporary")
 }
 
 model User {
@@ -178,12 +178,14 @@ model User {
   updatedAt    DateTime   @updatedAt @map("updated_at")
   deletedAt    DateTime?  @map("deleted_at")
 
-  roles         UserRole[]
-  authAccounts  AuthAccount[]
-  refreshTokens RefreshToken[]
-  auditLogs     AuditLog[]
-  studentClasses ClassStudent[] @relation("ClassStudentUser")
-  teachingClasses ClassTeacher[] @relation("ClassTeacherUser")
+  roles                 UserRole[]
+  authAccounts          AuthAccount[]
+  refreshTokens         RefreshToken[]
+  auditLogs             AuditLog[]
+  studentClasses        ClassStudent[]         @relation("ClassStudentUser")
+  teachingClasses       ClassTeacher[]         @relation("ClassTeacherUser")
+  examAnnouncements     ExamAnnouncement[]     @relation("ExamAnnouncementCreator")
+  examAnnouncementReads ExamAnnouncementRead[]
 
   @@index([userType])
   @@index([status])
@@ -191,16 +193,16 @@ model User {
 }
 
 model AuthAccount {
-  id              String    @id @default(uuid()) @db.Uuid
-  userId          String    @map("user_id") @db.Uuid
-  provider        String    @db.VarChar(64)
-  providerUserId  String    @map("provider_user_id") @db.VarChar(128)
-  unionId         String?   @map("union_id") @db.VarChar(128)
-  credentialJson  Json?     @map("credential_json")
-  linkedAt        DateTime  @default(now()) @map("linked_at")
-  lastLoginAt     DateTime? @map("last_login_at")
-  createdAt       DateTime  @default(now()) @map("created_at")
-  updatedAt       DateTime  @updatedAt @map("updated_at")
+  id             String    @id @default(uuid()) @db.Uuid
+  userId         String    @map("user_id") @db.Uuid
+  provider       String    @db.VarChar(64)
+  providerUserId String    @map("provider_user_id") @db.VarChar(128)
+  unionId        String?   @map("union_id") @db.VarChar(128)
+  credentialJson Json?     @map("credential_json")
+  linkedAt       DateTime  @default(now()) @map("linked_at")
+  lastLoginAt    DateTime? @map("last_login_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
 
   user User @relation(fields: [userId], references: [id])
 
@@ -210,15 +212,15 @@ model AuthAccount {
 }
 
 model RefreshToken {
-  id          String    @id @default(uuid()) @db.Uuid
-  userId      String    @map("user_id") @db.Uuid
-  jti         String    @unique @db.VarChar(64)
-  tokenHash   String    @map("token_hash") @db.VarChar(128)
-  expiresAt   DateTime  @map("expires_at")
-  revokedAt   DateTime? @map("revoked_at")
-  ip          String?   @db.VarChar(64)
-  userAgent   String?   @map("user_agent") @db.Text
-  createdAt   DateTime  @default(now()) @map("created_at")
+  id        String    @id @default(uuid()) @db.Uuid
+  userId    String    @map("user_id") @db.Uuid
+  jti       String    @unique @db.VarChar(64)
+  tokenHash String    @map("token_hash") @db.VarChar(128)
+  expiresAt DateTime  @map("expires_at")
+  revokedAt DateTime? @map("revoked_at")
+  ip        String?   @db.VarChar(64)
+  userAgent String?   @map("user_agent") @db.Text
+  createdAt DateTime  @default(now()) @map("created_at")
 
   user User @relation(fields: [userId], references: [id])
 
@@ -254,8 +256,8 @@ model Permission {
   createdAt DateTime       @default(now()) @map("created_at")
   updatedAt DateTime       @updatedAt @map("updated_at")
 
-  parent Permission?  @relation("PermissionTree", fields: [parentId], references: [id])
-  children Permission[] @relation("PermissionTree")
+  parent   Permission?      @relation("PermissionTree", fields: [parentId], references: [id])
+  children Permission[]     @relation("PermissionTree")
   roles    RolePermission[]
 
   @@index([parentId])
@@ -383,9 +385,9 @@ model KnowledgePoint {
   updatedAt DateTime             @updatedAt @map("updated_at")
   deletedAt DateTime?            @map("deleted_at")
 
-  course    Course           @relation(fields: [courseId], references: [id])
-  parent    KnowledgePoint?  @relation("KnowledgePointTree", fields: [parentId], references: [id])
-  children  KnowledgePoint[] @relation("KnowledgePointTree")
+  course    Course                   @relation(fields: [courseId], references: [id])
+  parent    KnowledgePoint?          @relation("KnowledgePointTree", fields: [parentId], references: [id])
+  children  KnowledgePoint[]         @relation("KnowledgePointTree")
   questions QuestionKnowledgePoint[]
 
   @@unique([courseId, code])
@@ -430,16 +432,16 @@ model Question {
   updatedAt          DateTime       @updatedAt @map("updated_at")
   deletedAt          DateTime?      @map("deleted_at")
 
-  course         Course                   @relation(fields: [courseId], references: [id])
-  options        QuestionOption[]
-  answer         QuestionAnswer?
-  knowledgePoints QuestionKnowledgePoint[]
-  tags           QuestionTag[]
-  versions       QuestionVersion[]
-  paperQuestions PaperQuestion[]
-  answerRecords  AnswerRecord[]
-  wrongQuestions WrongQuestion[]
-  programmingRef ProgrammingProblemRef?
+  course           Course                   @relation(fields: [courseId], references: [id])
+  options          QuestionOption[]
+  answer           QuestionAnswer?
+  knowledgePoints  QuestionKnowledgePoint[]
+  tags             QuestionTag[]
+  versions         QuestionVersion[]
+  paperQuestions   PaperQuestion[]
+  answerRecords    AnswerRecord[]
+  wrongQuestions   WrongQuestion[]
+  programmingRef   ProgrammingProblemRef?
   judgeSubmissions JudgeSubmission[]
 
   @@index([courseId])
@@ -626,10 +628,12 @@ model Exam {
   updatedAt           DateTime       @updatedAt @map("updated_at")
   deletedAt           DateTime?      @map("deleted_at")
 
-  paper          Paper           @relation(fields: [paperId], references: [id])
-  course         Course          @relation(fields: [courseId], references: [id])
-  paperInstances PaperInstance[]
-  attempts       ExamAttempt[]
+  paper             Paper                  @relation(fields: [paperId], references: [id])
+  course            Course                 @relation(fields: [courseId], references: [id])
+  paperInstances    PaperInstance[]
+  attempts          ExamAttempt[]
+  announcements     ExamAnnouncement[]
+  announcementReads ExamAnnouncementRead[]
 
   @@index([paperId])
   @@index([courseId])
@@ -638,6 +642,44 @@ model Exam {
   @@index([startTime])
   @@index([endTime])
   @@map("exams")
+}
+
+model ExamAnnouncement {
+  id        String   @id @default(uuid()) @db.Uuid
+  examId    String   @map("exam_id") @db.Uuid
+  version   Int      @default(1)
+  content   String   @db.Text
+  isActive  Boolean  @default(true) @map("is_active")
+  createdBy String?  @map("created_by") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  exam    Exam                   @relation(fields: [examId], references: [id])
+  creator User?                  @relation("ExamAnnouncementCreator", fields: [createdBy], references: [id])
+  reads   ExamAnnouncementRead[]
+
+  @@unique([examId, version])
+  @@index([examId, isActive])
+  @@index([createdBy])
+  @@map("exam_announcements")
+}
+
+model ExamAnnouncementRead {
+  id             String   @id @default(uuid()) @db.Uuid
+  examId         String   @map("exam_id") @db.Uuid
+  announcementId String   @map("announcement_id") @db.Uuid
+  userId         String   @map("user_id") @db.Uuid
+  readAt         DateTime @default(now()) @map("read_at")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  exam         Exam             @relation(fields: [examId], references: [id])
+  announcement ExamAnnouncement @relation(fields: [announcementId], references: [id])
+  user         User             @relation(fields: [userId], references: [id])
+
+  @@unique([announcementId, userId])
+  @@index([examId, userId])
+  @@index([userId, readAt])
+  @@map("exam_announcement_reads")
 }
 
 model PaperInstance {
@@ -659,27 +701,27 @@ model PaperInstance {
 }
 
 model ExamAttempt {
-  id               String        @id @default(uuid()) @db.Uuid
-  examId           String        @map("exam_id") @db.Uuid
-  studentId        String        @map("student_id") @db.Uuid
-  userId           String        @map("user_id") @db.Uuid
-  paperInstanceId  String        @map("paper_instance_id") @db.Uuid
-  startedAt        DateTime      @default(now()) @map("started_at")
-  submittedAt      DateTime?     @map("submitted_at")
-  status           AttemptStatus @default(IN_PROGRESS)
-  objectiveScore   Decimal       @default(0) @map("objective_score") @db.Decimal(8, 2)
-  subjectiveScore  Decimal       @default(0) @map("subjective_score") @db.Decimal(8, 2)
-  judgeScore       Decimal       @default(0) @map("judge_score") @db.Decimal(8, 2)
-  totalScore       Decimal       @default(0) @map("total_score") @db.Decimal(8, 2)
-  durationSeconds  Int?          @map("duration_seconds")
-  createdAt        DateTime      @default(now()) @map("created_at")
-  updatedAt        DateTime      @updatedAt @map("updated_at")
+  id              String        @id @default(uuid()) @db.Uuid
+  examId          String        @map("exam_id") @db.Uuid
+  studentId       String        @map("student_id") @db.Uuid
+  userId          String        @map("user_id") @db.Uuid
+  paperInstanceId String        @map("paper_instance_id") @db.Uuid
+  startedAt       DateTime      @default(now()) @map("started_at")
+  submittedAt     DateTime?     @map("submitted_at")
+  status          AttemptStatus @default(IN_PROGRESS)
+  objectiveScore  Decimal       @default(0) @map("objective_score") @db.Decimal(8, 2)
+  subjectiveScore Decimal       @default(0) @map("subjective_score") @db.Decimal(8, 2)
+  judgeScore      Decimal       @default(0) @map("judge_score") @db.Decimal(8, 2)
+  totalScore      Decimal       @default(0) @map("total_score") @db.Decimal(8, 2)
+  durationSeconds Int?          @map("duration_seconds")
+  createdAt       DateTime      @default(now()) @map("created_at")
+  updatedAt       DateTime      @updatedAt @map("updated_at")
 
-  exam          Exam          @relation(fields: [examId], references: [id])
-  paperInstance PaperInstance @relation(fields: [paperInstanceId], references: [id])
-  answers       AnswerRecord[]
+  exam             Exam               @relation(fields: [examId], references: [id])
+  paperInstance    PaperInstance      @relation(fields: [paperInstanceId], references: [id])
+  answers          AnswerRecord[]
   judgeSubmissions JudgeSubmission[]
-  aiReports     AiAnalysisReport[]
+  aiReports        AiAnalysisReport[]
 
   @@index([examId])
   @@index([studentId])
@@ -757,22 +799,22 @@ model PracticeSession {
 }
 
 model ProgrammingProblemRef {
-  id                String   @id @default(uuid()) @db.Uuid
-  questionId        String   @unique @map("question_id") @db.Uuid
-  judgeProvider     String   @default("hydro") @map("judge_provider") @db.VarChar(32)
-  externalProblemId String   @map("external_problem_id") @db.VarChar(128)
-  externalProblemUrl String? @map("external_problem_url") @db.Text
-  languageConfigJson Json?   @map("language_config_json")
-  timeLimit         Int?     @map("time_limit")
-  memoryLimit       Int?     @map("memory_limit")
-  judgeConfigJson   Json?    @map("judge_config_json")
-  createdAt         DateTime @default(now()) @map("created_at")
-  updatedAt         DateTime @updatedAt @map("updated_at")
+  id                 String   @id @default(uuid()) @db.Uuid
+  questionId         String   @unique @map("question_id") @db.Uuid
+  judgeProvider      String   @default("hydro") @map("judge_provider") @db.VarChar(32)
+  externalProblemId  String   @map("external_problem_id") @db.VarChar(128)
+  externalProblemUrl String?  @map("external_problem_url") @db.Text
+  languageConfigJson Json?    @map("language_config_json")
+  timeLimit          Int?     @map("time_limit")
+  memoryLimit        Int?     @map("memory_limit")
+  judgeConfigJson    Json?    @map("judge_config_json")
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
 
   question Question @relation(fields: [questionId], references: [id])
 
-  @@index([judgeProvider])
   @@unique([judgeProvider, externalProblemId])
+  @@index([judgeProvider])
   @@map("programming_problem_refs")
 }
 
@@ -792,20 +834,20 @@ model HydroAccount {
 
 model JudgeSubmission {
   id                   String    @id @default(uuid()) @db.Uuid
-  attemptId             String    @map("attempt_id") @db.Uuid
-  questionId            String    @map("question_id") @db.Uuid
-  studentId             String    @map("student_id") @db.Uuid
-  provider              String    @default("hydro") @db.VarChar(32)
-  externalSubmissionId  String?   @map("external_submission_id") @db.VarChar(128)
-  language              String    @db.VarChar(64)
-  codeSnapshot          String    @map("code_snapshot") @db.Text
-  status                String    @default("pending") @db.VarChar(32)
-  score                 Decimal?  @db.Decimal(8, 2)
-  resultJson            Json?     @map("result_json")
-  submittedAt           DateTime  @default(now()) @map("submitted_at")
-  judgedAt              DateTime? @map("judged_at")
-  createdAt             DateTime  @default(now()) @map("created_at")
-  updatedAt             DateTime  @updatedAt @map("updated_at")
+  attemptId            String    @map("attempt_id") @db.Uuid
+  questionId           String    @map("question_id") @db.Uuid
+  studentId            String    @map("student_id") @db.Uuid
+  provider             String    @default("hydro") @db.VarChar(32)
+  externalSubmissionId String?   @map("external_submission_id") @db.VarChar(128)
+  language             String    @db.VarChar(64)
+  codeSnapshot         String    @map("code_snapshot") @db.Text
+  status               String    @default("pending") @db.VarChar(32)
+  score                Decimal?  @db.Decimal(8, 2)
+  resultJson           Json?     @map("result_json")
+  submittedAt          DateTime  @default(now()) @map("submitted_at")
+  judgedAt             DateTime? @map("judged_at")
+  createdAt            DateTime  @default(now()) @map("created_at")
+  updatedAt            DateTime  @updatedAt @map("updated_at")
 
   attempt  ExamAttempt @relation(fields: [attemptId], references: [id])
   question Question    @relation(fields: [questionId], references: [id])
@@ -860,20 +902,20 @@ model HydroResult {
 }
 
 model AiAnalysisReport {
-  id                String    @id @default(uuid()) @db.Uuid
-  studentId         String?   @map("student_id") @db.Uuid
-  examId            String?   @map("exam_id") @db.Uuid
-  attemptId         String?   @map("attempt_id") @db.Uuid
-  classId           String?   @map("class_id") @db.Uuid
-  type              String    @db.VarChar(64)
-  inputSnapshotJson Json      @map("input_snapshot_json")
-  outputJson        Json?     @map("output_json")
-  status            String    @default("pending") @db.VarChar(32)
-  modelName         String?   @map("model_name") @db.VarChar(128)
-  errorMessage      String?   @map("error_message") @db.Text
-  createdBy         String?   @map("created_by") @db.Uuid
-  createdAt         DateTime  @default(now()) @map("created_at")
-  updatedAt         DateTime  @updatedAt @map("updated_at")
+  id                String   @id @default(uuid()) @db.Uuid
+  studentId         String?  @map("student_id") @db.Uuid
+  examId            String?  @map("exam_id") @db.Uuid
+  attemptId         String?  @map("attempt_id") @db.Uuid
+  classId           String?  @map("class_id") @db.Uuid
+  type              String   @db.VarChar(64)
+  inputSnapshotJson Json     @map("input_snapshot_json")
+  outputJson        Json?    @map("output_json")
+  status            String   @default("pending") @db.VarChar(32)
+  modelName         String?  @map("model_name") @db.VarChar(128)
+  errorMessage      String?  @map("error_message") @db.Text
+  createdBy         String?  @map("created_by") @db.Uuid
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
 
   attempt ExamAttempt? @relation(fields: [attemptId], references: [id])
 

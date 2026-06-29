@@ -60,13 +60,22 @@
                         <el-dropdown-item command="student-pdf">PDF 学生版</el-dropdown-item>
                         <el-dropdown-item command="answer-pdf">PDF 答案解析</el-dropdown-item>
                         <el-dropdown-item command="answer-docx">Word 答案解析</el-dropdown-item>
-                        <el-dropdown-item command="answer-csv">CSV 答案表</el-dropdown-item>
+                        <el-dropdown-item command="transfer-csv">CSV 迁移表</el-dropdown-item>
+                        <el-dropdown-item command="transfer-json">JSON 迁移表</el-dropdown-item>
+                        <el-dropdown-item command="transfer-zip">ZIP 迁移包</el-dropdown-item>
                       </el-dropdown-menu>
                     </template>
                   </el-dropdown>
                 </template>
               </el-table-column>
             </el-table>
+            <el-alert
+              class="export-field-alert"
+              type="info"
+              show-icon
+              :closable="false"
+              title="CSV/JSON 用于回导迁移，必需字段：schemaVersion、title、type、difficulty、defaultScore、contentMarkdown、optionsJson、answerJson、scoringRuleJson、analysisMarkdown、tagNames、knowledgePointNames。PDF/Word 仅用于阅读或讲评。"
+            />
           </el-tab-pane>
 
           <el-tab-pane label="成绩 / 考试导出" name="exams">
@@ -126,12 +135,22 @@
                         <el-dropdown-item command="grading-csv">批改记录 CSV</el-dropdown-item>
                         <el-dropdown-item command="paper-pdf">试卷 PDF</el-dropdown-item>
                         <el-dropdown-item command="paper-answer-pdf">试卷答案 PDF</el-dropdown-item>
+                        <el-dropdown-item command="paper-transfer-csv">试卷 CSV 迁移表</el-dropdown-item>
+                        <el-dropdown-item command="paper-transfer-json">试卷 JSON 迁移表</el-dropdown-item>
+                        <el-dropdown-item command="paper-transfer-zip">试卷 ZIP 迁移包</el-dropdown-item>
                       </el-dropdown-menu>
                     </template>
                   </el-dropdown>
                 </template>
               </el-table-column>
             </el-table>
+            <el-alert
+              class="export-field-alert"
+              type="info"
+              show-icon
+              :closable="false"
+              title="考试列表中的“试卷 CSV/JSON/ZIP 迁移”会导出关联试卷的完整回导数据；普通试卷 PDF 仅用于阅读。"
+            />
           </el-tab-pane>
         </el-tabs>
       </div>
@@ -281,7 +300,9 @@ async function exportPaper(row, command) {
     'student-pdf': { format: 'pdf', includeAnswers: false, includeAnalysis: false },
     'answer-pdf': { format: 'pdf', includeAnswers: true, includeAnalysis: true },
     'answer-docx': { format: 'docx', includeAnswers: true, includeAnalysis: true },
-    'answer-csv': { format: 'csv', includeAnswers: true, includeAnalysis: true },
+    'transfer-csv': { format: 'csv', includeAnswers: true, includeAnalysis: true },
+    'transfer-json': { format: 'json', includeAnswers: true, includeAnalysis: true },
+    'transfer-zip': { format: 'zip', includeAnswers: true, includeAnalysis: true },
   };
   const config = configs[command];
   if (!config) return;
@@ -298,9 +319,16 @@ async function exportExam(row, command) {
     'grading-csv': { type: 'grading', format: 'csv', examId: row.id },
     'paper-pdf': { type: 'paper_document', format: 'pdf', paperId: row.paperId, includeAnswers: false, includeAnalysis: false },
     'paper-answer-pdf': { type: 'paper_document', format: 'pdf', paperId: row.paperId, includeAnswers: true, includeAnalysis: true },
+    'paper-transfer-csv': { type: 'paper_document', format: 'csv', paperId: row.paperId, includeAnswers: true, includeAnalysis: true },
+    'paper-transfer-json': { type: 'paper_document', format: 'json', paperId: row.paperId, includeAnswers: true, includeAnalysis: true },
+    'paper-transfer-zip': { type: 'paper_document', format: 'zip', paperId: row.paperId, includeAnswers: true, includeAnalysis: true },
   };
   const config = configs[command];
   if (!config) return;
+  if (config.type === 'paper_document' && !config.paperId) {
+    ElMessage.error('该考试未关联试卷，无法导出试卷内容');
+    return;
+  }
   await directExport(config);
 }
 
@@ -392,6 +420,10 @@ onMounted(loadAll);
 .export-filter-row {
   margin-bottom: 12px;
   justify-content: flex-start;
+}
+
+.export-field-alert {
+  margin-top: 10px;
 }
 
 .export-record-panel {

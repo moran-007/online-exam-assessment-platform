@@ -22,7 +22,7 @@ export class ExportsController {
   @Post()
   @Permissions('exam:result:export')
   create(@Body() dto: CreateExportDto, @CurrentUser() user: RequestUser) {
-    return this.exportsService.create(dto, user.id);
+    return this.exportsService.create(dto, user);
   }
 
   @Post('student/wrong-questions')

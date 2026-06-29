@@ -106,6 +106,7 @@
 <script setup>
 import { computed, onMounted, onUnmounted, reactive, ref } from 'vue';
 import { useRouter } from 'vue-router';
+import { ElMessage } from 'element-plus';
 import { DataAnalysis, Refresh } from '@element-plus/icons-vue';
 import { api, buildQuery } from '../api';
 import MarkdownRenderer from '../components/MarkdownRenderer.vue';
@@ -135,7 +136,7 @@ function handleStudentExamSortChange({ prop, order }) {
 }
 
 function enter(row) {
-  if (row.announcement) {
+  if (row.announcement && !row.announcementReadAt) {
     selectedExam.value = row;
     announcementRead.value = false;
     announcementVisible.value = true;
@@ -224,10 +225,17 @@ function enterText(row) {
   return '进入';
 }
 
-function confirmEnter() {
+async function confirmEnter() {
   if (!selectedExam.value) return;
-  announcementVisible.value = false;
-  router.push(`/student/exams/${selectedExam.value.examId}`);
+  try {
+    const record = await api(`/student/exams/${selectedExam.value.examId}/announcement/read`, { method: 'POST' });
+    selectedExam.value.announcementReadAt = record.readAt || new Date().toISOString();
+    selectedExam.value.announcementRead = true;
+    announcementVisible.value = false;
+    router.push(`/student/exams/${selectedExam.value.examId}`);
+  } catch (error) {
+    ElMessage.error(error.message || '公告阅读记录保存失败');
+  }
 }
 
 onMounted(() => {

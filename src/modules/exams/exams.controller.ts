@@ -17,61 +17,61 @@ export class ExamsController {
 
   @Get()
   @Permissions('exam:read')
-  list(@Query() query: QueryExamDto) {
-    return this.examsService.list(query);
+  list(@Query() query: QueryExamDto, @CurrentUser() user: RequestUser) {
+    return this.examsService.list(query, user);
   }
 
   @Post()
   @Permissions('exam:create')
   create(@Body() dto: CreateExamDto, @CurrentUser() user: RequestUser) {
-    return this.examsService.create(dto, user.id);
+    return this.examsService.create(dto, user);
   }
 
   @Patch('batch/status')
   @Permissions('exam:create')
   bulkUpdateStatus(@Body() dto: BulkUpdateExamStatusDto, @CurrentUser() user: RequestUser) {
-    return this.examsService.bulkUpdateStatus(dto, user.id);
+    return this.examsService.bulkUpdateStatus(dto, user);
   }
 
   @Get(':id')
   @Permissions('exam:read')
-  detail(@Param('id') id: string) {
-    return this.examsService.detail(id);
+  detail(@Param('id') id: string, @CurrentUser() user: RequestUser) {
+    return this.examsService.detail(id, user);
   }
 
   @Patch(':id')
   @Permissions('exam:create')
   update(@Param('id') id: string, @Body() dto: UpdateExamDto, @CurrentUser() user: RequestUser) {
-    return this.examsService.update(id, dto, user.id);
+    return this.examsService.update(id, dto, user);
   }
 
   @Post(':id/publish')
   @Permissions('exam:publish')
   publish(@Param('id') id: string, @CurrentUser() user: RequestUser) {
-    return this.examsService.publish(id, user.id);
+    return this.examsService.publish(id, user);
   }
 
   @Post(':id/unpublish')
   @Permissions('exam:publish')
   unpublish(@Param('id') id: string, @CurrentUser() user: RequestUser) {
-    return this.examsService.unpublish(id, user.id);
+    return this.examsService.unpublish(id, user);
   }
 
   @Delete(':id')
   @Permissions('exam:create')
   remove(@Param('id') id: string, @CurrentUser() user: RequestUser) {
-    return this.examsService.remove(id, user.id);
+    return this.examsService.remove(id, user);
   }
 
   @Get(':id/results')
   @Permissions('exam:result:read')
-  results(@Param('id') id: string, @Query() query: QueryExamDto) {
-    return this.examsService.results(id, query);
+  results(@Param('id') id: string, @Query() query: QueryExamDto, @CurrentUser() user: RequestUser) {
+    return this.examsService.results(id, query, user);
   }
 
   @Get(':id/statistics')
   @Permissions('exam:result:read')
-  statistics(@Param('id') id: string) {
-    return this.examsService.statistics(id);
+  statistics(@Param('id') id: string, @CurrentUser() user: RequestUser) {
+    return this.examsService.statistics(id, user);
   }
 }

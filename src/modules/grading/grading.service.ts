@@ -3,6 +3,8 @@ import { AnswerRecordStatus, AttemptStatus, Prisma, QuestionType } from '@prisma
 import { toPagination } from '../../common/dto/pagination-query.dto';
 import { toApiEnum } from '../../common/utils/enum-normalizer';
 import { AuditService } from '../audit/audit.service';
+import { RequestUser } from '../../common/interfaces/request-user.interface';
+import { DataScopeService } from '../data-scope/data-scope.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { GradeAnswerDto } from './dto/grade-answer.dto';
 import { QueryGradingDto } from './dto/query-grading.dto';
@@ -30,11 +32,13 @@ export class GradingService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly dataScope: DataScopeService,
   ) {}
 
-  async list(query: QueryGradingDto) {
+  async list(query: QueryGradingDto, user: RequestUser) {
     const { page, pageSize, skip, take } = toPagination(query);
     const status = this.answerStatusWhere(query.status);
+    const examScope = await this.dataScope.examWhere(user);
     const where: Prisma.AnswerRecordWhereInput = {
       status:
         status ?? {
@@ -49,6 +53,7 @@ export class GradingService {
         examId: query.examId,
         userId: query.studentId,
         submittedAt: { not: null },
+        exam: examScope,
       },
       OR: query.keyword
         ? [
@@ -110,7 +115,7 @@ export class GradingService {
     };
   }
 
-  async attemptDetail(attemptId: string) {
+  async attemptDetail(attemptId: string, user: RequestUser) {
     const attempt = await this.prisma.examAttempt.findFirst({
       where: { id: attemptId },
       include: {
@@ -122,6 +127,7 @@ export class GradingService {
     if (!attempt) {
       throw new NotFoundException('答题记录不存在');
     }
+    await this.dataScope.assertExamAccessible(user, attempt.examId);
     const student = await this.prisma.user.findFirst({
       where: { id: attempt.userId },
       select: { id: true, username: true, realName: true },
@@ -171,7 +177,7 @@ export class GradingService {
     };
   }
 
-  async gradeAnswer(answerRecordId: string, dto: GradeAnswerDto, userId: string) {
+  async gradeAnswer(answerRecordId: string, dto: GradeAnswerDto, user: RequestUser) {
     const record = await this.prisma.answerRecord.findFirst({
       where: { id: answerRecordId },
       include: {
@@ -181,6 +187,7 @@ export class GradingService {
     if (!record) {
       throw new NotFoundException('待批改答案不存在');
     }
+    await this.dataScope.assertExamAccessible(user, record.attempt.examId);
     if (!this.isGradableStatus(record.status)) {
       throw new BadRequestException('当前答案不是可批改题');
     }
@@ -205,7 +212,7 @@ export class GradingService {
           isCorrect: dto.score >= maxScore && maxScore > 0,
           status: nextStatus,
           manualComment: dto.comment?.trim() || null,
-          gradedBy: userId,
+          gradedBy: user.id,
           gradedAt: new Date(),
         },
       });
@@ -213,7 +220,7 @@ export class GradingService {
     });
 
     await this.audit.log({
-      userId,
+      userId: user.id,
       action: 'grading:grade-answer',
       module: 'grading',
       targetType: 'answer_record',

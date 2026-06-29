@@ -16,19 +16,30 @@ import { toPagination } from '../../common/dto/pagination-query.dto';
 import { toApiEnum } from '../../common/utils/enum-normalizer';
 import { RequestUser } from '../../common/interfaces/request-user.interface';
 import { AuditService } from '../audit/audit.service';
+import { DataScopeService } from '../data-scope/data-scope.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateExportDto } from './dto/create-export.dto';
 import { QueryExportDto } from './dto/query-export.dto';
 
 type ExportQuestion = {
+  sourceId?: string;
   title: string;
   type: string;
   score: number;
+  defaultScore?: number;
+  difficulty?: number;
+  status?: string;
+  courseId?: string;
+  courseName?: string;
   content: string;
-  options: Array<{ id?: string; label: string; content: string; isCorrect?: boolean }>;
+  options: Array<{ id?: string; label: string; content: string; isCorrect?: boolean; sortOrder?: number }>;
   answer?: Record<string, unknown> | null;
+  scoringRule?: Record<string, unknown> | null;
   analysis?: string | null;
   sectionTitle?: string;
+  tagNames?: string[];
+  knowledgePointNames?: string[];
+  allowOptionShuffle?: boolean;
   wrongCount?: number;
   lastWrongAt?: Date;
 };
@@ -71,6 +82,7 @@ export class ExportsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly dataScope: DataScopeService,
   ) {}
 
   async list(query: QueryExportDto, userId: string) {
@@ -101,20 +113,20 @@ export class ExportsService {
     };
   }
 
-  async create(dto: CreateExportDto, userId: string) {
+  async create(dto: CreateExportDto, user: RequestUser) {
     const format =
       dto.format ?? (['paper_document', 'wrong_questions'].includes(dto.type) ? 'pdf' : dto.type === 'question_bank' ? 'zip' : 'csv');
     const task = await this.prisma.exportTask.create({
       data: {
         type: dto.type,
-        paramsJson: dto as unknown as Prisma.InputJsonObject,
+        paramsJson: this.withPermissionSnapshot(dto, user),
         status: ExportStatus.PROCESSING,
-        createdBy: userId,
+        createdBy: user.id,
       },
     });
 
     try {
-      const fileUrl = await this.writeExport(task.id, dto, format, userId);
+      const fileUrl = await this.writeExport(task.id, dto, format, user);
       const updated = await this.prisma.exportTask.update({
         where: { id: task.id },
         data: {
@@ -124,7 +136,7 @@ export class ExportsService {
         },
       });
       await this.audit.log({
-        userId,
+        userId: user.id,
         action: 'export:create',
         module: 'export',
         targetType: 'export_task',
@@ -159,7 +171,7 @@ export class ExportsService {
         includeAnalysis: dto.includeAnalysis ?? true,
         includeWrongInfo: dto.includeWrongInfo ?? true,
       },
-      user.id,
+      user,
     );
   }
 
@@ -174,20 +186,27 @@ export class ExportsService {
     return { url: task.fileUrl };
   }
 
-  private async buildRows(dto: CreateExportDto) {
-    if (dto.type === 'exam_results') return this.examRows(dto);
-    if (dto.type === 'grading') return this.gradingRows(dto);
+  private async buildRows(dto: CreateExportDto, user: RequestUser) {
+    if (dto.type === 'exam_results') return this.examRows(dto, user);
+    if (dto.type === 'grading') return this.gradingRows(dto, user);
     if (dto.type === 'question_bank') return this.questionRows(dto);
     if (dto.type === 'papers') return this.paperRows(dto);
     if (dto.type === 'paper_document') return this.paperDocumentRows(dto);
-    if (dto.type === 'wrong_questions') return this.wrongQuestionRows(dto, '');
-    if (dto.type === 'classes') return this.classRows(dto);
-    if (dto.type === 'statistics') return this.statisticsRows(dto);
+    if (dto.type === 'wrong_questions') return this.wrongQuestionRows(dto, user.id);
+    if (dto.type === 'classes') return this.classRows(dto, user);
+    if (dto.type === 'statistics') return this.statisticsRows(dto, user);
     throw new BadRequestException('不支持的导出类型');
   }
 
-  private async writeExport(taskId: string, dto: CreateExportDto, format: string, userId: string) {
+  private async writeExport(taskId: string, dto: CreateExportDto, format: string, user: RequestUser) {
     if (dto.type === 'paper_document') {
+      if (format === 'csv' || format === 'json') {
+        const rows = await this.paperDocumentRows(dto);
+        return this.writeTableExportFile(taskId, dto.type, format, rows);
+      }
+      if (format === 'zip') {
+        return this.writePaperDocumentPackageExport(taskId, dto);
+      }
       const content = await this.paperDocumentContent(dto);
       return this.writeDocumentExport(taskId, dto.type, format, content);
     }
@@ -203,16 +222,17 @@ export class ExportsService {
     }
 
     if (dto.type === 'wrong_questions') {
-      const content = await this.wrongQuestionDocumentContent(dto, userId);
+      const content = await this.wrongQuestionDocumentContent(dto, user.id);
       return this.writeDocumentExport(taskId, dto.type, format, content);
     }
 
-    const rows = await this.buildRows(dto);
+    const rows = await this.buildRows(dto, user);
     return this.writeTableExportFile(taskId, dto.type, format, rows);
   }
 
-  private async examRows(dto: CreateExportDto) {
+  private async examRows(dto: CreateExportDto, user: RequestUser) {
     if (!dto.examId) throw new BadRequestException('导出考试成绩需要选择考试');
+    await this.dataScope.assertExamAccessible(user, dto.examId);
     const attempts = await this.prisma.examAttempt.findMany({
       where: { examId: dto.examId, submittedAt: { not: null } },
       include: { exam: true },
@@ -240,12 +260,16 @@ export class ExportsService {
     });
   }
 
-  private async gradingRows(dto: CreateExportDto) {
+  private async gradingRows(dto: CreateExportDto, user: RequestUser) {
+    const examScope = await this.dataScope.examWhere(user, dto.classId);
+    if (dto.examId) {
+      await this.dataScope.assertExamAccessible(user, dto.examId);
+    }
     const records = await this.prisma.answerRecord.findMany({
       where: {
         attempt: {
           examId: dto.examId,
-          exam: { classId: dto.classId, courseId: dto.courseId },
+          exam: { ...examScope, courseId: dto.courseId },
           submittedAt: { not: null },
         },
       },
@@ -296,33 +320,10 @@ export class ExportsService {
   }
 
   private questionRow(question: QuestionExportEntity, dto: CreateExportDto) {
-    const includeAnswers = dto.includeAnswers ?? true;
-    const includeAnalysis = dto.includeAnalysis ?? true;
-    return {
-      id: question.id,
-      title: question.title,
-      type: toApiEnum(question.type),
-      difficulty: question.difficulty,
-      defaultScore: Number(question.defaultScore),
-      status: toApiEnum(question.status),
-      courseName: question.course.name,
-      content: question.content,
-      options: JSON.stringify(
-        question.options.map((option) => ({
-          optionKey: option.optionKey,
-          content: option.content,
-          isCorrect: includeAnswers ? option.isCorrect : undefined,
-          sortOrder: option.sortOrder,
-        })),
-      ),
-      answer: includeAnswers ? JSON.stringify(question.answer?.answerJson ?? {}) : '',
-      scoringRule: includeAnswers ? JSON.stringify(question.answer?.scoringRuleJson ?? {}) : '',
-      analysis: includeAnalysis ? question.analysis ?? '' : '',
-      knowledgePointNames: question.knowledgePoints.map((item) => item.knowledgePoint.name).join(','),
-      tagNames: question.tags.map((item) => item.tag.name).join(','),
+    return this.questionTransferRow(this.exportQuestionFromEntity(question), dto, undefined, 'question_bank', {
       createdAt: question.createdAt.toISOString(),
       updatedAt: question.updatedAt.toISOString(),
-    };
+    });
   }
 
   private async paperRows(dto: CreateExportDto) {
@@ -344,15 +345,71 @@ export class ExportsService {
 
   private async paperDocumentRows(dto: CreateExportDto) {
     const content = await this.paperDocumentContent(dto);
-    return content.questions.map((question, index) => ({
-      no: index + 1,
+    return content.questions.map((question, index) =>
+      this.questionTransferRow(question, dto, index, 'paper_document', {
+        paperId: dto.paperId ?? '',
+        paperName: content.title,
+      }),
+    );
+  }
+
+  private questionTransferRow(
+    question: ExportQuestion,
+    dto: CreateExportDto,
+    index?: number,
+    source = 'question_bank',
+    extra: Record<string, unknown> = {},
+  ) {
+    const includeAnswers = dto.includeAnswers ?? true;
+    const includeAnalysis = dto.includeAnalysis ?? true;
+    const options = question.options.map((option, optionIndex) => ({
+      id: option.id,
+      optionKey: option.label,
+      label: option.label,
+      content: option.content,
+      contentMarkdown: option.content,
+      isCorrect: includeAnswers ? Boolean(option.isCorrect) : false,
+      sortOrder: option.sortOrder ?? optionIndex + 1,
+    }));
+    const answer = includeAnswers ? question.answer ?? {} : {};
+    const scoringRule = includeAnswers ? question.scoringRule ?? {} : {};
+    const analysis = includeAnalysis ? question.analysis ?? '' : '';
+    const tagNames = question.tagNames ?? [];
+    const knowledgePointNames = question.knowledgePointNames ?? [];
+
+    return {
+      schemaVersion: 'question-transfer-v2',
+      source,
+      no: index === undefined ? '' : index + 1,
+      questionId: question.sourceId ?? '',
+      paperId: extra.paperId ?? '',
+      paperName: extra.paperName ?? '',
       section: question.sectionTitle ?? '',
       title: question.title,
       type: question.type,
+      difficulty: question.difficulty ?? 1,
+      defaultScore: question.defaultScore ?? question.score,
       score: question.score,
-      answer: this.formatAnswer(question.answer, question.options),
-      analysis: question.analysis ?? '',
-    }));
+      status: question.status ?? '',
+      courseId: question.courseId ?? '',
+      courseName: question.courseName ?? '',
+      contentMarkdown: question.content,
+      content: question.content,
+      optionsJson: JSON.stringify(options),
+      options: JSON.stringify(options),
+      answerJson: JSON.stringify(answer),
+      answer: JSON.stringify(answer),
+      answerText: includeAnswers ? this.formatAnswer(answer, question.options) : '',
+      scoringRuleJson: JSON.stringify(scoringRule),
+      scoringRule: JSON.stringify(scoringRule),
+      analysisMarkdown: analysis,
+      analysis,
+      knowledgePointNames: knowledgePointNames.join(','),
+      tagNames: tagNames.join(','),
+      allowOptionShuffle: question.allowOptionShuffle ?? '',
+      createdAt: extra.createdAt ?? '',
+      updatedAt: extra.updatedAt ?? '',
+    };
   }
 
   private async wrongQuestionRows(dto: CreateExportDto, userId: string) {
@@ -464,9 +521,10 @@ export class ExportsService {
     };
   }
 
-  private async classRows(dto: CreateExportDto) {
+  private async classRows(dto: CreateExportDto, user: RequestUser) {
+    const classWhere = await this.dataScope.classWhere(user, dto.classId);
     const classes = await this.prisma.classGroup.findMany({
-      where: { deletedAt: null, courseId: dto.courseId },
+      where: { ...classWhere, deletedAt: null, courseId: dto.courseId },
       include: { course: true, _count: { select: { students: true, teachers: true } } },
       orderBy: [{ sortOrder: 'asc' }, { createdAt: 'desc' }],
     });
@@ -481,12 +539,16 @@ export class ExportsService {
     }));
   }
 
-  private async statisticsRows(dto: CreateExportDto) {
+  private async statisticsRows(dto: CreateExportDto, user: RequestUser) {
+    const examScope = await this.dataScope.examWhere(user, dto.classId);
+    if (dto.examId) {
+      await this.dataScope.assertExamAccessible(user, dto.examId);
+    }
     const attempts = await this.prisma.examAttempt.findMany({
       where: {
         submittedAt: { not: null },
         examId: dto.examId,
-        exam: { courseId: dto.courseId, classId: dto.classId },
+        exam: { ...examScope, courseId: dto.courseId },
       },
       include: { exam: true },
       orderBy: { submittedAt: 'desc' },
@@ -516,6 +578,19 @@ export class ExportsService {
     }));
   }
 
+  private withPermissionSnapshot(dto: CreateExportDto, user: RequestUser): Prisma.InputJsonObject {
+    return {
+      ...(dto as unknown as Record<string, unknown>),
+      permissionSnapshot: {
+        userId: user.id,
+        userType: user.userType,
+        roles: user.roles,
+        permissions: user.permissions,
+        capturedAt: new Date().toISOString(),
+      },
+    } as Prisma.InputJsonObject;
+  }
+
   private exportQuestionFromSnapshot(
     question: {
       score: Prisma.Decimal;
@@ -532,37 +607,70 @@ export class ExportsService {
             label: String(value.optionKey ?? value.label ?? ''),
             content: String(value.content ?? ''),
             isCorrect: Boolean(value.isCorrect),
+            sortOrder: Number(value.sortOrder) || undefined,
           };
         })
       : [];
+    const knowledgePointNames = Array.isArray(snapshot.knowledgePoints)
+      ? snapshot.knowledgePoints
+          .map((item) => this.toRecord(item).name)
+          .map((name) => String(name ?? '').trim())
+          .filter(Boolean)
+      : [];
+    const tagNames = Array.isArray(snapshot.tags)
+      ? snapshot.tags
+          .map((item) => this.toRecord(item).name)
+          .map((name) => String(name ?? '').trim())
+          .filter(Boolean)
+      : [];
 
     return {
+      sourceId: typeof snapshot.id === 'string' ? snapshot.id : undefined,
       title: String(snapshot.title ?? '未命名题目'),
       type: String(snapshot.type ?? ''),
       score: Number(question.score),
+      defaultScore: Number(snapshot.defaultScore) || Number(question.score),
+      difficulty: Number(snapshot.difficulty) || 1,
+      courseId: typeof snapshot.courseId === 'string' ? snapshot.courseId : undefined,
+      courseName: typeof snapshot.courseName === 'string' ? snapshot.courseName : undefined,
       content: String(snapshot.content ?? ''),
       options,
       answer: this.toRecord(snapshot.answer),
+      scoringRule: this.toRecord(snapshot.scoringRule),
       analysis: typeof snapshot.analysis === 'string' ? snapshot.analysis : '',
       sectionTitle,
+      knowledgePointNames,
+      tagNames,
+      allowOptionShuffle: Boolean(snapshot.allowOptionShuffle),
     };
   }
 
   private exportQuestionFromEntity(question: QuestionExportEntity): ExportQuestion {
     return {
+      sourceId: question.id,
       title: question.title,
       type: toApiEnum(question.type),
       score: Number(question.defaultScore),
+      defaultScore: Number(question.defaultScore),
+      difficulty: question.difficulty,
+      status: toApiEnum(question.status),
+      courseId: question.courseId,
+      courseName: question.course.name,
       content: question.content,
       options: question.options.map((option) => ({
         id: option.id,
         label: option.optionKey,
         content: option.content,
         isCorrect: option.isCorrect,
+        sortOrder: option.sortOrder,
       })),
       answer: (question.answer?.answerJson ?? {}) as Record<string, unknown>,
+      scoringRule: (question.answer?.scoringRuleJson ?? {}) as Record<string, unknown>,
       analysis: question.analysis,
       sectionTitle: question.course.name,
+      knowledgePointNames: question.knowledgePoints.map((item) => item.knowledgePoint.name),
+      tagNames: question.tags.map((item) => item.tag.name),
+      allowOptionShuffle: question.allowOptionShuffle,
     };
   }
 
@@ -676,6 +784,84 @@ export class ExportsService {
     return `/uploads/exports/${fileName}`;
   }
 
+  private async writePaperDocumentPackageExport(taskId: string, dto: CreateExportDto) {
+    const content = await this.paperDocumentContent(dto);
+    if (!content.questions.length) {
+      throw new BadRequestException('试卷内没有可导出的题目');
+    }
+
+    await mkdir(this.exportDir, { recursive: true });
+    const assetMap = new Map<string, string>();
+    for (const question of content.questions) {
+      this.collectExportQuestionUploads(assetMap, question);
+    }
+
+    const exportedAt = new Date().toISOString();
+    const includeAnswers = dto.includeAnswers ?? true;
+    const includeAnalysis = dto.includeAnalysis ?? true;
+    const templateText = this.exportQuestionImportMarkdown(content.questions, assetMap, includeAnalysis);
+    const answerText = this.exportQuestionImportAnswers(content.questions, includeAnswers);
+    const payload = {
+      schemaVersion: 2,
+      packageType: 'paper_document',
+      exportedAt,
+      includeAnswers,
+      includeAnalysis,
+      paper: {
+        id: dto.paperId ?? '',
+        name: content.title,
+        subtitle: content.subtitle,
+      },
+      count: content.questions.length,
+      questions: content.questions.map((question, index) =>
+        this.exportQuestionPackageRecord(question, assetMap, dto, index, {
+          paperId: dto.paperId ?? '',
+          paperName: content.title,
+        }),
+      ),
+    };
+
+    const entries: ZipEntry[] = [
+      {
+        name: 'README.txt',
+        data: Buffer.from(
+          [
+            '试卷题目迁移包',
+            `试卷：${content.title}`,
+            `导出时间：${exportedAt}`,
+            `题目数量：${content.questions.length}`,
+            '',
+            'questions.json 是首选回导文件，保留题目 Markdown、选项、答案、解析、标签、知识点和填空规则。',
+            'questions-template.md 与 answers.txt 可人工查看或兜底导入。',
+            'assets/ 目录保存题目中引用到的本地上传图片或附件，JSON 与 Markdown 中的 /uploads 链接已改写为相对路径。',
+          ].join('\n'),
+          'utf8',
+        ),
+      },
+      {
+        name: 'questions.json',
+        data: Buffer.from(JSON.stringify(payload, null, 2), 'utf8'),
+      },
+      {
+        name: 'questions-template.md',
+        data: Buffer.from(templateText, 'utf8'),
+      },
+      {
+        name: 'answers.txt',
+        data: Buffer.from(answerText, 'utf8'),
+      },
+    ];
+
+    for (const [localPath, zipPath] of assetMap.entries()) {
+      entries.push({ name: zipPath, data: await readFile(localPath) });
+    }
+
+    const fileName = `paper_document-${taskId}.zip`;
+    const filePath = join(this.exportDir, fileName);
+    await writeFile(filePath, this.createZip(entries));
+    return `/uploads/exports/${fileName}`;
+  }
+
   private questionPackageRecord(question: QuestionExportEntity, assetMap: Map<string, string>, dto: CreateExportDto) {
     const includeAnswers = dto.includeAnswers ?? true;
     const includeAnalysis = dto.includeAnalysis ?? true;
@@ -732,6 +918,73 @@ export class ExportsService {
       },
       createdAt: question.createdAt.toISOString(),
       updatedAt: question.updatedAt.toISOString(),
+    };
+  }
+
+  private exportQuestionPackageRecord(
+    question: ExportQuestion,
+    assetMap: Map<string, string>,
+    dto: CreateExportDto,
+    index: number,
+    extra: Record<string, string> = {},
+  ) {
+    const includeAnswers = dto.includeAnswers ?? true;
+    const includeAnalysis = dto.includeAnalysis ?? true;
+    const options = question.options.map((option, optionIndex) => ({
+      id: option.id,
+      optionKey: option.label,
+      contentMarkdown: this.rewriteMarkdownUploads(option.content, assetMap),
+      isCorrect: includeAnswers ? Boolean(option.isCorrect) : undefined,
+      sortOrder: option.sortOrder ?? optionIndex + 1,
+    }));
+    return {
+      id: question.sourceId ?? '',
+      sourceId: question.sourceId ?? '',
+      no: index + 1,
+      paperId: extra.paperId ?? '',
+      paperName: extra.paperName ?? '',
+      section: question.sectionTitle ?? '',
+      title: question.title,
+      type: question.type,
+      difficulty: question.difficulty ?? 1,
+      defaultScore: question.defaultScore ?? question.score,
+      score: question.score,
+      status: question.status ?? '',
+      course: {
+        id: question.courseId ?? '',
+        name: question.courseName ?? '',
+      },
+      courseId: question.courseId ?? '',
+      courseName: question.courseName ?? '',
+      contentMarkdown: this.rewriteMarkdownUploads(question.content, assetMap),
+      options,
+      answer: includeAnswers ? question.answer ?? {} : {},
+      scoringRule: includeAnswers ? question.scoringRule ?? {} : {},
+      analysisMarkdown: includeAnalysis ? this.rewriteMarkdownUploads(question.analysis ?? '', assetMap) : '',
+      knowledgePoints: (question.knowledgePointNames ?? []).map((name) => ({ name })),
+      knowledgePointNames: question.knowledgePointNames ?? [],
+      tags: (question.tagNames ?? []).map((name) => ({ name })),
+      tagNames: question.tagNames ?? [],
+      allowOptionShuffle: question.allowOptionShuffle ?? false,
+      importPayload: {
+        type: question.type,
+        title: question.title,
+        content: this.rewriteMarkdownUploads(question.content, assetMap),
+        difficulty: question.difficulty ?? 1,
+        defaultScore: question.defaultScore ?? question.score,
+        analysis: includeAnalysis ? this.rewriteMarkdownUploads(question.analysis ?? '', assetMap) : '',
+        options: options.map((option) => ({
+          optionKey: option.optionKey,
+          content: option.contentMarkdown,
+          isCorrect: Boolean(option.isCorrect),
+          sortOrder: option.sortOrder,
+        })),
+        answer: includeAnswers ? question.answer ?? {} : {},
+        scoringRule: includeAnswers ? question.scoringRule ?? {} : {},
+        tagNames: question.tagNames ?? [],
+        knowledgePointNames: question.knowledgePointNames ?? [],
+        allowOptionShuffle: question.allowOptionShuffle ?? false,
+      },
     };
   }
 
@@ -1006,6 +1259,10 @@ export class ExportsService {
     return questions.map((question) => this.questionImportBlock(question, assetMap, includeAnalysis)).join('\n---\n');
   }
 
+  private exportQuestionImportMarkdown(questions: ExportQuestion[], assetMap: Map<string, string>, includeAnalysis: boolean) {
+    return questions.map((question) => this.exportQuestionImportBlock(question, assetMap, includeAnalysis)).join('\n---\n');
+  }
+
   private questionImportBlock(question: QuestionExportEntity, assetMap: Map<string, string>, includeAnalysis: boolean) {
     const lines = [
       `标题：${question.title}`,
@@ -1033,9 +1290,41 @@ export class ExportsService {
     return lines.join('\n').trim();
   }
 
+  private exportQuestionImportBlock(question: ExportQuestion, assetMap: Map<string, string>, includeAnalysis: boolean) {
+    const lines = [
+      `标题：${question.title}`,
+      `题型：${this.typeLabel(question.type)}`,
+      `难度：${question.difficulty ?? 1}`,
+      `分值：${question.defaultScore ?? question.score}`,
+    ];
+    const tags = question.tagNames ?? [];
+    const points = question.knowledgePointNames ?? [];
+    if (tags.length) lines.push(`标签：${tags.join(',')}`);
+    if (points.length) lines.push(`知识点：${points.join(',')}`);
+    lines.push('题干：', this.rewriteMarkdownUploads(question.content, assetMap));
+    if (question.options.length) {
+      lines.push('选项：');
+      for (const option of question.options) {
+        const content = this.rewriteMarkdownUploads(option.content, assetMap);
+        const [firstLine, ...restLines] = content.split('\n');
+        lines.push(`${option.label}. ${firstLine ?? ''}`);
+        lines.push(...restLines);
+      }
+    }
+    if (includeAnalysis) {
+      lines.push('解析：', this.rewriteMarkdownUploads(question.analysis ?? '', assetMap));
+    }
+    return lines.join('\n').trim();
+  }
+
   private questionImportAnswers(questions: QuestionExportEntity[], includeAnswers: boolean) {
     if (!includeAnswers) return '';
     return questions.map((question, index) => `${index + 1}. ${this.questionAnswerForImport(question)}`).join('\n');
+  }
+
+  private exportQuestionImportAnswers(questions: ExportQuestion[], includeAnswers: boolean) {
+    if (!includeAnswers) return '';
+    return questions.map((question, index) => `${index + 1}. ${this.exportQuestionAnswerForImport(question)}`).join('\n');
   }
 
   private questionAnswerForImport(question: QuestionExportEntity) {
@@ -1062,6 +1351,33 @@ export class ExportsService {
       content: option.content,
       isCorrect: option.isCorrect,
     })));
+  }
+
+  private exportQuestionAnswerForImport(question: ExportQuestion) {
+    if (['single_choice', 'multiple_choice', 'true_false'].includes(question.type)) {
+      return question.options.filter((option) => option.isCorrect).map((option) => option.label).join(',');
+    }
+
+    const answer = this.toRecord(question.answer);
+    if (question.type === 'fill_blank' && Array.isArray(answer.blanks)) {
+      return answer.blanks
+        .map((blank) => this.toRecord(blank))
+        .flatMap((blank) => (Array.isArray(blank.answers) ? blank.answers.map(String) : []))
+        .join(',');
+    }
+
+    if (typeof answer.reference === 'string') {
+      return answer.reference;
+    }
+
+    return this.formatAnswer(answer, question.options);
+  }
+
+  private collectExportQuestionUploads(assetMap: Map<string, string>, question: ExportQuestion) {
+    this.collectMarkdownUploads(assetMap, question.content, question.analysis ?? '');
+    for (const option of question.options) {
+      this.collectMarkdownUploads(assetMap, option.content);
+    }
   }
 
   private createZip(entries: ZipEntry[]) {

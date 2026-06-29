@@ -32,6 +32,11 @@ export class StudentController {
     return this.studentService.examRanking(examId, user);
   }
 
+  @Post('exams/:examId/announcement/read')
+  readExamAnnouncement(@Param('examId') examId: string, @CurrentUser() user: RequestUser) {
+    return this.studentService.readExamAnnouncement(examId, user);
+  }
+
   @Post('exams/:examId/enter')
   enterExam(@Param('examId') examId: string, @CurrentUser() user: RequestUser) {
     return this.studentService.enterExam(examId, user);
