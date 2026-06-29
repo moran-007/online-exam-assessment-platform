@@ -6,6 +6,7 @@ import { Public } from '../../common/decorators/public.decorator';
 import { RequestUser } from '../../common/interfaces/request-user.interface';
 import { BulkQuestionActionDto, BulkQuestionStatusDto } from './dto/bulk-question-action.dto';
 import { CheckQuestionAnswerDto } from './dto/check-question-answer.dto';
+import { CheckQuestionConflictsDto } from './dto/check-question-conflicts.dto';
 import { CreateQuestionDto } from './dto/create-question.dto';
 import { QueryQuestionDto } from './dto/query-question.dto';
 import { UpdateQuestionDto } from './dto/update-question.dto';
@@ -39,6 +40,12 @@ export class QuestionsController {
   @Permissions('question:create')
   create(@Body() dto: CreateQuestionDto, @CurrentUser() user: RequestUser) {
     return this.questionsService.create(dto, user.id);
+  }
+
+  @Post('duplicate-check')
+  @Permissions('question:read')
+  checkDuplicates(@Body() dto: CheckQuestionConflictsDto) {
+    return this.questionsService.checkDuplicates(dto.questions);
   }
 
   @Post('batch/delete')

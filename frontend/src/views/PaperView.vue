@@ -18,6 +18,15 @@
           <el-option v-for="status in paperStatusOptions" :key="status.value" :label="status.label" :value="status.value" />
         </el-select>
         <el-button type="primary" :icon="Plus" @click="createPaperVisible = true">新建试卷</el-button>
+        <el-upload
+          :key="paperImportUploadKey"
+          accept=".json,.zip"
+          :auto-upload="false"
+          :show-file-list="false"
+          :on-change="handlePaperImportChange"
+        >
+          <el-button :icon="Upload" :loading="paperImporting">导入试卷</el-button>
+        </el-upload>
         <el-button :icon="Plus" @click="openWrongFrequencyDialog">高频错题组卷</el-button>
         <el-button :icon="Edit" :disabled="!detail" @click="openPaperEditor()">调整当前试卷</el-button>
         <el-button :icon="DocumentCopy" :disabled="!detail" @click="copyPaperAsDraft()">复制为草稿</el-button>
@@ -499,7 +508,7 @@
 import { computed, onMounted, reactive, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { ElMessage, ElMessageBox } from 'element-plus';
-import { Bottom, Check, Close, Delete, DocumentCopy, Edit, Plus, Refresh, Top, View } from '@element-plus/icons-vue';
+import { Bottom, Check, Close, Delete, DocumentCopy, Edit, Plus, Refresh, Top, Upload, View } from '@element-plus/icons-vue';
 import { api, buildQuery } from '../api';
 import MarkdownRenderer from '../components/MarkdownRenderer.vue';
 import { useResponsiveColumns } from '../composables/useResponsiveColumns';
@@ -520,6 +529,8 @@ const paperPreviewVisible = ref(false);
 const paperEditorTab = ref('info');
 const snapshotEditorVisible = ref(false);
 const snapshotSaving = ref(false);
+const paperImporting = ref(false);
+const paperImportUploadKey = ref(0);
 const openPaperGroups = ref([]);
 const paperFilter = reactive({ keyword: '', courseId: '', status: '', sortBy: 'createdAt', sortOrder: 'desc' });
 const paperPagination = reactive({ page: 1, pageSize: 20, total: 0 });
@@ -679,6 +690,138 @@ async function createPaper() {
   selectedPaperId.value = created.id;
   await loadAll();
   paperPreviewVisible.value = true;
+}
+
+async function handlePaperImportChange(uploadFile) {
+  const file = uploadFile.raw;
+  if (!file) return;
+
+  paperImporting.value = true;
+  try {
+    const packageData = file.name.toLowerCase().endsWith('.zip')
+      ? await readPaperImportZip(file)
+      : readPaperImportJson(JSON.parse(await file.text()));
+    const courseId = paperFilter.courseId || form.courseId || packageData.questions[0]?.courseId;
+    if (!courseId) {
+      ElMessage.error('请先选择导入试卷所属课程');
+      return;
+    }
+
+    const result = await api('/papers/import', {
+      method: 'POST',
+      body: {
+        name: packageData.paperName,
+        courseId,
+        durationMinutes: packageData.durationMinutes,
+        shuffleQuestions: packageData.shuffleQuestions,
+        shuffleOptions: packageData.shuffleOptions,
+        reuseExisting: true,
+        questions: packageData.questions,
+      },
+    });
+    ElMessage.success(`已导入试卷：${result.questionCount} 题，复用 ${result.reusedCount} 题`);
+    paperFilter.courseId = courseId;
+    paperFilter.sortBy = 'createdAt';
+    paperFilter.sortOrder = 'desc';
+    paperPagination.page = 1;
+    selectedPaperId.value = result.paperId;
+    await loadAll();
+    paperPreviewVisible.value = true;
+  } catch (error) {
+    ElMessage.error(error.message || '试卷导入失败');
+  } finally {
+    paperImporting.value = false;
+    paperImportUploadKey.value += 1;
+  }
+}
+
+async function readPaperImportZip(file) {
+  const entries = parseStoredZip(await file.arrayBuffer());
+  const jsonEntry = entries.get('questions.json');
+  if (!jsonEntry) {
+    throw new Error('试卷迁移包缺少 questions.json，请使用新版 ZIP 迁移包');
+  }
+  const assetUrlMap = await uploadPaperZipAssets(entries);
+  return readPaperImportJson(JSON.parse(decodeText(jsonEntry.data)), assetUrlMap);
+}
+
+function readPaperImportJson(value, assetUrlMap = new Map()) {
+  const records = Array.isArray(value) ? value : value?.questions;
+  if (!Array.isArray(records) || !records.length) {
+    throw new Error('JSON 中缺少 questions 数组');
+  }
+
+  return {
+    paperName: value?.paper?.name || value?.paperName || records[0]?.paperName || '导入试卷',
+    durationMinutes: Number(value?.paper?.durationMinutes ?? value?.durationMinutes) || 60,
+    shuffleQuestions: normalizeBoolean(value?.paper?.shuffleQuestions ?? value?.shuffleQuestions),
+    shuffleOptions: normalizeBoolean(value?.paper?.shuffleOptions ?? value?.shuffleOptions),
+    questions: records.map((record, index) => normalizePaperImportRecord(record, index, assetUrlMap)),
+  };
+}
+
+function normalizePaperImportRecord(record, index, assetUrlMap) {
+  const importPayload = normalizeJsonish(record?.importPayload);
+  const source = importPayload && typeof importPayload === 'object' && !Array.isArray(importPayload)
+    ? { ...record, ...importPayload }
+    : { ...record };
+  const answer = normalizeJsonish(source.answerJson ?? source.answer ?? record?.answerJson ?? record?.answer);
+  const options = normalizePaperImportOptions(source.optionsJson ?? source.options ?? record?.optionsJson ?? record?.options, answer, assetUrlMap);
+
+  return {
+    ...source,
+    no: Number(source.no ?? record?.no ?? index + 1) || index + 1,
+    paperName: source.paperName ?? record?.paperName,
+    sectionTitle: source.sectionTitle ?? source.section ?? record?.sectionTitle ?? record?.section,
+    type: normalizeQuestionType(source.type || record?.type || 'single_choice'),
+    title: String(source.title || record?.title || '未命名题目').trim(),
+    content: rewritePaperAssetPaths(source.contentMarkdown ?? source.content ?? record?.contentMarkdown ?? record?.content ?? '', assetUrlMap),
+    difficulty: Number(source.difficulty ?? record?.difficulty ?? 1) || 1,
+    defaultScore: Number(source.defaultScore ?? source.score ?? record?.defaultScore ?? record?.score ?? 2) || 2,
+    score: Number(source.score ?? source.defaultScore ?? record?.score ?? record?.defaultScore ?? 2) || 2,
+    analysis: rewritePaperAssetPaths(source.analysisMarkdown ?? source.analysis ?? record?.analysisMarkdown ?? record?.analysis ?? '', assetUrlMap),
+    options,
+    answer,
+    scoringRule: normalizeJsonish(source.scoringRuleJson ?? source.scoringRule ?? record?.scoringRuleJson ?? record?.scoringRule),
+    tagNames: normalizeNameList(source.tagNames ?? record?.tagNames ?? record?.tags),
+    knowledgePointNames: normalizeNameList(source.knowledgePointNames ?? record?.knowledgePointNames ?? record?.knowledgePoints),
+    allowOptionShuffle: normalizeBoolean(source.allowOptionShuffle ?? record?.allowOptionShuffle),
+    courseId: source.courseId ?? record?.courseId,
+  };
+}
+
+function normalizePaperImportOptions(value, answer, assetUrlMap) {
+  const parsed = normalizeJsonish(value);
+  if (!Array.isArray(parsed)) return [];
+  const correctIds = new Set(Array.isArray(answer?.correctOptionIds) ? answer.correctOptionIds.map(String) : []);
+  return parsed.map((option, index) => ({
+    id: option.id ?? option.optionId,
+    optionKey: String(option.optionKey ?? option.label ?? optionKeyForIndex(index)).trim() || optionKeyForIndex(index),
+    content: rewritePaperAssetPaths(option.content ?? option.contentMarkdown ?? '', assetUrlMap),
+    isCorrect: option.isCorrect === true || option.isCorrect === 'true' || correctIds.has(String(option.id ?? option.optionId ?? option.optionKey)),
+    sortOrder: Number(option.sortOrder ?? index + 1) || index + 1,
+  }));
+}
+
+async function uploadPaperZipAssets(entries) {
+  const assetUrlMap = new Map();
+  const assetEntries = [...entries.values()].filter((entry) => entry.name.startsWith('assets/') && !entry.name.endsWith('/'));
+  for (const entry of assetEntries) {
+    const filename = entry.name.split('/').pop() || 'asset';
+    const formData = new FormData();
+    formData.append('file', new File([new Blob([entry.data], { type: mimeByFilename(filename) })], filename));
+    const asset = await api('/uploads/question-assets', { method: 'POST', body: formData });
+    if (asset?.url) assetUrlMap.set(entry.name, asset.url);
+  }
+  return assetUrlMap;
+}
+
+function rewritePaperAssetPaths(value, assetUrlMap) {
+  let result = String(value ?? '');
+  for (const [assetPath, url] of assetUrlMap.entries()) {
+    result = result.split(assetPath).join(url);
+  }
+  return result;
 }
 
 function openWrongFrequencyDialog() {
@@ -1002,6 +1145,115 @@ function convertKnowledgeTree(items) {
     value: item.id,
     children: convertKnowledgeTree(item.children ?? []),
   }));
+}
+
+function parseStoredZip(arrayBuffer) {
+  const bytes = new Uint8Array(arrayBuffer);
+  const view = new DataView(arrayBuffer);
+  const entries = new Map();
+  let offset = 0;
+
+  while (offset + 30 <= bytes.length) {
+    const signature = view.getUint32(offset, true);
+    if (signature === 0x02014b50 || signature === 0x06054b50) break;
+    if (signature !== 0x04034b50) {
+      offset += 1;
+      continue;
+    }
+
+    const flags = view.getUint16(offset + 6, true);
+    const method = view.getUint16(offset + 8, true);
+    const compressedSize = view.getUint32(offset + 18, true);
+    const filenameLength = view.getUint16(offset + 26, true);
+    const extraLength = view.getUint16(offset + 28, true);
+    const nameStart = offset + 30;
+    const dataStart = nameStart + filenameLength + extraLength;
+    const dataEnd = dataStart + compressedSize;
+    if (flags & 0x08) throw new Error('暂不支持带数据描述符的 ZIP，请使用系统导出的试卷迁移包');
+    if (method !== 0) throw new Error('暂不支持压缩加密 ZIP，请使用系统导出的试卷迁移包');
+    if (dataEnd > bytes.length) throw new Error('ZIP 文件不完整或已损坏');
+
+    const name = decodeText(bytes.slice(nameStart, nameStart + filenameLength)).replace(/\\/g, '/');
+    entries.set(name, { name, data: bytes.slice(dataStart, dataEnd) });
+    offset = dataEnd;
+  }
+
+  if (!entries.size) throw new Error('未识别到可导入的 ZIP 内容');
+  return entries;
+}
+
+function decodeText(bytes) {
+  return new TextDecoder('utf-8').decode(bytes);
+}
+
+function normalizeJsonish(value) {
+  if (value && typeof value === 'object') return value;
+  const text = String(value ?? '').trim();
+  if (!text) return {};
+  try {
+    return JSON.parse(text);
+  } catch {
+    return text;
+  }
+}
+
+function normalizeNameList(value) {
+  const parsed = normalizeJsonish(value);
+  if (Array.isArray(parsed)) {
+    return [
+      ...new Set(
+        parsed
+          .map((item) => (typeof item === 'string' ? item : item?.name))
+          .map((name) => String(name ?? '').trim())
+          .filter((name) => name && name !== '-' && name.toLowerCase() !== 'undefined'),
+      ),
+    ];
+  }
+  return [
+    ...new Set(
+      String(parsed ?? '')
+        .split(/[，,;；、]/)
+        .map((name) => name.trim())
+        .filter((name) => name && name !== '-' && name.toLowerCase() !== 'undefined'),
+    ),
+  ];
+}
+
+function normalizeQuestionType(type) {
+  const map = {
+    单选题: 'single_choice',
+    多选题: 'multiple_choice',
+    判断题: 'true_false',
+    填空题: 'fill_blank',
+    简答题: 'short_answer',
+    编程题: 'programming',
+    材料题: 'material',
+    文件上传题: 'file_upload',
+    scratch项目题: 'scratch_project',
+    arduino项目题: 'arduino_project',
+  };
+  const text = String(type || '').trim();
+  return map[text] || map[text.toLowerCase()] || text.replace(/-/g, '_').toLowerCase() || 'single_choice';
+}
+
+function normalizeBoolean(value) {
+  if (value === true || value === 'true' || value === '1' || value === 1) return true;
+  if (value === false || value === 'false' || value === '0' || value === 0) return false;
+  return undefined;
+}
+
+function optionKeyForIndex(index) {
+  return String.fromCharCode(65 + index);
+}
+
+function mimeByFilename(filename) {
+  if (/\.png$/i.test(filename)) return 'image/png';
+  if (/\.jpe?g$/i.test(filename)) return 'image/jpeg';
+  if (/\.gif$/i.test(filename)) return 'image/gif';
+  if (/\.webp$/i.test(filename)) return 'image/webp';
+  if (/\.svg$/i.test(filename)) return 'image/svg+xml';
+  if (/\.pdf$/i.test(filename)) return 'application/pdf';
+  return 'application/octet-stream';
 }
 
 onMounted(loadAll);

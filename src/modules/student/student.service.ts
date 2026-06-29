@@ -117,6 +117,17 @@ export class StudentService {
       },
       include: {
         course: { select: { name: true } },
+        announcements: {
+          where: { isActive: true },
+          orderBy: { version: 'desc' },
+          take: 1,
+          include: {
+            reads: {
+              where: { userId: user.id },
+              select: { readAt: true },
+            },
+          },
+        },
         attempts: {
           where: { userId: user.id },
           orderBy: { createdAt: 'asc' },
@@ -140,6 +151,8 @@ export class StudentService {
         const latestAttempt = attempts.at(-1);
         const activeAttempt = exam.attempts.find((attempt) => attempt.status === AttemptStatus.IN_PROGRESS);
         const usedCount = exam.attempts.length;
+        const activeAnnouncement = exam.announcements[0];
+        const announcementReadAt = activeAnnouncement?.reads[0]?.readAt ?? null;
         return {
           examId: exam.id,
           name: exam.name,
@@ -157,7 +170,11 @@ export class StudentService {
             : latestAttempt?.status ?? 'not_started',
           attemptId: activeAttempt?.id ?? latestAttempt?.attemptId,
           attempts,
-          announcement: this.extractAnnouncement(exam.antiCheatConfigJson),
+          announcement: this.activeAnnouncementText(exam),
+          announcementId: activeAnnouncement?.id ?? null,
+          announcementVersion: activeAnnouncement?.version ?? null,
+          announcementReadAt,
+          announcementRead: Boolean(announcementReadAt),
         };
       })
       .filter((exam) => !query.status || exam.status === query.status);
@@ -231,6 +248,66 @@ export class StudentService {
   async enterExam(examId: string, user: RequestUser) {
     this.ensureStudent(user);
     return this.enterExamForStudent(examId, user);
+  }
+
+  async readExamAnnouncement(examId: string, user: RequestUser) {
+    this.ensureStudent(user);
+    await this.assertStudentCanAccessExam(examId, user.id);
+
+    const exam = await this.prisma.exam.findFirst({
+      where: {
+        id: examId,
+        deletedAt: null,
+        status: { in: [ExamStatus.SCHEDULED, ExamStatus.RUNNING, ExamStatus.ENDED] },
+      },
+      include: {
+        announcements: {
+          where: { isActive: true },
+          orderBy: { version: 'desc' },
+          take: 1,
+        },
+      },
+    });
+
+    if (!exam) {
+      throw new NotFoundException('考试不存在或暂不可见');
+    }
+
+    const announcement = await this.ensureActiveAnnouncementRecord(exam);
+    if (!announcement) {
+      return { read: false, skipped: true };
+    }
+
+    const record = await this.prisma.examAnnouncementRead.upsert({
+      where: {
+        announcementId_userId: {
+          announcementId: announcement.id,
+          userId: user.id,
+        },
+      },
+      update: { readAt: new Date() },
+      create: {
+        examId,
+        announcementId: announcement.id,
+        userId: user.id,
+      },
+    });
+
+    await this.audit.log({
+      userId: user.id,
+      action: 'student:read-exam-announcement',
+      module: 'student',
+      targetType: 'exam',
+      targetId: examId,
+      afterData: { announcementId: announcement.id, version: announcement.version },
+    });
+
+    return {
+      read: true,
+      announcementId: announcement.id,
+      announcementVersion: announcement.version,
+      readAt: record.readAt,
+    };
   }
 
   async enterExamAsStudent(examId: string, studentId: string, actor: RequestUser) {
@@ -391,7 +468,15 @@ export class StudentService {
     const attempt = await this.prisma.examAttempt.findFirst({
       where: { id: attemptId, userId: user.id },
       include: {
-        exam: true,
+        exam: {
+          include: {
+            announcements: {
+              where: { isActive: true },
+              orderBy: { version: 'desc' },
+              take: 1,
+            },
+          },
+        },
         paperInstance: true,
         answers: true,
       },
@@ -420,7 +505,7 @@ export class StudentService {
         startTime: attempt.exam.startTime,
         endTime: attempt.exam.endTime,
         serverTime: new Date().toISOString(),
-        announcement: this.extractAnnouncement(attempt.exam.antiCheatConfigJson),
+        announcement: this.activeAnnouncementText(attempt.exam),
       },
       paper: this.publicPaper(paperSnapshot, attempt.paperInstance.id),
     };
@@ -1361,6 +1446,37 @@ export class StudentService {
     if (!config || typeof config !== 'object' || Array.isArray(config)) return '';
     const value = (config as Record<string, unknown>).announcement;
     return typeof value === 'string' ? value : '';
+  }
+
+  private activeAnnouncementText(source: {
+    announcements?: Array<{ content: string }>;
+    antiCheatConfigJson?: Prisma.JsonValue | null;
+  }) {
+    return source.announcements?.[0]?.content ?? this.extractAnnouncement(source.antiCheatConfigJson ?? null);
+  }
+
+  private async ensureActiveAnnouncementRecord(exam: {
+    id: string;
+    antiCheatConfigJson: Prisma.JsonValue | null;
+    announcements: Array<{ id: string; version: number; content: string }>;
+  }) {
+    const active = exam.announcements[0];
+    if (active) return active;
+
+    const legacyContent = this.extractAnnouncement(exam.antiCheatConfigJson).trim();
+    if (!legacyContent) return null;
+
+    const latest = await this.prisma.examAnnouncement.aggregate({
+      where: { examId: exam.id },
+      _max: { version: true },
+    });
+    return this.prisma.examAnnouncement.create({
+      data: {
+        examId: exam.id,
+        version: (latest._max.version ?? 0) + 1,
+        content: legacyContent,
+      },
+    });
   }
 
   private studentExamOrderBy(query: QueryStudentExamDto): Prisma.ExamOrderByWithRelationInput[] {

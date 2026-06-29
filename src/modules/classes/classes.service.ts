@@ -2,6 +2,8 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { Prisma, UserStatus, UserType } from '@prisma/client';
 import { toPagination } from '../../common/dto/pagination-query.dto';
 import { AuditService } from '../audit/audit.service';
+import { RequestUser } from '../../common/interfaces/request-user.interface';
+import { DataScopeService } from '../data-scope/data-scope.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { QueryClassDto } from './dto/query-class.dto';
 import { SaveClassDto, UpdateClassDto } from './dto/save-class.dto';
@@ -11,11 +13,14 @@ export class ClassesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly dataScope: DataScopeService,
   ) {}
 
-  async list(query: QueryClassDto) {
+  async list(query: QueryClassDto, user: RequestUser) {
     const { page, pageSize, skip, take } = toPagination(query);
+    const scopeWhere = await this.dataScope.classWhere(user);
     const where: Prisma.ClassGroupWhereInput = {
+      ...scopeWhere,
       deletedAt: null,
       courseId: query.courseId,
       status: query.status,
@@ -53,7 +58,8 @@ export class ClassesService {
     };
   }
 
-  async detail(id: string) {
+  async detail(id: string, user: RequestUser) {
+    await this.dataScope.assertClassWritable(user, id);
     const item = await this.prisma.classGroup.findFirst({
       where: { id, deletedAt: null },
       include: {
@@ -73,23 +79,33 @@ export class ClassesService {
     };
   }
 
-  async create(dto: SaveClassDto, userId: string) {
+  async create(dto: SaveClassDto, user: RequestUser) {
     await this.assertCourseExists(dto.courseId);
     const code = dto.code?.trim() || `class_${Date.now()}`;
-    const created = await this.prisma.classGroup.create({
-      data: {
-        name: dto.name.trim(),
-        code,
-        courseId: dto.courseId,
-        description: dto.description?.trim(),
-        status: dto.status ?? 'active',
-        sortOrder: dto.sortOrder ?? 0,
-        createdBy: userId,
-        updatedBy: userId,
-      },
+    const created = await this.prisma.$transaction(async (tx) => {
+      const item = await tx.classGroup.create({
+        data: {
+          name: dto.name.trim(),
+          code,
+          courseId: dto.courseId,
+          description: dto.description?.trim(),
+          status: dto.status ?? 'active',
+          sortOrder: dto.sortOrder ?? 0,
+          createdBy: user.id,
+          updatedBy: user.id,
+        },
+      });
+      if (this.dataScope.isScopedTeacher(user)) {
+        await tx.classTeacher.upsert({
+          where: { classId_teacherId: { classId: item.id, teacherId: user.id } },
+          update: {},
+          create: { classId: item.id, teacherId: user.id },
+        });
+      }
+      return item;
     });
     await this.audit.log({
-      userId,
+      userId: user.id,
       action: 'class:create',
       module: 'class',
       targetType: 'class',
@@ -99,7 +115,8 @@ export class ClassesService {
     return { id: created.id };
   }
 
-  async update(id: string, dto: UpdateClassDto, userId: string) {
+  async update(id: string, dto: UpdateClassDto, user: RequestUser) {
+    await this.dataScope.assertClassWritable(user, id);
     const current = await this.findExisting(id);
     await this.assertCourseExists(dto.courseId);
     const updated = await this.prisma.classGroup.update({
@@ -111,11 +128,11 @@ export class ClassesService {
         description: dto.description?.trim(),
         status: dto.status,
         sortOrder: dto.sortOrder,
-        updatedBy: userId,
+        updatedBy: user.id,
       },
     });
     await this.audit.log({
-      userId,
+      userId: user.id,
       action: 'class:update',
       module: 'class',
       targetType: 'class',
@@ -126,14 +143,15 @@ export class ClassesService {
     return { id };
   }
 
-  async remove(id: string, userId: string) {
+  async remove(id: string, user: RequestUser) {
+    await this.dataScope.assertClassWritable(user, id);
     await this.findExisting(id);
     await this.prisma.classGroup.update({
       where: { id },
-      data: { status: 'archived', deletedAt: new Date(), updatedBy: userId },
+      data: { status: 'archived', deletedAt: new Date(), updatedBy: user.id },
     });
     await this.audit.log({
-      userId,
+      userId: user.id,
       action: 'class:delete',
       module: 'class',
       targetType: 'class',
@@ -142,7 +160,8 @@ export class ClassesService {
     return true;
   }
 
-  async addStudents(id: string, studentIds: string[], userId: string) {
+  async addStudents(id: string, studentIds: string[], user: RequestUser) {
+    await this.dataScope.assertClassWritable(user, id);
     await this.findExisting(id);
     const students = await this.prisma.user.findMany({
       where: {
@@ -166,7 +185,7 @@ export class ClassesService {
       ),
     );
     await this.audit.log({
-      userId,
+      userId: user.id,
       action: 'class:add-students',
       module: 'class',
       targetType: 'class',
@@ -176,10 +195,11 @@ export class ClassesService {
     return true;
   }
 
-  async removeStudent(id: string, studentId: string, userId: string) {
+  async removeStudent(id: string, studentId: string, user: RequestUser) {
+    await this.dataScope.assertClassWritable(user, id);
     await this.prisma.classStudent.deleteMany({ where: { classId: id, studentId } });
     await this.audit.log({
-      userId,
+      userId: user.id,
       action: 'class:remove-student',
       module: 'class',
       targetType: 'class',
@@ -189,7 +209,8 @@ export class ClassesService {
     return true;
   }
 
-  async addTeachers(id: string, teacherIds: string[], userId: string) {
+  async addTeachers(id: string, teacherIds: string[], user: RequestUser) {
+    await this.dataScope.assertClassWritable(user, id);
     await this.findExisting(id);
     const teachers = await this.prisma.user.findMany({
       where: {
@@ -213,7 +234,7 @@ export class ClassesService {
       ),
     );
     await this.audit.log({
-      userId,
+      userId: user.id,
       action: 'class:add-teachers',
       module: 'class',
       targetType: 'class',
@@ -223,10 +244,11 @@ export class ClassesService {
     return true;
   }
 
-  async removeTeacher(id: string, teacherId: string, userId: string) {
+  async removeTeacher(id: string, teacherId: string, user: RequestUser) {
+    await this.dataScope.assertClassWritable(user, id);
     await this.prisma.classTeacher.deleteMany({ where: { classId: id, teacherId } });
     await this.audit.log({
-      userId,
+      userId: user.id,
       action: 'class:remove-teacher',
       module: 'class',
       targetType: 'class',

@@ -15,14 +15,14 @@ export class GradingController {
 
   @Get('answers')
   @Permissions('grading:read')
-  list(@Query() query: QueryGradingDto) {
-    return this.gradingService.list(query);
+  list(@Query() query: QueryGradingDto, @CurrentUser() user: RequestUser) {
+    return this.gradingService.list(query, user);
   }
 
   @Get('attempts/:attemptId')
   @Permissions('grading:read')
-  attemptDetail(@Param('attemptId') attemptId: string) {
-    return this.gradingService.attemptDetail(attemptId);
+  attemptDetail(@Param('attemptId') attemptId: string, @CurrentUser() user: RequestUser) {
+    return this.gradingService.attemptDetail(attemptId, user);
   }
 
   @Patch('answers/:answerRecordId')
@@ -32,6 +32,6 @@ export class GradingController {
     @Body() dto: GradeAnswerDto,
     @CurrentUser() user: RequestUser,
   ) {
-    return this.gradingService.gradeAnswer(answerRecordId, dto, user.id);
+    return this.gradingService.gradeAnswer(answerRecordId, dto, user);
   }
 }

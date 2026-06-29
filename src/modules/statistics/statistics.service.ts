@@ -2,21 +2,28 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { AnswerRecordStatus, MasteryStatus, Prisma } from '@prisma/client';
 import { toPagination } from '../../common/dto/pagination-query.dto';
 import { toApiEnum } from '../../common/utils/enum-normalizer';
+import { RequestUser } from '../../common/interfaces/request-user.interface';
+import { DataScopeService } from '../data-scope/data-scope.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { QueryStatisticsDto } from './dto/query-statistics.dto';
 
 @Injectable()
 export class StatisticsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly dataScope: DataScopeService,
+  ) {}
 
-  async overview(query: QueryStatisticsDto) {
-    const attemptWhere = this.attemptWhere(query);
+  async overview(query: QueryStatisticsDto, user: RequestUser) {
+    const attemptWhere = await this.attemptWhere(query, user);
+    const examWhere = await this.examWhere(query, user);
+    const classWhere = await this.dataScope.classWhere(user, query.classId);
     const [courses, questions, papers, exams, attempts, pendingManual, activeWrongQuestions, classes] = await this.prisma.$transaction([
       this.prisma.course.count({ where: { deletedAt: null } }),
       this.prisma.question.count({ where: { deletedAt: null, courseId: query.courseId } }),
       this.prisma.paper.count({ where: { deletedAt: null, courseId: query.courseId } }),
       this.prisma.exam.count({
-        where: { deletedAt: null, courseId: query.courseId, classId: query.classId },
+        where: examWhere,
       }),
       this.prisma.examAttempt.findMany({ where: attemptWhere, select: { totalScore: true, status: true } }),
       this.prisma.answerRecord.count({
@@ -32,7 +39,7 @@ export class StatisticsService {
         },
       }),
       this.prisma.classGroup.count({
-        where: { deletedAt: null, id: query.classId, courseId: query.courseId },
+        where: { ...classWhere, deletedAt: null, courseId: query.courseId },
       }),
     ]);
     const scores = attempts.map((attempt) => Number(attempt.totalScore));
@@ -52,17 +59,18 @@ export class StatisticsService {
     };
   }
 
-  async exams(query: QueryStatisticsDto) {
+  async exams(query: QueryStatisticsDto, user: RequestUser) {
     const { page, pageSize, skip, take } = toPagination(query);
-    const where: Prisma.ExamWhereInput = {
+    const where = await this.examWhere(query, user);
+    const scopedWhere: Prisma.ExamWhereInput = {
+      ...where,
       deletedAt: null,
       id: query.examId,
       courseId: query.courseId,
-      classId: query.classId,
     };
     const [items, total] = await this.prisma.$transaction([
       this.prisma.exam.findMany({
-        where,
+        where: scopedWhere,
         include: {
           course: { select: { name: true } },
           paper: { select: { totalScore: true } },
@@ -75,7 +83,7 @@ export class StatisticsService {
         skip,
         take,
       }),
-      this.prisma.exam.count({ where }),
+      this.prisma.exam.count({ where: scopedWhere }),
     ]);
     const classMap = await this.loadClassMap(items.map((item) => item.classId).filter(Boolean) as string[]);
 
@@ -102,7 +110,8 @@ export class StatisticsService {
     };
   }
 
-  async examDetail(examId: string) {
+  async examDetail(examId: string, user: RequestUser) {
+    await this.dataScope.assertExamAccessible(user, examId);
     const exam = await this.prisma.exam.findFirst({
       where: { id: examId, deletedAt: null },
       include: {
@@ -156,10 +165,11 @@ export class StatisticsService {
     };
   }
 
-  async knowledge(query: QueryStatisticsDto) {
+  async knowledge(query: QueryStatisticsDto, user: RequestUser) {
+    const attemptWhere = await this.attemptWhere(query, user);
     const answerRecords = await this.prisma.answerRecord.findMany({
       where: {
-        attempt: this.attemptWhere(query),
+        attempt: attemptWhere,
       },
       include: {
         question: {
@@ -189,9 +199,10 @@ export class StatisticsService {
     }));
   }
 
-  async classes(query: QueryStatisticsDto) {
+  async classes(query: QueryStatisticsDto, user: RequestUser) {
+    const classWhere = await this.dataScope.classWhere(user, query.classId);
     const classGroups = await this.prisma.classGroup.findMany({
-      where: { deletedAt: null, id: query.classId, courseId: query.courseId },
+      where: { ...classWhere, deletedAt: null, courseId: query.courseId },
       include: { course: true, _count: { select: { students: true } } },
       orderBy: [{ sortOrder: 'asc' }, { createdAt: 'desc' }],
     });
@@ -225,15 +236,26 @@ export class StatisticsService {
     });
   }
 
-  private attemptWhere(query: QueryStatisticsDto): Prisma.ExamAttemptWhereInput {
+  private async attemptWhere(query: QueryStatisticsDto, user: RequestUser): Promise<Prisma.ExamAttemptWhereInput> {
+    const examWhere = await this.examWhere(query, user);
     return {
       submittedAt: { not: null },
       examId: query.examId,
       exam: {
+        ...examWhere,
         courseId: query.courseId,
-        classId: query.classId,
         deletedAt: null,
       },
+    };
+  }
+
+  private async examWhere(query: QueryStatisticsDto, user: RequestUser): Promise<Prisma.ExamWhereInput> {
+    const scopeWhere = await this.dataScope.examWhere(user, query.classId);
+    return {
+      ...scopeWhere,
+      deletedAt: null,
+      courseId: query.courseId,
+      id: query.examId,
     };
   }
 

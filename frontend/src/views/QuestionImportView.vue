@@ -5,6 +5,8 @@
       <div class="toolbar">
         <el-button :icon="Back" @click="router.push('/questions')">返回题库</el-button>
         <el-upload
+          :key="portableUploadKey"
+          ref="portableUploadRef"
           accept=".zip,.json,.csv,.md,.txt"
           :auto-upload="false"
           :show-file-list="false"
@@ -186,6 +188,14 @@
               </el-form-item>
               <el-form-item label="操作">
                 <div class="toolbar">
+                  <el-button
+                    :icon="Refresh"
+                    :loading="singleDuplicateChecking"
+                    :disabled="Boolean(singlePreviewError)"
+                    @click="runSingleDuplicateCheck()"
+                  >
+                    重复检测
+                  </el-button>
                   <el-button type="primary" :icon="Upload" :loading="singleSaving" @click="importSingle">导入单题</el-button>
                   <el-button :icon="Refresh" @click="resetSingleForm">清空</el-button>
                 </div>
@@ -199,6 +209,9 @@
                 <div class="toolbar">
                   <el-button :icon="DocumentCopy" @click="loadBatchTemplate">加载模板</el-button>
                   <el-button :icon="View" @click="previewBatch">解析预览</el-button>
+                  <el-button :icon="Refresh" :loading="duplicateChecking" :disabled="!batchPreview.length" @click="runDuplicateCheck()">
+                    重复检测
+                  </el-button>
                   <el-button type="primary" :icon="Upload" :loading="importing" @click="importBatch">批量导入</el-button>
                 </div>
               </el-form-item>
@@ -219,7 +232,7 @@
                   :rows="18"
                   resize="vertical"
                   placeholder="按模板粘贴题目内容，支持 Markdown 代码块；多题之间用单独一行 --- 分隔"
-                  @input="refreshPreview"
+                  @input="handleBatchTemplateInput"
                   @focus="setBatchInsertTarget('batchText')"
                   @paste="handleBatchImagePaste($event, 'batchText')"
                 />
@@ -231,7 +244,7 @@
                   :rows="8"
                   resize="vertical"
                   placeholder="每行一个答案，例如：1. B 或 2. A,B；也支持 标题：答案"
-                  @input="refreshPreview"
+                  @input="handleBatchTemplateInput"
                 />
               </el-form-item>
             </el-form>
@@ -250,6 +263,9 @@
               <el-tag :type="singlePreviewError ? 'danger' : 'success'">
                 {{ singlePreviewError ? '需修正' : '可导入' }}
               </el-tag>
+              <el-tag v-if="singleConflictStatus && singleConflictStatus !== 'ok'" :type="conflictTagType(singleConflictStatus)" effect="plain">
+                {{ conflictLabel(singleConflictStatus) }}
+              </el-tag>
               <el-tag type="info">实时预览</el-tag>
             </div>
           </div>
@@ -258,6 +274,14 @@
             v-if="singlePreviewError"
             :title="singlePreviewError"
             type="warning"
+            show-icon
+            :closable="false"
+            class="batch-alert"
+          />
+          <el-alert
+            v-else-if="singleConflictMessage"
+            :title="singleConflictMessage"
+            :type="singleConflictStatus === 'conflict' ? 'error' : 'warning'"
             show-icon
             :closable="false"
             class="batch-alert"
@@ -296,7 +320,7 @@
           <div class="paper-preview-head">
             <div>
               <h2>解析结果</h2>
-              <span class="muted">{{ validCount }} / {{ batchPreview.length }} 道可导入</span>
+              <span class="muted">{{ importableBatchCount }} / {{ batchPreview.length }} 道可导入</span>
             </div>
             <div class="toolbar">
               <el-tag :type="batchErrorSummary ? 'danger' : 'success'">{{ batchErrorSummary ? '需修正' : '格式可用' }}</el-tag>
@@ -339,6 +363,15 @@
                 <el-tag :type="row.valid === false ? 'danger' : row.statusText?.includes('已导入') ? 'success' : 'info'">
                   {{ row.statusText }}
                 </el-tag>
+                <el-tag v-if="row.conflictStatus && row.conflictStatus !== 'ok'" :type="conflictTagType(row.conflictStatus)" effect="plain">
+                  {{ conflictLabel(row.conflictStatus) }}
+                </el-tag>
+                <div v-if="row.conflictMessage" class="mini-muted">{{ row.conflictMessage }}</div>
+              </template>
+            </el-table-column>
+            <el-table-column label="操作" width="92" fixed="right">
+              <template #default="{ row }">
+                <el-button size="small" plain :icon="Delete" @click.stop="removeBatchPreviewRow(row)">移除</el-button>
               </template>
             </el-table-column>
           </el-table>
@@ -421,9 +454,9 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
-import { ElMessage } from 'element-plus';
+import { ElMessage, ElMessageBox } from 'element-plus';
 import { Back, Delete, DocumentAdd, DocumentCopy, Plus, Refresh, Upload, View } from '@element-plus/icons-vue';
 import { api } from '../api';
 import MarkdownRenderer from '../components/MarkdownRenderer.vue';
@@ -456,16 +489,25 @@ const blankCaseSensitive = ref(false);
 const blankSpaceSensitive = ref(false);
 const answerReference = ref('');
 const singleSaving = ref(false);
+const singleDuplicateChecking = ref(false);
+const singleConflictResult = ref(null);
+let singleDuplicateTimer = null;
+let lastSingleDuplicateKey = '';
 const batchText = ref('');
 const batchAnswerText = ref('');
 const batchPreview = ref([]);
 const batchErrorSummary = ref('');
+const structuredBatchQuestions = ref([]);
+const removedBatchRowKeys = ref(new Set());
 const selectedPreviewIndex = ref(0);
 const importing = ref(false);
+const duplicateChecking = ref(false);
 const uploadedAssets = ref([]);
 const uploadingAsset = ref(false);
 const assetDrawerVisible = ref(false);
 const assetInsertTarget = ref(null);
+const portableUploadRef = ref(null);
+const portableUploadKey = ref(0);
 const assetUploadRef = ref(null);
 const assetDrawerUploadRef = ref(null);
 const assetUploadKey = ref(0);
@@ -477,6 +519,9 @@ const selectedKnowledgeNames = computed(() => {
 });
 const isSingleChoice = computed(() => isChoiceType(singleForm.type));
 const validCount = computed(() => batchPreview.value.filter((row) => row.valid !== false).length);
+const importableBatchCount = computed(
+  () => batchPreview.value.filter((row) => row.valid !== false && !shouldSkipBatchRow(row)).length,
+);
 const selectedBatchQuestion = computed(() => batchPreview.value[selectedPreviewIndex.value] ?? batchPreview.value[0]);
 const singlePreviewQuestion = computed(() => buildSinglePreview());
 const singlePreviewError = computed(() => {
@@ -486,6 +531,13 @@ const singlePreviewError = computed(() => {
   } catch (error) {
     return error.message;
   }
+});
+const singleConflictStatus = computed(() => singleConflictResult.value?.status ?? '');
+const singleConflictMessage = computed(() => {
+  const result = singleConflictResult.value;
+  if (!result || result.status === 'ok') return '';
+  const prefix = result.status === 'conflict' ? '检测到冲突' : result.status === 'duplicate' ? '检测到重复' : '检测到相似题';
+  return `${prefix}：${result.message}`;
 });
 const correctChoiceKey = computed({
   get() {
@@ -579,6 +631,19 @@ async function importSingle() {
   try {
     const { tagNames, knowledgePointNames, answerText, number, statusText, valid, ...payload } = buildSinglePreview();
     validatePayload(payload, '当前题目');
+    const duplicateResult = await runSingleDuplicateCheck({ silent: true });
+    if (duplicateResult && duplicateResult.status !== 'ok') {
+      const title = duplicateResult.status === 'conflict' ? '检测到题目冲突' : '检测到相似或重复题目';
+      try {
+        await ElMessageBox.confirm(`${singleConflictMessage.value || duplicateResult.message}，仍然导入吗？`, title, {
+          type: duplicateResult.status === 'conflict' ? 'error' : 'warning',
+          confirmButtonText: '仍然导入',
+          cancelButtonText: '取消',
+        });
+      } catch {
+        return;
+      }
+    }
     payload.tagIds = await resolveTagIds(tagNames);
     const created = await api('/questions', { method: 'POST', body: payload });
     if (publishAfterImport.value) {
@@ -590,6 +655,58 @@ async function importSingle() {
   } finally {
     singleSaving.value = false;
   }
+}
+
+async function runSingleDuplicateCheck(options = {}) {
+  if (singlePreviewError.value) {
+    if (!options.silent) ElMessage.error(singlePreviewError.value);
+    return null;
+  }
+
+  const payload = buildDuplicateCheckPayload(singlePreviewQuestion.value);
+  const currentKey = JSON.stringify(payload);
+  if (options.silent && currentKey === lastSingleDuplicateKey && singleConflictResult.value) {
+    return singleConflictResult.value;
+  }
+
+  singleDuplicateChecking.value = true;
+  try {
+    const result = await api('/questions/duplicate-check', {
+      method: 'POST',
+      body: { questions: [payload] },
+    });
+    const item = result.items?.[0] ?? { status: 'ok', message: '未发现重复或冲突', matches: [] };
+    singleConflictResult.value = item;
+    lastSingleDuplicateKey = currentKey;
+    if (!options.silent) {
+      if (item.status === 'ok') {
+        ElMessage.success('未发现重复或冲突');
+      } else {
+        ElMessage.warning(`${conflictLabel(item.status)}：${item.message}`);
+      }
+    }
+    return item;
+  } catch (error) {
+    if (!options.silent) {
+      ElMessage.error(error.message || '重复检测失败');
+    }
+    return null;
+  } finally {
+    singleDuplicateChecking.value = false;
+  }
+}
+
+function scheduleSingleDuplicateCheck() {
+  if (singleDuplicateTimer) {
+    clearTimeout(singleDuplicateTimer);
+    singleDuplicateTimer = null;
+  }
+  singleConflictResult.value = null;
+  lastSingleDuplicateKey = '';
+  if (importMode.value !== 'single' || singlePreviewError.value) return;
+  singleDuplicateTimer = setTimeout(() => {
+    runSingleDuplicateCheck({ silent: true });
+  }, 600);
 }
 
 function resetSingleOptions() {
@@ -663,13 +780,31 @@ function refreshPreview() {
   if (importMode.value !== 'batch') return;
 
   try {
+    if (structuredBatchQuestions.value.length) {
+      const rows = structuredBatchQuestions.value.map((question, index) => withBatchRowKey(buildPortablePreviewRow(question, index)));
+      batchPreview.value = filterRemovedBatchRows(rows);
+      batchErrorSummary.value = rows.some((row) => row.valid === false) ? formatBatchErrors(
+        rows
+          .filter((row) => row.valid === false)
+          .map((row) => ({ number: row.number, title: row.title, message: row.errorMessage })),
+      ) : '';
+      if (selectedPreviewIndex.value >= batchPreview.value.length) {
+        selectedPreviewIndex.value = 0;
+      }
+      return;
+    }
+
     const result = parseBatchResult(batchText.value, batchAnswerText.value);
-    batchPreview.value = result.rows.map((row) => ({
-      ...row,
-      knowledgePointIds: mergeIds(sharedKnowledgePointIds.value, row.knowledgePointIds),
-      knowledgePointNames: mergeTags(selectedKnowledgeNames.value, row.knowledgePointNames),
-      tagNames: mergeTags(sharedTagNames.value, row.tagNames),
-    }));
+    batchPreview.value = filterRemovedBatchRows(
+      result.rows.map((row) =>
+        withBatchRowKey({
+          ...row,
+          knowledgePointIds: mergeIds(sharedKnowledgePointIds.value, row.knowledgePointIds),
+          knowledgePointNames: mergeTags(selectedKnowledgeNames.value, row.knowledgePointNames),
+          tagNames: mergeTags(sharedTagNames.value, row.tagNames),
+        }),
+      ),
+    );
     batchErrorSummary.value = result.errors.length ? formatBatchErrors(result.errors) : '';
     if (selectedPreviewIndex.value >= batchPreview.value.length) {
       selectedPreviewIndex.value = 0;
@@ -678,6 +813,12 @@ function refreshPreview() {
     batchPreview.value = [];
     batchErrorSummary.value = batchText.value.trim() ? error.message : '';
   }
+}
+
+function handleBatchTemplateInput() {
+  structuredBatchQuestions.value = [];
+  removedBatchRowKeys.value = new Set();
+  refreshPreview();
 }
 
 function handleImportModeChange() {
@@ -689,11 +830,12 @@ function handleImportModeChange() {
   refreshPreview();
 }
 
-function previewBatch() {
+async function previewBatch() {
   refreshPreview();
   if (batchErrorSummary.value) {
     ElMessage.error('存在格式问题，请查看解析结果');
   } else {
+    await runDuplicateCheck({ silent: true });
     ElMessage.success(`解析到 ${batchPreview.value.length} 道题`);
   }
 }
@@ -709,30 +851,163 @@ async function importBatch() {
     ElMessage.error('批量录入格式未通过，请先修正错误');
     return;
   }
+  await runDuplicateCheck({ silent: true });
+  const skippedRows = batchPreview.value.filter(shouldSkipBatchRow);
+  const importRows = batchPreview.value.filter((row) => row.valid !== false && !shouldSkipBatchRow(row));
+  if (skippedRows.length) {
+    skippedRows.forEach((row) => {
+      row.statusText = row.conflictStatus === 'conflict' ? '已跳过：题目冲突' : '已跳过：重复题目';
+    });
+    ElMessage.warning(`已跳过 ${skippedRows.length} 道重复/冲突题，其余题目继续导入`);
+  } else if (batchPreview.value.some((row) => row.conflictStatus === 'similar')) {
+    ElMessage.warning('检测到相似题目，已在解析结果中标注；相似题默认继续导入');
+  }
+  if (!importRows.length) {
+    ElMessage.warning('没有可导入题目，请移除重复/冲突项或修改内容后重试');
+    return;
+  }
 
   importing.value = true;
   let successCount = 0;
   try {
-    for (const [index, question] of batchPreview.value.entries()) {
-      const { answerText, number, statusText, valid, tagNames, knowledgePointNames, ...payload } = question;
+    for (const question of importRows) {
+      const index = batchPreview.value.indexOf(question);
+      const {
+        answerText,
+        number,
+        statusText,
+        valid,
+        tagNames,
+        knowledgePointNames,
+        conflictStatus,
+        conflictMessage,
+        conflictMatches,
+        batchKey,
+        ...payload
+      } = question;
       try {
         payload.tagIds = await resolveTagIds(tagNames);
         const created = await api('/questions', { method: 'POST', body: payload });
         if (publishAfterImport.value) {
           await api(`/questions/${created.id}/publish`, { method: 'POST' });
         }
-        batchPreview.value[index].statusText = publishAfterImport.value ? '已导入并发布' : '已导入';
+        if (index >= 0) batchPreview.value[index].statusText = publishAfterImport.value ? '已导入并发布' : '已导入';
         successCount += 1;
       } catch (error) {
-        batchPreview.value[index].valid = false;
-        batchPreview.value[index].statusText = error.message;
+        if (index >= 0) {
+          batchPreview.value[index].valid = false;
+          batchPreview.value[index].statusText = error.message;
+        }
       }
     }
   } finally {
     importing.value = false;
   }
 
-  ElMessage.success(`成功导入 ${successCount} / ${batchPreview.value.length} 道题`);
+  ElMessage.success(`成功导入 ${successCount} / ${importRows.length} 道题，跳过 ${skippedRows.length} 道重复/冲突题`);
+}
+
+async function runDuplicateCheck(options = {}) {
+  if (!batchPreview.value.length || batchPreview.value.some((row) => row.valid === false)) return null;
+  duplicateChecking.value = true;
+  try {
+    const payloads = batchPreview.value.map((row) => buildDuplicateCheckPayload(row));
+    const result = await api('/questions/duplicate-check', {
+      method: 'POST',
+      body: { questions: payloads },
+    });
+    for (const item of result.items ?? []) {
+      const row = batchPreview.value[item.index];
+      if (!row) continue;
+      row.conflictStatus = item.status;
+      row.conflictMessage = item.status === 'ok' ? '' : item.message;
+      row.conflictMatches = item.matches ?? [];
+    }
+    const conflictCount = result.conflictCount ?? 0;
+    const warningCount = (result.duplicateCount ?? 0) + (result.similarCount ?? 0);
+    if (!options.silent) {
+      if (conflictCount) {
+        ElMessage.warning(`发现 ${conflictCount} 道冲突题，请检查后再导入`);
+      } else if (warningCount) {
+        ElMessage.warning(`发现 ${warningCount} 道重复或相似题`);
+      } else {
+        ElMessage.success('未发现重复或冲突');
+      }
+    }
+    return result;
+  } catch (error) {
+    if (!options.silent) {
+      ElMessage.error(error.message || '重复检测失败');
+    }
+    return null;
+  } finally {
+    duplicateChecking.value = false;
+  }
+}
+
+function buildDuplicateCheckPayload(row) {
+  return {
+    courseId: row.courseId,
+    type: row.type,
+    title: row.title,
+    content: row.content,
+    difficulty: row.difficulty,
+    defaultScore: row.defaultScore,
+    analysis: row.analysis,
+    allowOptionShuffle: row.allowOptionShuffle,
+    knowledgePointIds: row.knowledgePointIds ?? [],
+    options: row.options ?? [],
+    answer: row.answer,
+    scoringRule: row.scoringRule,
+  };
+}
+
+function shouldSkipBatchRow(row) {
+  return ['duplicate', 'conflict'].includes(row.conflictStatus);
+}
+
+function makeBatchRowKey(row) {
+  return [
+    String(row.number || '').trim(),
+    String(row.title || '').trim(),
+    String(row.type || '').trim(),
+    String(row.content || '').trim(),
+    JSON.stringify(row.options ?? []),
+    JSON.stringify(row.answer ?? null),
+  ].join('|');
+}
+
+function withBatchRowKey(row) {
+  return {
+    ...row,
+    batchKey: row.batchKey || makeBatchRowKey(row),
+  };
+}
+
+function filterRemovedBatchRows(rows) {
+  const removed = removedBatchRowKeys.value;
+  return rows.filter((row) => !removed.has(row.batchKey || makeBatchRowKey(row)));
+}
+
+function removeBatchPreviewRow(row) {
+  const key = row.batchKey || makeBatchRowKey(row);
+  removedBatchRowKeys.value = new Set([...removedBatchRowKeys.value, key]);
+  batchPreview.value = batchPreview.value.filter((item) => item !== row);
+  if (selectedPreviewIndex.value >= batchPreview.value.length) {
+    selectedPreviewIndex.value = Math.max(0, batchPreview.value.length - 1);
+  }
+  ElMessage.success('已从本次导入预览中移除');
+}
+
+function conflictLabel(status) {
+  const labels = { conflict: '冲突', duplicate: '重复', similar: '相似' };
+  return labels[status] || status;
+}
+
+function conflictTagType(status) {
+  if (status === 'conflict') return 'danger';
+  if (status === 'duplicate') return 'warning';
+  return 'info';
 }
 
 function selectPreview(row) {
@@ -980,6 +1255,8 @@ function validatePayload(payload, label) {
 }
 
 function loadBatchTemplate() {
+  structuredBatchQuestions.value = [];
+  removedBatchRowKeys.value = new Set();
   batchText.value = [
     '标题：批量示例：Python 输出',
     '题型：单选题',
@@ -1060,9 +1337,13 @@ async function handlePortableImportChange(uploadFile) {
       const rows = portableQuestionsFromJson(JSON.parse(await file.text()));
       applyPortableQuestions(rows, 'JSON');
     } else if (name.endsWith('.csv')) {
-      const rows = parseCsvRows(await file.text()).map(normalizePortableQuestion);
-      applyPortableQuestions(rows, 'CSV');
+      const rows = parseCsvRows(await file.text());
+      ensurePortableCsvRows(rows);
+      const questions = rows.map(normalizePortableQuestion);
+      applyPortableQuestions(questions, 'CSV');
     } else {
+      structuredBatchQuestions.value = [];
+      removedBatchRowKeys.value = new Set();
       batchText.value = await file.text();
       batchAnswerText.value = '';
       importMode.value = 'batch';
@@ -1071,6 +1352,9 @@ async function handlePortableImportChange(uploadFile) {
     }
   } catch (error) {
     ElMessage.error(error.message || '题目文件导入失败');
+  } finally {
+    portableUploadRef.value?.clearFiles?.();
+    portableUploadKey.value += 1;
   }
 }
 
@@ -1081,20 +1365,22 @@ async function loadQuestionZipPackage(file) {
   const answerEntry = entries.get('answers.txt');
   const jsonEntry = entries.get('questions.json');
 
-  if (templateEntry) {
-    batchText.value = rewritePortableAssetPaths(decodeText(templateEntry.data), assetUrlMap);
-    batchAnswerText.value = answerEntry ? decodeText(answerEntry.data) : '';
-    importMode.value = 'batch';
-    refreshPreview();
-    ElMessage.success('题目压缩包已载入，可预览后批量导入');
-    return;
-  }
-
   if (jsonEntry) {
     const rows = portableQuestionsFromJson(JSON.parse(decodeText(jsonEntry.data))).map((row) =>
       rewritePortableQuestionAssets(row, assetUrlMap),
     );
     applyPortableQuestions(rows, '题目压缩包');
+    return;
+  }
+
+  if (templateEntry) {
+    structuredBatchQuestions.value = [];
+    removedBatchRowKeys.value = new Set();
+    batchText.value = rewritePortableAssetPaths(decodeText(templateEntry.data), assetUrlMap);
+    batchAnswerText.value = answerEntry ? decodeText(answerEntry.data) : '';
+    importMode.value = 'batch';
+    refreshPreview();
+    ElMessage.success('题目压缩包已载入，可预览后批量导入');
     return;
   }
 
@@ -1120,12 +1406,65 @@ async function uploadZipAssets(entries) {
 function applyPortableQuestions(rows, sourceLabel) {
   const questions = rows.filter(Boolean);
   if (!questions.length) throw new Error(`${sourceLabel} 中没有可导入的题目`);
+  structuredBatchQuestions.value = questions;
+  removedBatchRowKeys.value = new Set();
   const { template, answers } = portableQuestionsToBatch(questions);
   batchText.value = template;
   batchAnswerText.value = answers;
   importMode.value = 'batch';
   refreshPreview();
   ElMessage.success(`已从 ${sourceLabel} 解析 ${questions.length} 道题，请检查后导入`);
+}
+
+function ensurePortableCsvRows(rows) {
+  if (!rows.length) return;
+  const headers = new Set(Object.keys(rows[0] ?? {}));
+  const legacyPaperColumns = ['no', 'section', 'title', 'type', 'score', 'content', 'answer', 'analysis'].every((key) =>
+    headers.has(key),
+  );
+  const hasTransferFields = ['contentMarkdown', 'optionsJson', 'answerJson', 'scoringRuleJson'].some((key) => headers.has(key));
+  if (legacyPaperColumns && !hasTransferFields) {
+    throw new Error(
+      '这是旧版试卷文档 CSV，只包含阅读展示字段，缺少可回导字段：contentMarkdown、optionsJson、answerJson、scoringRuleJson、tagNames、knowledgePointNames。请用新版“CSV/JSON 迁移导出”重新导出。',
+    );
+  }
+}
+
+function buildPortablePreviewRow(question, index) {
+  const number = index + 1;
+  const knowledgePointNames = mergeTags(selectedKnowledgeNames.value, question.knowledgePointNames);
+  const payload = {
+    valid: true,
+    number,
+    courseId: sharedCourseId.value || question.courseId,
+    knowledgePointIds: mergeIds(sharedKnowledgePointIds.value, resolveKnowledgePointIdsByName(knowledgePointNames)),
+    knowledgePointNames,
+    type: normalizeType(question.type || 'single_choice'),
+    title: question.title,
+    tagNames: mergeTags(sharedTagNames.value, question.tagNames),
+    content: question.content,
+    difficulty: Number(question.difficulty) || 1,
+    defaultScore: Number(question.defaultScore ?? question.score) || 2,
+    analysis: question.analysis ?? '',
+    options: question.options ?? [],
+    answer: question.answer,
+    scoringRule: question.scoringRule,
+    allowOptionShuffle: question.allowOptionShuffle,
+    answerText: portableAnswerForImport(question),
+    statusText: '待导入',
+  };
+
+  try {
+    validatePayload(payload, `第 ${number} 题`);
+    return payload;
+  } catch (error) {
+    return {
+      ...payload,
+      valid: false,
+      statusText: `格式错误：${error.message}`,
+      errorMessage: error.message,
+    };
+  }
 }
 
 async function handleImagePaste(event, target, field) {
@@ -1289,23 +1628,34 @@ function portableQuestionsFromJson(value) {
 }
 
 function normalizePortableQuestion(record) {
-  const source = record?.importPayload ? { ...record.importPayload } : { ...record };
+  const importPayload = normalizePortableJson(record?.importPayload);
+  const source = importPayload && typeof importPayload === 'object' && !Array.isArray(importPayload)
+    ? { ...importPayload }
+    : { ...record };
   const tagNames = normalizeNameList(source.tagNames ?? record?.tagNames ?? record?.tags);
   const knowledgePointNames = normalizeNameList(source.knowledgePointNames ?? record?.knowledgePointNames ?? record?.knowledgePoints);
-  const options = normalizePortableOptions(source.options ?? source.optionsJson ?? record?.options ?? record?.optionsJson);
-  const answer = normalizePortableJson(source.answer ?? source.answerJson ?? record?.answer ?? record?.answerJson);
+  const answer = normalizePortableJson(source.answerJson ?? source.answer ?? record?.answerJson ?? record?.answer);
+  const options = applyPortableAnswerToOptions(
+    normalizePortableOptions(source.optionsJson ?? source.options ?? record?.optionsJson ?? record?.options),
+    answer,
+  );
+  const scoringRule = normalizePortableJson(source.scoringRuleJson ?? source.scoringRule ?? record?.scoringRuleJson ?? record?.scoringRule);
 
   return {
     type: normalizeType(source.type || record?.type || 'single_choice'),
     title: String(source.title || record?.title || '未命名题目').trim(),
-    content: String(source.content ?? source.contentMarkdown ?? record?.content ?? record?.contentMarkdown ?? '').trim(),
+    content: String(source.contentMarkdown ?? source.content ?? record?.contentMarkdown ?? record?.content ?? '').trim(),
     difficulty: Number(source.difficulty ?? record?.difficulty ?? 1) || 1,
     defaultScore: Number(source.defaultScore ?? source.score ?? record?.defaultScore ?? record?.score ?? 2) || 2,
-    analysis: String(source.analysis ?? source.analysisMarkdown ?? record?.analysis ?? record?.analysisMarkdown ?? '').trim(),
+    analysis: String(source.analysisMarkdown ?? source.analysis ?? record?.analysisMarkdown ?? record?.analysis ?? '').trim(),
     tagNames,
     knowledgePointNames,
     options,
     answer,
+    scoringRule,
+    allowOptionShuffle: normalizeBoolean(source.allowOptionShuffle ?? record?.allowOptionShuffle),
+    courseId: source.courseId ?? record?.courseId,
+    courseName: source.courseName ?? record?.courseName,
   };
 }
 
@@ -1330,6 +1680,21 @@ function normalizePortableJson(value) {
   } catch {
     return text;
   }
+}
+
+function applyPortableAnswerToOptions(options, answer) {
+  if (!Array.isArray(answer?.correctOptionIds) || !options.length) return options;
+  const correctIds = new Set(answer.correctOptionIds.map((item) => String(item)));
+  return options.map((option) => ({
+    ...option,
+    isCorrect: option.isCorrect || correctIds.has(String(option.id)) || correctIds.has(String(option.optionKey)),
+  }));
+}
+
+function normalizeBoolean(value) {
+  if (value === true || value === 'true' || value === '1' || value === 1) return true;
+  if (value === false || value === 'false' || value === '0' || value === 0) return false;
+  return undefined;
 }
 
 function normalizeNameList(value) {
@@ -1679,13 +2044,24 @@ function formatBatchErrors(errors) {
 }
 
 function batchRowClass({ row }) {
-  return row.valid === false ? 'batch-row-error' : '';
+  if (row.valid === false) return 'batch-row-error';
+  if (shouldSkipBatchRow(row)) return 'batch-row-skip';
+  return '';
 }
 
 function makeTagCode(name, index) {
   const ascii = name.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 24);
   return `q_${ascii || 'tag'}_${Date.now()}_${index}`;
 }
+
+watch(
+  () => (importMode.value === 'single' ? JSON.stringify(buildDuplicateCheckPayload(singlePreviewQuestion.value)) : importMode.value),
+  () => scheduleSingleDuplicateCheck(),
+);
+
+onBeforeUnmount(() => {
+  if (singleDuplicateTimer) clearTimeout(singleDuplicateTimer);
+});
 
 onMounted(async () => {
   await loadBaseData();
@@ -1694,3 +2070,20 @@ onMounted(async () => {
   setImageInsertTarget(singleForm, 'content');
 });
 </script>
+
+<style scoped>
+.mini-muted {
+  margin-top: 4px;
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+:deep(.batch-row-error) {
+  --el-table-tr-bg-color: #fff2f0;
+}
+
+:deep(.batch-row-skip) {
+  --el-table-tr-bg-color: #fff8e6;
+}
+</style>

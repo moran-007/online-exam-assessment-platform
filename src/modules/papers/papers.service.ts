@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { ExamStatus, PaperStatus, PaperType, Prisma, QuestionStatus } from '@prisma/client';
+import { ExamStatus, PaperStatus, PaperType, Prisma, QuestionStatus, TagType } from '@prisma/client';
 import { toPagination } from '../../common/dto/pagination-query.dto';
 import {
   normalizePaperStatus,
@@ -9,12 +9,14 @@ import {
 } from '../../common/utils/enum-normalizer';
 import { AuditService } from '../audit/audit.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { CreateQuestionDto } from '../questions/dto/create-question.dto';
 import { QuestionsService } from '../questions/questions.service';
 import { AddPaperQuestionDto } from './dto/add-paper-question.dto';
 import { AddPaperQuestionsByTagsDto } from './dto/add-paper-questions-by-tags.dto';
 import { CreatePaperDto } from './dto/create-paper.dto';
 import { GeneratePaperRuleDto, GeneratePaperRuleItemDto } from './dto/generate-paper-rule.dto';
 import { GeneratePaperFromWrongDto } from './dto/generate-paper-from-wrong.dto';
+import { ImportPaperDto } from './dto/import-paper.dto';
 import { QueryPaperDto } from './dto/query-paper.dto';
 import { UpdatePaperQuestionDto } from './dto/update-paper-question.dto';
 import { UpdatePaperQuestionSnapshotDto } from './dto/update-paper-question-snapshot.dto';
@@ -99,6 +101,112 @@ export class PapersService {
     });
 
     return { id: paper.id };
+  }
+
+  async importPaper(dto: ImportPaperDto, userId: string) {
+    if (!dto.questions?.length) {
+      throw new BadRequestException('导入试卷至少需要包含一道题');
+    }
+
+    const normalizedRecords = dto.questions.map((record) => this.normalizeImportedQuestionRecord(record));
+    const importedCourseId = normalizedRecords.find((record) => typeof record.courseId === 'string')?.courseId;
+    const courseId = dto.courseId || (typeof importedCourseId === 'string' ? importedCourseId : '');
+    if (!courseId) {
+      throw new BadRequestException('请选择导入试卷所属课程');
+    }
+
+    const course = await this.prisma.course.findFirst({ where: { id: courseId, deletedAt: null } });
+    if (!course) {
+      throw new NotFoundException('导入试卷所属课程不存在');
+    }
+
+    const resolvedQuestions: Array<{
+      questionId: string;
+      snapshot: Prisma.InputJsonObject;
+      score: number;
+      sectionTitle: string | null;
+      sortOrder: number;
+    }> = [];
+    let reusedCount = 0;
+    let createdQuestionCount = 0;
+
+    for (const [index, record] of normalizedRecords.entries()) {
+      const payload = await this.toImportedQuestionCreateDto(record, courseId);
+      let questionId = dto.reuseExisting === false ? '' : await this.findDuplicateQuestionId(payload);
+
+      if (questionId) {
+        reusedCount += 1;
+      } else {
+        const created = await this.questionsService.create(payload, userId);
+        questionId = created.id;
+        createdQuestionCount += 1;
+      }
+
+      const snapshot = await this.questionsService.buildSnapshot(this.prisma, questionId);
+      resolvedQuestions.push({
+        questionId,
+        snapshot,
+        score: Number(record.score ?? payload.defaultScore) || Number(payload.defaultScore) || 0,
+        sectionTitle: String(record.sectionTitle || record.section || '').trim() || null,
+        sortOrder: Number(record.sortOrder ?? record.no ?? index + 1) || index + 1,
+      });
+    }
+
+    const result = await this.prisma.$transaction(async (tx) => {
+      const paper = await tx.paper.create({
+        data: {
+          name: this.importedPaperName(dto.name || normalizedRecords[0]?.paperName),
+          courseId,
+          durationMinutes: dto.durationMinutes ?? 60,
+          type: PaperType.FIXED,
+          status: PaperStatus.DRAFT,
+          shuffleQuestions: dto.shuffleQuestions ?? false,
+          shuffleOptions: dto.shuffleOptions ?? false,
+          createdBy: userId,
+          updatedBy: userId,
+        },
+      });
+      const sectionMap = new Map<string, string>();
+
+      for (const item of resolvedQuestions) {
+        const sectionId = item.sectionTitle
+          ? await this.resolveImportedSection(tx, paper.id, item.sectionTitle, sectionMap)
+          : null;
+        await tx.paperQuestion.create({
+          data: {
+            paperId: paper.id,
+            sectionId,
+            questionId: item.questionId,
+            questionSnapshotJson: item.snapshot,
+            score: item.score,
+            sortOrder: item.sortOrder,
+          },
+        });
+      }
+
+      await this.normalizeSortOrders(tx, paper.id);
+      const totalScore = await this.recalculateScore(tx, paper.id);
+      return { paperId: paper.id, questionCount: resolvedQuestions.length, totalScore };
+    });
+
+    await this.audit.log({
+      userId,
+      action: 'paper:import',
+      module: 'paper',
+      targetType: 'paper',
+      targetId: result.paperId,
+      afterData: {
+        questionCount: result.questionCount,
+        reusedCount,
+        createdQuestionCount,
+      },
+    });
+
+    return {
+      ...result,
+      reusedCount,
+      createdQuestionCount,
+    };
   }
 
   async detail(id: string) {
@@ -793,6 +901,263 @@ export class PapersService {
 
   async preview(id: string) {
     return this.detail(id);
+  }
+
+  private normalizeImportedQuestionRecord(record: Record<string, unknown>): Record<string, unknown> {
+    const importPayload = this.parseJsonish(record.importPayload);
+    const source =
+      importPayload && typeof importPayload === 'object' && !Array.isArray(importPayload)
+        ? { ...record, ...(importPayload as Record<string, unknown>) }
+        : { ...record };
+    const answer = this.parseJsonish(source.answerJson ?? source.answer);
+    const options = this.applyImportedAnswerToOptions(
+      this.normalizeImportedOptions(source.optionsJson ?? source.options),
+      answer,
+    );
+
+    return {
+      ...source,
+      type: this.normalizeImportedQuestionType(String(source.type || 'single_choice')),
+      title: String(source.title || '未命名题目').trim(),
+      content: String(source.contentMarkdown ?? source.content ?? '').trim(),
+      difficulty: this.clampNumber(source.difficulty, 1, 5, 1),
+      defaultScore: this.nonNegativeNumber(source.defaultScore ?? source.score, 2),
+      score: this.nonNegativeNumber(source.score ?? source.defaultScore, 2),
+      analysis: String(source.analysisMarkdown ?? source.analysis ?? '').trim(),
+      options,
+      answer: this.normalizeImportedAnswer(answer, String(source.type || 'single_choice')),
+      scoringRule: this.toJsonObject(this.parseJsonish(source.scoringRuleJson ?? source.scoringRule)),
+      tagNames: this.normalizeNameList(source.tagNames ?? source.tags),
+      knowledgePointNames: this.normalizeNameList(source.knowledgePointNames ?? source.knowledgePoints),
+      allowOptionShuffle: this.optionalBoolean(source.allowOptionShuffle),
+      sectionTitle: String(source.sectionTitle ?? source.section ?? '').trim(),
+    };
+  }
+
+  private async toImportedQuestionCreateDto(record: Record<string, unknown>, courseId: string): Promise<CreateQuestionDto> {
+    const tagIds = await this.resolveQuestionTagIds(record.tagNames);
+    const knowledgePointIds = await this.resolveKnowledgePointIds(courseId, record.knowledgePointNames);
+
+    return {
+      courseId,
+      type: String(record.type || 'single_choice'),
+      title: String(record.title || '未命名题目').trim(),
+      content: String(record.content || '').trim(),
+      difficulty: this.clampNumber(record.difficulty, 1, 5, 1),
+      defaultScore: this.nonNegativeNumber(record.defaultScore ?? record.score, 2),
+      analysis: String(record.analysis ?? '').trim(),
+      allowOptionShuffle: this.optionalBoolean(record.allowOptionShuffle),
+      knowledgePointIds,
+      tagIds,
+      options: (Array.isArray(record.options) ? record.options : []) as CreateQuestionDto['options'],
+      answer: this.toJsonObject(record.answer),
+      scoringRule: this.toJsonObject(record.scoringRule),
+    };
+  }
+
+  private async findDuplicateQuestionId(payload: CreateQuestionDto) {
+    const checked = await this.questionsService.checkDuplicates([payload]);
+    return checked.items[0]?.matches.find(
+      (match) => match.source === 'question_bank' && match.reason === 'duplicate' && match.id,
+    )?.id;
+  }
+
+  private async resolveImportedSection(
+    tx: Prisma.TransactionClient,
+    paperId: string,
+    title: string,
+    cache: Map<string, string>,
+  ) {
+    const normalized = title.trim();
+    if (!normalized) return null;
+    const cached = cache.get(normalized);
+    if (cached) return cached;
+
+    const section = await tx.paperSection.create({
+      data: {
+        paperId,
+        title: normalized.slice(0, 128),
+        sortOrder: cache.size + 1,
+      },
+    });
+    cache.set(normalized, section.id);
+    return section.id;
+  }
+
+  private async resolveQuestionTagIds(value: unknown) {
+    const names = this.normalizeNameList(value);
+    const ids: string[] = [];
+    for (const name of names) {
+      const existing = await this.prisma.tag.findFirst({
+        where: { deletedAt: null, type: TagType.QUESTION, name: { equals: name, mode: 'insensitive' } },
+      });
+      if (existing) {
+        ids.push(existing.id);
+        continue;
+      }
+      const created = await this.prisma.tag.create({
+        data: {
+          name: name.slice(0, 64),
+          code: this.generatedTagCode(name),
+          type: TagType.QUESTION,
+        },
+      });
+      ids.push(created.id);
+    }
+    return ids;
+  }
+
+  private async resolveKnowledgePointIds(courseId: string, value: unknown) {
+    const names = this.normalizeNameList(value);
+    const ids: string[] = [];
+    for (const name of names) {
+      const existing = await this.prisma.knowledgePoint.findFirst({
+        where: { courseId, deletedAt: null, name: { equals: name, mode: 'insensitive' } },
+      });
+      if (existing) ids.push(existing.id);
+    }
+    return ids;
+  }
+
+  private normalizeImportedOptions(value: unknown): NonNullable<CreateQuestionDto['options']> {
+    const parsed = this.parseJsonish(value);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.map((option, index) => {
+      const item = this.toSnapshotObject(option);
+      return {
+        optionKey: String(item.optionKey ?? item.label ?? this.optionKeyForIndex(index)).trim() || this.optionKeyForIndex(index),
+        content: String(item.content ?? item.contentMarkdown ?? '').trim(),
+        isCorrect: item.isCorrect === true || item.isCorrect === 'true',
+        sortOrder: this.clampNumber(item.sortOrder ?? index + 1, 1, 999, index + 1),
+        id: typeof item.id === 'string' ? item.id : typeof item.optionId === 'string' ? item.optionId : undefined,
+      } as NonNullable<CreateQuestionDto['options']>[number] & { id?: string };
+    });
+  }
+
+  private applyImportedAnswerToOptions(options: NonNullable<CreateQuestionDto['options']>, answer: unknown) {
+    const answerObject = this.toJsonObject(answer);
+    const correctOptionIds = Array.isArray(answerObject.correctOptionIds)
+      ? new Set(answerObject.correctOptionIds.map((item) => String(item)))
+      : new Set<string>();
+    if (!correctOptionIds.size && typeof answer === 'string') {
+      for (const key of answer.split(/[，,\s]+/).map((item) => item.trim()).filter(Boolean)) {
+        correctOptionIds.add(key);
+      }
+    }
+
+    return options.map((option) => ({
+      ...option,
+      isCorrect:
+        Boolean(option.isCorrect) ||
+        correctOptionIds.has(String((option as typeof option & { id?: string }).id ?? '')) ||
+        correctOptionIds.has(String(option.optionKey)),
+    }));
+  }
+
+  private normalizeImportedAnswer(value: unknown, type: string) {
+    const parsed = this.parseJsonish(value);
+    const apiType = this.normalizeImportedQuestionType(type);
+    if (apiType === 'fill_blank' && typeof parsed === 'string') {
+      return { blanks: [{ index: 1, answers: parsed.split(/[，,]/).map((item) => item.trim()).filter(Boolean), trimSpace: true }] };
+    }
+    if (['short_answer', 'programming', 'material', 'file_upload', 'scratch_project', 'arduino_project'].includes(apiType) && typeof parsed === 'string') {
+      return { reference: parsed };
+    }
+    return this.toJsonObject(parsed);
+  }
+
+  private normalizeImportedQuestionType(type: string) {
+    const map: Record<string, string> = {
+      单选题: 'single_choice',
+      多选题: 'multiple_choice',
+      判断题: 'true_false',
+      填空题: 'fill_blank',
+      简答题: 'short_answer',
+      编程题: 'programming',
+      材料题: 'material',
+      文件上传题: 'file_upload',
+      scratch项目题: 'scratch_project',
+      arduino项目题: 'arduino_project',
+    };
+    const normalized = map[type.trim().toLowerCase()] ?? map[type.trim()] ?? type.trim();
+    return toApiEnum(normalizeQuestionType(normalized || 'single_choice'));
+  }
+
+  private parseJsonish(value: unknown): unknown {
+    if (value && typeof value === 'object') return value;
+    const text = String(value ?? '').trim();
+    if (!text) return {};
+    try {
+      return JSON.parse(text);
+    } catch {
+      return text;
+    }
+  }
+
+  private toJsonObject(value: unknown): Record<string, unknown> {
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+      return value as Record<string, unknown>;
+    }
+    return {};
+  }
+
+  private normalizeNameList(value: unknown) {
+    const parsed = this.parseJsonish(value);
+    if (Array.isArray(parsed)) {
+      return [
+        ...new Set(
+          parsed
+            .map((item) => (typeof item === 'string' ? item : this.toSnapshotObject(item).name))
+            .map((name) => String(name ?? '').trim())
+            .filter((name) => name && name !== '-' && name.toLowerCase() !== 'undefined'),
+        ),
+      ];
+    }
+    return [
+      ...new Set(
+        String(parsed ?? '')
+          .split(/[，,;；、]/)
+          .map((name) => name.trim())
+          .filter((name) => name && name !== '-' && name.toLowerCase() !== 'undefined'),
+      ),
+    ];
+  }
+
+  private optionalBoolean(value: unknown) {
+    if (value === true || value === 'true' || value === '1' || value === 1) return true;
+    if (value === false || value === 'false' || value === '0' || value === 0) return false;
+    return undefined;
+  }
+
+  private clampNumber(value: unknown, min: number, max: number, fallback: number) {
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric)) return fallback;
+    return Math.min(max, Math.max(min, Math.round(numeric)));
+  }
+
+  private nonNegativeNumber(value: unknown, fallback: number) {
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric)) return fallback;
+    return Math.max(0, numeric);
+  }
+
+  private optionKeyForIndex(index: number) {
+    return String.fromCharCode(65 + index);
+  }
+
+  private generatedTagCode(name: string) {
+    const base = name
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '_')
+      .replace(/^_+|_+$/g, '')
+      .slice(0, 32) || 'tag';
+    return `import_${base}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`.slice(0, 64);
+  }
+
+  private importedPaperName(name?: unknown) {
+    const base = String(name || '').trim() || '导入试卷';
+    const stamp = new Date().toISOString().replace(/[-:.]/g, '').slice(0, 15);
+    return `${base} 导入 ${stamp}`.slice(0, 128);
   }
 
   private async findEditable(id: string) {

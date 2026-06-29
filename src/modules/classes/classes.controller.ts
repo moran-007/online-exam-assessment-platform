@@ -16,55 +16,55 @@ export class ClassesController {
 
   @Get()
   @Permissions('class:read')
-  list(@Query() query: QueryClassDto) {
-    return this.classesService.list(query);
+  list(@Query() query: QueryClassDto, @CurrentUser() user: RequestUser) {
+    return this.classesService.list(query, user);
   }
 
   @Post()
   @Permissions('class:create')
   create(@Body() dto: SaveClassDto, @CurrentUser() user: RequestUser) {
-    return this.classesService.create(dto, user.id);
+    return this.classesService.create(dto, user);
   }
 
   @Get(':id')
   @Permissions('class:read')
-  detail(@Param('id') id: string) {
-    return this.classesService.detail(id);
+  detail(@Param('id') id: string, @CurrentUser() user: RequestUser) {
+    return this.classesService.detail(id, user);
   }
 
   @Patch(':id')
   @Permissions('class:update')
   update(@Param('id') id: string, @Body() dto: UpdateClassDto, @CurrentUser() user: RequestUser) {
-    return this.classesService.update(id, dto, user.id);
+    return this.classesService.update(id, dto, user);
   }
 
   @Delete(':id')
   @Permissions('class:update')
   remove(@Param('id') id: string, @CurrentUser() user: RequestUser) {
-    return this.classesService.remove(id, user.id);
+    return this.classesService.remove(id, user);
   }
 
   @Post(':id/students')
   @Permissions('class:update')
   addStudents(@Param('id') id: string, @Body() dto: UpdateClassMembersDto, @CurrentUser() user: RequestUser) {
-    return this.classesService.addStudents(id, dto.userIds, user.id);
+    return this.classesService.addStudents(id, dto.userIds, user);
   }
 
   @Delete(':id/students/:studentId')
   @Permissions('class:update')
   removeStudent(@Param('id') id: string, @Param('studentId') studentId: string, @CurrentUser() user: RequestUser) {
-    return this.classesService.removeStudent(id, studentId, user.id);
+    return this.classesService.removeStudent(id, studentId, user);
   }
 
   @Post(':id/teachers')
   @Permissions('class:update')
   addTeachers(@Param('id') id: string, @Body() dto: UpdateClassMembersDto, @CurrentUser() user: RequestUser) {
-    return this.classesService.addTeachers(id, dto.userIds, user.id);
+    return this.classesService.addTeachers(id, dto.userIds, user);
   }
 
   @Delete(':id/teachers/:teacherId')
   @Permissions('class:update')
   removeTeacher(@Param('id') id: string, @Param('teacherId') teacherId: string, @CurrentUser() user: RequestUser) {
-    return this.classesService.removeTeacher(id, teacherId, user.id);
+    return this.classesService.removeTeacher(id, teacherId, user);
   }
 }

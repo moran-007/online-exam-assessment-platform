@@ -1,8 +1,8 @@
 <template>
-  <div class="page">
-    <div class="page-head">
+  <div class="page statistics-page">
+    <div class="page-head statistics-head">
       <h1 class="page-title">统计分析</h1>
-      <div class="toolbar">
+      <div class="toolbar statistics-toolbar">
         <el-select v-model="filter.courseId" clearable filterable placeholder="课程" @change="load">
           <el-option v-for="course in courses" :key="course.id" :label="course.name" :value="course.id" />
         </el-select>
@@ -16,7 +16,7 @@
       </div>
     </div>
 
-    <div class="metric-row">
+    <div class="metric-row statistics-metric-row">
       <div class="metric">
         <span>提交次数</span>
         <strong>{{ overview.submittedAttempts }}</strong>
@@ -43,21 +43,22 @@
       </div>
     </div>
 
-    <div class="analytics-grid">
-      <div class="panel library-table-panel">
+    <div class="analytics-grid statistics-grid">
+      <div class="panel library-table-panel statistics-table-panel statistics-table-panel-main">
         <div class="section-head">
           <h2>考试表现</h2>
+          <span class="muted">点击一行查看题目正确率</span>
         </div>
         <el-table :data="examStats" height="100%" class="question-list-table" @row-click="loadExamDetail">
           <el-table-column prop="examName" label="考试" min-width="180" show-overflow-tooltip />
-          <el-table-column prop="courseName" label="课程" width="130" />
-          <el-table-column prop="className" label="班级" width="130" />
+          <el-table-column v-if="showMediumColumns" prop="courseName" label="课程" width="130" show-overflow-tooltip />
+          <el-table-column v-if="showLowColumns" prop="className" label="班级" width="130" show-overflow-tooltip />
           <el-table-column prop="submitCount" label="提交" width="80" />
           <el-table-column prop="averageScore" label="平均分" width="100" />
-          <el-table-column prop="maxScore" label="最高" width="80" />
+          <el-table-column v-if="showMediumColumns" prop="maxScore" label="最高" width="80" />
         </el-table>
       </div>
-      <div class="panel library-table-panel">
+      <div class="panel library-table-panel statistics-table-panel">
         <div class="section-head">
           <h2>知识点表现</h2>
         </div>
@@ -67,24 +68,24 @@
           <el-table-column prop="correctRate" label="正确率" width="100">
             <template #default="{ row }">{{ percent(row.correctRate) }}</template>
           </el-table-column>
-          <el-table-column prop="averageScore" label="平均分" width="100" />
+          <el-table-column v-if="showMediumColumns" prop="averageScore" label="平均分" width="100" />
         </el-table>
       </div>
-      <div class="panel library-table-panel">
+      <div class="panel library-table-panel statistics-table-panel">
         <div class="section-head">
           <h2>班级概览</h2>
         </div>
         <el-table :data="classStats" height="100%" class="question-list-table">
           <el-table-column prop="className" label="班级" min-width="160" show-overflow-tooltip />
-          <el-table-column prop="courseName" label="课程" width="130" />
+          <el-table-column v-if="showMediumColumns" prop="courseName" label="课程" width="130" show-overflow-tooltip />
           <el-table-column prop="studentCount" label="学生" width="80" />
           <el-table-column prop="submitCount" label="提交" width="80" />
-          <el-table-column prop="averageScore" label="平均分" width="100" />
+          <el-table-column v-if="showMediumColumns" prop="averageScore" label="平均分" width="100" />
         </el-table>
       </div>
     </div>
 
-    <div class="panel library-table-panel stats-question-panel">
+    <div class="panel library-table-panel stats-question-panel statistics-question-panel">
       <div class="section-head">
         <h2>题目分析</h2>
         <span class="muted">{{ selectedExamName || '点击上方考试查看题目正确率' }}</span>
@@ -92,12 +93,12 @@
       <el-table :data="questionStats" height="100%" class="question-list-table">
         <el-table-column prop="title" label="题目" min-width="260" show-overflow-tooltip />
         <el-table-column prop="type" label="题型" width="120" />
-        <el-table-column prop="difficulty" label="难度" width="90" />
+        <el-table-column v-if="showMediumColumns" prop="difficulty" label="难度" width="90" />
         <el-table-column prop="answerCount" label="作答" width="90" />
         <el-table-column prop="correctRate" label="正确率" width="100">
           <template #default="{ row }">{{ percent(row.correctRate) }}</template>
         </el-table-column>
-        <el-table-column prop="averageScore" label="平均分" width="100" />
+        <el-table-column v-if="showMediumColumns" prop="averageScore" label="平均分" width="100" />
       </el-table>
     </div>
   </div>
@@ -107,6 +108,7 @@
 import { onMounted, reactive, ref } from 'vue';
 import { Refresh } from '@element-plus/icons-vue';
 import { api, buildQuery } from '../api';
+import { useResponsiveColumns } from '../composables/useResponsiveColumns';
 
 const filter = reactive({ courseId: '', classId: '', examId: '' });
 const overview = reactive({
@@ -125,6 +127,7 @@ const knowledgeStats = ref([]);
 const classStats = ref([]);
 const questionStats = ref([]);
 const selectedExamName = ref('');
+const { showMediumColumns, showLowColumns } = useResponsiveColumns();
 
 async function load() {
   const query = buildQuery(filter);
@@ -164,3 +167,74 @@ function percent(value) {
 
 onMounted(load);
 </script>
+
+<style scoped>
+.statistics-page {
+  --statistics-panel-height: clamp(250px, 31vh, 360px);
+}
+
+.statistics-head {
+  align-items: flex-start;
+}
+
+.statistics-toolbar {
+  flex: 1 1 680px;
+  justify-content: flex-end;
+}
+
+.statistics-toolbar > .el-select {
+  flex: 0 1 220px;
+}
+
+.statistics-metric-row {
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+}
+
+.statistics-grid {
+  grid-template-columns: minmax(380px, 1.35fr) minmax(300px, 1fr) minmax(300px, 1fr);
+  align-items: stretch;
+  flex: 0 0 var(--statistics-panel-height);
+}
+
+.statistics-table-panel {
+  min-height: 0;
+  height: var(--statistics-panel-height);
+}
+
+.statistics-table-panel :deep(.el-table__empty-block) {
+  min-height: 140px;
+}
+
+.statistics-question-panel {
+  flex: 1 1 260px;
+  min-height: 260px;
+}
+
+@media (max-width: 1500px) {
+  .statistics-grid {
+    grid-template-columns: minmax(360px, 1.25fr) minmax(300px, 1fr);
+    flex-basis: auto;
+  }
+
+  .statistics-table-panel {
+    height: 300px;
+  }
+
+  .statistics-table-panel-main {
+    grid-row: span 2;
+    height: 614px;
+  }
+}
+
+@media (max-width: 980px) {
+  .statistics-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .statistics-table-panel,
+  .statistics-table-panel-main {
+    height: 300px;
+    grid-row: auto;
+  }
+}
+</style>
