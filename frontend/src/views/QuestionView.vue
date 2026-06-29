@@ -1028,7 +1028,7 @@ function handleQuestionCommand(row, command) {
 
 async function exportQuestions(questionIds) {
   try {
-    const task = await api('/exports', {
+    await api('/exports', {
       method: 'POST',
       body: {
         type: 'question_bank',
@@ -1038,8 +1038,7 @@ async function exportQuestions(questionIds) {
         includeAnalysis: questionExportOptions.includeAnalysis,
       },
     });
-    ElMessage.success('题目导出已生成');
-    if (task.fileUrl) window.open(task.fileUrl, '_blank');
+    ElMessage.success('题目导出任务已加入队列，可到导出中心下载');
   } catch (error) {
     ElMessage.error(error.message || '题目导出失败');
   }
@@ -1149,11 +1148,27 @@ async function changeStatus(row, status) {
 
 async function removeQuestion(row) {
   try {
-    await ElMessageBox.confirm(`确认删除题目“${row.title}”？删除后会归档并从列表隐藏。`, '删除题目', {
-      type: 'warning',
-      confirmButtonText: '删除',
-      cancelButtonText: '取消',
-    });
+    const impact = await api(`/questions/${row.id}/delete-impact`);
+    const references = impact.references || {};
+    const resources = impact.resources || [];
+    const risks = impact.risks || [];
+    const lines = [
+      `试卷引用：${references.paperCount || 0} 份 / ${references.paperQuestionCount || 0} 个位置`,
+      `关联考试：${references.examCount || 0} 场，其中进行中或已安排 ${references.activeExamCount || 0} 场`,
+      `试卷快照：${references.paperInstanceCount || 0} 份`,
+      `答题记录：${references.answerRecordCount || 0} 条，错题记录：${references.wrongQuestionCount || 0} 条`,
+      `资源引用：${resources.length} 个${resources.some((item) => !item.managed) ? '（含未纳管资源）' : ''}`,
+      ...risks,
+    ];
+    await ElMessageBox.confirm(
+      `确认删除题目“${row.title}”？\n\n${lines.join('\n')}\n\n删除后题目会归档并从题库隐藏，历史答卷和已生成试卷快照不会自动同步。`,
+      '删除题目风险确认',
+      {
+        type: 'warning',
+        confirmButtonText: '确认删除',
+        cancelButtonText: '取消',
+      },
+    );
     await api(`/questions/${row.id}`, { method: 'DELETE' });
     ElMessage.success('已删除');
     if (editingId.value === row.id) resetForm();

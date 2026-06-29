@@ -110,6 +110,54 @@ export class StatisticsService {
     };
   }
 
+  async scoreDistribution(query: QueryStatisticsDto, user: RequestUser) {
+    const attemptWhere = await this.attemptWhere(query, user);
+    const attempts = await this.prisma.examAttempt.findMany({
+      where: attemptWhere,
+      include: {
+        exam: {
+          include: {
+            paper: { select: { totalScore: true } },
+          },
+        },
+      },
+      orderBy: { submittedAt: 'desc' },
+    });
+    const buckets = [
+      { label: '0-59%', min: 0, max: 59, count: 0 },
+      { label: '60-69%', min: 60, max: 69, count: 0 },
+      { label: '70-79%', min: 70, max: 79, count: 0 },
+      { label: '80-89%', min: 80, max: 89, count: 0 },
+      { label: '90-100%', min: 90, max: 100, count: 0 },
+    ];
+    const scores = attempts.map((attempt) => Number(attempt.totalScore));
+    const percents = attempts.map((attempt) => {
+      const fullScore = Number(attempt.exam.paper.totalScore) || 0;
+      return fullScore > 0 ? Math.min(100, Math.max(0, (Number(attempt.totalScore) / fullScore) * 100)) : 0;
+    });
+
+    for (const percent of percents) {
+      const rounded = Math.floor(percent);
+      const bucket = buckets.find((item) => rounded >= item.min && rounded <= item.max) ?? buckets[buckets.length - 1];
+      bucket.count += 1;
+    }
+
+    const total = attempts.length;
+    return {
+      total,
+      averageScore: this.average(scores),
+      averagePercent: this.average(percents),
+      buckets: buckets.map((bucket) => ({
+        ...bucket,
+        percent: total ? Number((bucket.count / total).toFixed(4)) : 0,
+      })),
+    };
+  }
+
+  async classComparison(query: QueryStatisticsDto, user: RequestUser) {
+    return this.classes(query, user);
+  }
+
   async examDetail(examId: string, user: RequestUser) {
     await this.dataScope.assertExamAccessible(user, examId);
     const exam = await this.prisma.exam.findFirst({
@@ -199,6 +247,57 @@ export class StatisticsService {
     }));
   }
 
+  async knowledgeTrend(query: QueryStatisticsDto, user: RequestUser) {
+    const attemptWhere = await this.attemptWhere(query, user);
+    const answerRecords = await this.prisma.answerRecord.findMany({
+      where: {
+        attempt: attemptWhere,
+        question: { deletedAt: null, courseId: query.courseId },
+      },
+      include: {
+        attempt: { select: { submittedAt: true } },
+        question: {
+          include: {
+            knowledgePoints: { include: { knowledgePoint: true } },
+          },
+        },
+      },
+      orderBy: { updatedAt: 'asc' },
+    });
+    const groups = new Map<string, { date: string; knowledgePointId: string; name: string; total: number; correct: number; score: number }>();
+
+    for (const record of answerRecords) {
+      const date = (record.attempt.submittedAt ?? record.updatedAt).toISOString().slice(0, 10);
+      for (const relation of record.question.knowledgePoints) {
+        const point = relation.knowledgePoint;
+        const key = `${date}:${point.id}`;
+        const current = groups.get(key) ?? {
+          date,
+          knowledgePointId: point.id,
+          name: point.name,
+          total: 0,
+          correct: 0,
+          score: 0,
+        };
+        current.total += 1;
+        current.correct += record.isCorrect ? 1 : 0;
+        current.score += Number(record.score);
+        groups.set(key, current);
+      }
+    }
+
+    return [...groups.values()]
+      .map((item) => ({
+        date: item.date,
+        knowledgePointId: item.knowledgePointId,
+        name: item.name,
+        answerCount: item.total,
+        correctRate: item.total ? Number((item.correct / item.total).toFixed(4)) : 0,
+        averageScore: item.total ? Number((item.score / item.total).toFixed(2)) : 0,
+      }))
+      .sort((a, b) => a.date.localeCompare(b.date) || a.name.localeCompare(b.name));
+  }
+
   async classes(query: QueryStatisticsDto, user: RequestUser) {
     const classWhere = await this.dataScope.classWhere(user, query.classId);
     const classGroups = await this.prisma.classGroup.findMany({
@@ -208,21 +307,29 @@ export class StatisticsService {
     });
     const attempts = await this.prisma.examAttempt.findMany({
       where: {
-        submittedAt: { not: null },
+        submittedAt: this.submittedAtFilter(query),
         exam: { classId: { in: classGroups.map((item) => item.id) }, courseId: query.courseId },
       },
-      select: { exam: { select: { classId: true } }, totalScore: true },
+      select: {
+        exam: { select: { classId: true, paper: { select: { totalScore: true } } } },
+        totalScore: true,
+      },
     });
-    const scoreMap = new Map<string, number[]>();
+    const scoreMap = new Map<string, Array<{ score: number; fullScore: number }>>();
     for (const attempt of attempts) {
       const classId = attempt.exam.classId;
       if (!classId) continue;
       const scores = scoreMap.get(classId) ?? [];
-      scores.push(Number(attempt.totalScore));
+      scores.push({
+        score: Number(attempt.totalScore),
+        fullScore: Number(attempt.exam.paper.totalScore) || 0,
+      });
       scoreMap.set(classId, scores);
     }
     return classGroups.map((item) => {
-      const scores = scoreMap.get(item.id) ?? [];
+      const attempts = scoreMap.get(item.id) ?? [];
+      const scores = attempts.map((attempt) => attempt.score);
+      const passCount = attempts.filter((attempt) => attempt.fullScore > 0 && attempt.score / attempt.fullScore >= 0.6).length;
       return {
         classId: item.id,
         className: item.name,
@@ -232,8 +339,120 @@ export class StatisticsService {
         averageScore: this.average(scores),
         maxScore: scores.length ? Math.max(...scores) : 0,
         minScore: scores.length ? Math.min(...scores) : 0,
+        passRate: attempts.length ? Number((passCount / attempts.length).toFixed(4)) : 0,
+        completionRate: item._count.students ? Number((attempts.length / item._count.students).toFixed(4)) : 0,
       };
     });
+  }
+
+  async questionDiagnostics(query: QueryStatisticsDto, user: RequestUser) {
+    const attemptWhere = await this.attemptWhere(query, user);
+    const answerRecords = await this.prisma.answerRecord.findMany({
+      where: {
+        attempt: attemptWhere,
+        question: { deletedAt: null, courseId: query.courseId },
+      },
+      include: {
+        attempt: { select: { id: true, totalScore: true, durationSeconds: true } },
+        question: {
+          include: {
+            knowledgePoints: { include: { knowledgePoint: true } },
+            tags: { include: { tag: true } },
+          },
+        },
+      },
+      orderBy: { updatedAt: 'desc' },
+      take: 5000,
+    });
+    const attemptScores = new Map<string, number>();
+    for (const record of answerRecords) {
+      attemptScores.set(record.attempt.id, Number(record.attempt.totalScore));
+    }
+    const sortedAttempts = [...attemptScores.entries()].sort((a, b) => b[1] - a[1]);
+    const groupSize = sortedAttempts.length >= 4 ? Math.max(1, Math.floor(sortedAttempts.length * 0.27)) : Math.max(1, Math.ceil(sortedAttempts.length / 2));
+    const topAttemptIds = new Set(sortedAttempts.slice(0, groupSize).map(([id]) => id));
+    const bottomAttemptIds = new Set(sortedAttempts.slice(-groupSize).map(([id]) => id));
+    const groups = new Map<string, {
+      title: string;
+      type: string;
+      difficulty: number;
+      defaultScore: number;
+      knowledgePointNames: Set<string>;
+      tagNames: Set<string>;
+      total: number;
+      correct: number;
+      score: number;
+      topTotal: number;
+      topCorrect: number;
+      bottomTotal: number;
+      bottomCorrect: number;
+      anomalyCount: number;
+    }>();
+
+    for (const record of answerRecords) {
+      const question = record.question;
+      const current = groups.get(question.id) ?? {
+        title: question.title,
+        type: toApiEnum(question.type),
+        difficulty: question.difficulty,
+        defaultScore: Number(question.defaultScore),
+        knowledgePointNames: new Set(question.knowledgePoints.map((item) => item.knowledgePoint.name)),
+        tagNames: new Set(question.tags.map((item) => item.tag.name)),
+        total: 0,
+        correct: 0,
+        score: 0,
+        topTotal: 0,
+        topCorrect: 0,
+        bottomTotal: 0,
+        bottomCorrect: 0,
+        anomalyCount: 0,
+      };
+      const score = Number(record.score);
+      const isCorrect = record.isCorrect === true;
+      current.total += 1;
+      current.correct += isCorrect ? 1 : 0;
+      current.score += score;
+      if (topAttemptIds.has(record.attempt.id)) {
+        current.topTotal += 1;
+        current.topCorrect += isCorrect ? 1 : 0;
+      }
+      if (bottomAttemptIds.has(record.attempt.id)) {
+        current.bottomTotal += 1;
+        current.bottomCorrect += isCorrect ? 1 : 0;
+      }
+      if ((isCorrect && score <= 0) || (record.isCorrect === false && score > 0) || score > current.defaultScore * 1.25) {
+        current.anomalyCount += 1;
+      }
+      groups.set(question.id, current);
+    }
+
+    return [...groups.entries()]
+      .map(([questionId, item]) => {
+        const correctRate = item.total ? item.correct / item.total : 0;
+        const topRate = item.topTotal ? item.topCorrect / item.topTotal : 0;
+        const bottomRate = item.bottomTotal ? item.bottomCorrect / item.bottomTotal : 0;
+        const discrimination = Number((topRate - bottomRate).toFixed(4));
+        const actualDifficulty = Number((1 + (1 - correctRate) * 4).toFixed(2));
+        const difficultyDelta = Number((actualDifficulty - item.difficulty).toFixed(2));
+        return {
+          questionId,
+          title: item.title,
+          type: item.type,
+          difficulty: item.difficulty,
+          actualDifficulty,
+          difficultyDelta,
+          answerCount: item.total,
+          correctRate: Number(correctRate.toFixed(4)),
+          averageScore: item.total ? Number((item.score / item.total).toFixed(2)) : 0,
+          discrimination,
+          anomalyCount: item.anomalyCount,
+          knowledgePointNames: [...item.knowledgePointNames],
+          tagNames: [...item.tagNames],
+          suggestion: this.diagnosticSuggestion(discrimination, difficultyDelta, item.anomalyCount),
+        };
+      })
+      .sort((a, b) => b.anomalyCount - a.anomalyCount || a.discrimination - b.discrimination || Math.abs(b.difficultyDelta) - Math.abs(a.difficultyDelta))
+      .slice(0, 100);
   }
 
   async wrongQuestions(query: QueryStatisticsDto, user: RequestUser) {
@@ -378,7 +597,7 @@ export class StatisticsService {
   private async attemptWhere(query: QueryStatisticsDto, user: RequestUser): Promise<Prisma.ExamAttemptWhereInput> {
     const examWhere = await this.examWhere(query, user);
     return {
-      submittedAt: { not: null },
+      submittedAt: this.submittedAtFilter(query),
       examId: query.examId,
       exam: {
         ...examWhere,
@@ -408,6 +627,19 @@ export class StatisticsService {
       gte: query.startDate ? new Date(query.startDate) : undefined,
       lte: query.endDate ? new Date(query.endDate) : undefined,
     };
+  }
+
+  private submittedAtFilter(query: QueryStatisticsDto): Prisma.DateTimeNullableFilter {
+    return { not: null, ...this.dateRange(query) };
+  }
+
+  private diagnosticSuggestion(discrimination: number, difficultyDelta: number, anomalyCount: number) {
+    const suggestions: string[] = [];
+    if (discrimination < 0.15) suggestions.push('区分度偏低，建议复核题干、答案或评分规则');
+    if (difficultyDelta > 1) suggestions.push('实际难度高于配置，可考虑调低分值或补充讲解');
+    if (difficultyDelta < -1) suggestions.push('实际难度低于配置，可调整难度标签');
+    if (anomalyCount > 0) suggestions.push('存在异常判分记录，建议抽查答卷');
+    return suggestions.length ? suggestions.join('；') : '表现正常';
   }
 
   private normalizeWrongSourceType(value?: string): WrongQuestionSourceType | undefined {

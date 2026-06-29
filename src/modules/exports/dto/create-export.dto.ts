@@ -1,4 +1,4 @@
-import { IsArray, IsBoolean, IsIn, IsOptional, IsString, IsUUID } from 'class-validator';
+import { IsArray, IsBoolean, IsDateString, IsIn, IsOptional, IsString, IsUUID } from 'class-validator';
 
 export class CreateExportDto {
   @IsString()
@@ -30,6 +30,24 @@ export class CreateExportDto {
   @IsOptional()
   @IsUUID()
   classId?: string;
+
+  @IsOptional()
+  @IsString()
+  @IsIn(['current', 'overview', 'exams', 'classes', 'knowledge', 'distribution', 'diagnostics', 'wrong_questions'])
+  section?: string;
+
+  @IsOptional()
+  @IsString()
+  @IsIn(['exam', 'practice', 'manual', 'ai_recommendation'])
+  sourceType?: string;
+
+  @IsOptional()
+  @IsDateString()
+  startDate?: string;
+
+  @IsOptional()
+  @IsDateString()
+  endDate?: string;
 
   @IsOptional()
   @IsArray()

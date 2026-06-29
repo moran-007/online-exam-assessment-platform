@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { ExamStatus, PaperStatus, PaperType, Prisma, QuestionStatus, TagType } from '@prisma/client';
+import { ExamStatus, PaperStatus, PaperType, Prisma, QuestionStatus, TagType, WrongQuestionSourceType } from '@prisma/client';
 import { toPagination } from '../../common/dto/pagination-query.dto';
 import {
   normalizePaperStatus,
@@ -8,6 +8,8 @@ import {
   toApiEnum,
 } from '../../common/utils/enum-normalizer';
 import { AuditService } from '../audit/audit.service';
+import { RequestUser } from '../../common/interfaces/request-user.interface';
+import { DataScopeService } from '../data-scope/data-scope.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateQuestionDto } from '../questions/dto/create-question.dto';
 import { QuestionsService } from '../questions/questions.service';
@@ -37,6 +39,7 @@ export class PapersService {
     private readonly prisma: PrismaService,
     private readonly questionsService: QuestionsService,
     private readonly audit: AuditService,
+    private readonly dataScope: DataScopeService,
   ) {}
 
   async list(query: QueryPaperDto) {
@@ -770,7 +773,7 @@ export class PapersService {
     return result;
   }
 
-  async generateFromWrongFrequency(dto: GeneratePaperFromWrongDto, userId: string) {
+  async generateFromWrongFrequency(dto: GeneratePaperFromWrongDto, user: RequestUser) {
     const course = await this.prisma.course.findFirst({
       where: { id: dto.courseId, deletedAt: null },
     });
@@ -778,13 +781,22 @@ export class PapersService {
       throw new NotFoundException('课程不存在');
     }
 
+    const scopedStudentIds = await this.scopedStudentIdsForWrongPaper(dto, user);
     const wrongItems = await this.prisma.wrongQuestion.findMany({
       where: {
+        studentId: scopedStudentIds ? { in: scopedStudentIds } : undefined,
+        sourceType: this.normalizeWrongSourceType(dto.sourceType),
+        lastWrongAt: this.dateRange(dto),
         question: {
           courseId: dto.courseId,
           deletedAt: null,
           status: QuestionStatus.PUBLISHED,
           type: dto.questionType ? normalizeQuestionType(dto.questionType) : undefined,
+          knowledgePoints: dto.knowledgePointId
+            ? {
+                some: { knowledgePointId: dto.knowledgePointId },
+              }
+            : undefined,
         },
       },
       include: { question: true },
@@ -813,8 +825,8 @@ export class PapersService {
           durationMinutes: Math.max(selected.length * 3, 30),
           type: PaperType.FIXED,
           status: PaperStatus.DRAFT,
-          createdBy: userId,
-          updatedBy: userId,
+          createdBy: user.id,
+          updatedBy: user.id,
         },
       });
       const section = await tx.paperSection.create({
@@ -848,19 +860,54 @@ export class PapersService {
     });
 
     await this.audit.log({
-      userId,
+      userId: user.id,
       action: 'paper:generate-from-wrong-frequency',
       module: 'paper',
       targetType: 'paper',
       targetId: result.paperId,
       afterData: {
         courseId: dto.courseId,
+        classId: dto.classId,
+        knowledgePointId: dto.knowledgePointId,
+        sourceType: dto.sourceType,
+        startDate: dto.startDate,
+        endDate: dto.endDate,
         questionIds: selected.map((item) => item.questionId),
         wrongCounts: selected.map((item) => item.wrongCount),
       },
     });
 
     return result;
+  }
+
+  private async scopedStudentIdsForWrongPaper(dto: GeneratePaperFromWrongDto, user: RequestUser) {
+    const classWhere = await this.dataScope.classWhere(user, dto.classId);
+    const shouldScope = Boolean(dto.classId) || !this.dataScope.isUnrestricted(user);
+    if (!shouldScope) return undefined;
+
+    const classGroups = await this.prisma.classGroup.findMany({
+      where: { ...classWhere, deletedAt: null, courseId: dto.courseId },
+      include: { students: { select: { studentId: true } } },
+    });
+    return [...new Set(classGroups.flatMap((item) => item.students.map((student) => student.studentId)))];
+  }
+
+  private dateRange(dto: GeneratePaperFromWrongDto): Prisma.DateTimeFilter | undefined {
+    if (!dto.startDate && !dto.endDate) return undefined;
+    return {
+      gte: dto.startDate ? new Date(dto.startDate) : undefined,
+      lte: dto.endDate ? new Date(dto.endDate) : undefined,
+    };
+  }
+
+  private normalizeWrongSourceType(value?: string): WrongQuestionSourceType | undefined {
+    const map: Record<string, WrongQuestionSourceType> = {
+      exam: WrongQuestionSourceType.EXAM,
+      practice: WrongQuestionSourceType.PRACTICE,
+      manual: WrongQuestionSourceType.MANUAL,
+      ai_recommendation: WrongQuestionSourceType.AI_RECOMMENDATION,
+    };
+    return value ? map[value] : undefined;
   }
 
   async publish(id: string, userId: string) {

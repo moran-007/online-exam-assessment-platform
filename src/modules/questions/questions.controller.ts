@@ -60,6 +60,12 @@ export class QuestionsController {
     return this.questionsService.bulkUpdateStatus(dto.ids, dto.status, user.id);
   }
 
+  @Get(':id/delete-impact')
+  @Permissions('question:read')
+  deleteImpact(@Param('id') id: string) {
+    return this.questionsService.deleteImpact(id);
+  }
+
   @Get(':id')
   @Permissions('question:read')
   detail(@Param('id') id: string) {

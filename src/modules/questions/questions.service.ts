@@ -428,6 +428,112 @@ export class QuestionsService {
     };
   }
 
+  async deleteImpact(id: string) {
+    const question = await this.prisma.question.findFirst({
+      where: { id, deletedAt: null },
+      include: {
+        course: { select: { name: true } },
+        options: { orderBy: { sortOrder: 'asc' } },
+        answer: true,
+      },
+    });
+
+    if (!question) {
+      throw new NotFoundException('题目不存在');
+    }
+
+    const resourceReferences = this.extractResourceReferences(
+      question.content,
+      question.analysis,
+      question.options.map((option) => option.content),
+      question.answer?.answerJson,
+      question.answer?.scoringRuleJson,
+    );
+    const resourceAssets = resourceReferences.length
+      ? await this.prisma.fileAsset.findMany({
+          where: {
+            deletedAt: null,
+            OR: [
+              { url: { in: resourceReferences } },
+              { objectKey: { in: resourceReferences.map((url) => url.replace(/^\/uploads\//, '')) } },
+            ],
+          },
+        })
+      : [];
+
+    const [paperQuestionCount, paperCount, examCount, activeExamCount, paperInstanceCount, answerRecordCount, wrongQuestionCount, judgeSubmissionCount, versionCount] =
+      await this.prisma.$transaction([
+        this.prisma.paperQuestion.count({ where: { questionId: id } }),
+        this.prisma.paper.count({
+          where: {
+            deletedAt: null,
+            questions: { some: { questionId: id } },
+          },
+        }),
+        this.prisma.exam.count({
+          where: {
+            deletedAt: null,
+            paper: { questions: { some: { questionId: id } } },
+          },
+        }),
+        this.prisma.exam.count({
+          where: {
+            deletedAt: null,
+            status: { in: [ExamStatus.SCHEDULED, ExamStatus.RUNNING] },
+            paper: { questions: { some: { questionId: id } } },
+          },
+        }),
+        this.prisma.paperInstance.count({
+          where: {
+            exam: { deletedAt: null, paper: { questions: { some: { questionId: id } } } },
+          },
+        }),
+        this.prisma.answerRecord.count({ where: { questionId: id } }),
+        this.prisma.wrongQuestion.count({ where: { questionId: id } }),
+        this.prisma.judgeSubmission.count({ where: { questionId: id } }),
+        this.prisma.questionVersion.count({ where: { questionId: id } }),
+      ]);
+
+    const risks: string[] = [];
+    if (paperQuestionCount > 0) risks.push(`已被 ${paperQuestionCount} 个试卷题目引用，试卷快照不会自动同步`);
+    if (activeExamCount > 0) risks.push(`有 ${activeExamCount} 场已安排或进行中的考试引用该题`);
+    if (answerRecordCount > 0) risks.push(`已有 ${answerRecordCount} 条答题记录，删除后历史成绩仍保留快照`);
+    if (wrongQuestionCount > 0) risks.push(`已有 ${wrongQuestionCount} 条错题记录`);
+    if (resourceReferences.length > 0) risks.push(`题干/选项/解析引用 ${resourceReferences.length} 个资源，删除题目不会删除资源文件`);
+
+    return {
+      question: {
+        id: question.id,
+        title: question.title,
+        courseName: question.course.name,
+        status: toApiEnum(question.status),
+      },
+      references: {
+        paperQuestionCount,
+        paperCount,
+        examCount,
+        activeExamCount,
+        paperInstanceCount,
+        answerRecordCount,
+        wrongQuestionCount,
+        judgeSubmissionCount,
+        versionCount,
+      },
+      resources: resourceReferences.map((url) => {
+        const asset = resourceAssets.find((item) => item.url === url || `/uploads/${item.objectKey}` === url || item.objectKey === url.replace(/^\/uploads\//, ''));
+        return {
+          url,
+          kind: this.resourceKind(url, asset?.mimeType),
+          fileName: asset?.fileName ?? url.split('/').pop() ?? url,
+          fileSize: asset ? Number(asset.fileSize) : null,
+          managed: Boolean(asset),
+        };
+      }),
+      risks,
+      canDelete: true,
+    };
+  }
+
   async create(dto: CreateQuestionDto, userId: string) {
     const type = normalizeQuestionType(dto.type);
     this.validateQuestionInput(type, dto);
@@ -950,6 +1056,55 @@ export class QuestionsService {
       .replace(/\s+/g, ' ')
       .trim()
       .toLowerCase();
+  }
+
+  private extractResourceReferences(...values: unknown[]) {
+    const references = new Set<string>();
+    const visit = (value: unknown) => {
+      if (typeof value === 'string') {
+        const markdownLinkRegex = /!?\[[^\]]*]\(([^)]+)\)/g;
+        const uploadRegex = /(?:^|["'\s(])((?:\/uploads\/|uploads\/)[^"'\s)]+)/g;
+        let match: RegExpExecArray | null;
+        while ((match = markdownLinkRegex.exec(value))) {
+          const url = this.cleanResourceUrl(match[1]);
+          if (url) references.add(url);
+        }
+        while ((match = uploadRegex.exec(value))) {
+          const url = this.cleanResourceUrl(match[1]);
+          if (url) references.add(url);
+        }
+        return;
+      }
+      if (Array.isArray(value)) {
+        value.forEach(visit);
+        return;
+      }
+      if (value && typeof value === 'object') {
+        Object.values(value as Record<string, unknown>).forEach(visit);
+      }
+    };
+
+    values.forEach(visit);
+    return [...references];
+  }
+
+  private cleanResourceUrl(value: unknown) {
+    const raw = String(value ?? '')
+      .trim()
+      .replace(/^<|>$/g, '')
+      .split('#')[0]
+      .split('?')[0];
+    if (!raw || /^(https?:|data:|javascript:|mailto:)/i.test(raw)) return '';
+    return raw.startsWith('uploads/') ? `/${raw}` : raw;
+  }
+
+  private resourceKind(url: string, mimeType?: string | null) {
+    const value = `${mimeType ?? ''} ${url}`.toLowerCase();
+    if (/\.(png|jpe?g|gif|webp|bmp|svg)$/.test(value) || value.includes('image/')) return 'image';
+    if (/\.pdf$/.test(value) || value.includes('application/pdf')) return 'pdf';
+    if (/\.(doc|docx)$/.test(value) || value.includes('word')) return 'word';
+    if (/\.(xls|xlsx|csv)$/.test(value) || value.includes('spreadsheet')) return 'sheet';
+    return 'file';
   }
 
   private stableStringify(value: unknown): string {

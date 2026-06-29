@@ -27,6 +27,12 @@
           @change="load"
         />
         <el-button :icon="Refresh" @click="load">刷新</el-button>
+        <el-button type="primary" plain :icon="Download" :loading="exporting" @click="exportCurrentStatistics">
+          导出当前筛选
+        </el-button>
+        <el-button type="success" plain :icon="DocumentAdd" :loading="generatingWrongPaper" @click="generateWrongPaper">
+          高频错题组卷
+        </el-button>
       </div>
     </div>
 
@@ -54,6 +60,77 @@
       <div class="metric">
         <span>已批改</span>
         <strong>{{ overview.gradedCount }}</strong>
+      </div>
+    </div>
+
+    <div class="statistics-insight-grid">
+      <div class="panel statistics-card">
+        <div class="section-head">
+          <h2>成绩分布</h2>
+          <span class="muted">共 {{ scoreDistribution.total || 0 }} 次提交</span>
+        </div>
+        <div class="distribution-list">
+          <div v-for="bucket in scoreDistribution.buckets || []" :key="bucket.label" class="distribution-row">
+            <span class="distribution-label">{{ bucket.label }}</span>
+            <div class="distribution-track">
+              <span class="distribution-bar" :style="{ width: barWidth(bucket.count, scoreDistribution.total) }" />
+            </div>
+            <strong>{{ bucket.count }}</strong>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel statistics-card">
+        <div class="section-head">
+          <h2>班级对比</h2>
+          <span class="muted">通过率 / 完成率</span>
+        </div>
+        <el-table :data="classComparison" height="100%" class="question-list-table compact-table">
+          <el-table-column prop="className" label="班级" min-width="150" show-overflow-tooltip />
+          <el-table-column prop="averageScore" label="均分" width="80" />
+          <el-table-column prop="passRate" label="通过" width="90">
+            <template #default="{ row }">{{ percent(row.passRate) }}</template>
+          </el-table-column>
+          <el-table-column prop="completionRate" label="完成" width="90">
+            <template #default="{ row }">{{ percent(row.completionRate) }}</template>
+          </el-table-column>
+        </el-table>
+      </div>
+
+      <div class="panel statistics-card">
+        <div class="section-head">
+          <h2>知识点趋势</h2>
+          <span class="muted">按日期聚合</span>
+        </div>
+        <el-table :data="knowledgeTrend" height="100%" class="question-list-table compact-table">
+          <el-table-column prop="date" label="日期" width="110" />
+          <el-table-column prop="name" label="知识点" min-width="150" show-overflow-tooltip />
+          <el-table-column prop="answerCount" label="作答" width="70" />
+          <el-table-column prop="correctRate" label="正确率" width="90">
+            <template #default="{ row }">{{ percent(row.correctRate) }}</template>
+          </el-table-column>
+        </el-table>
+      </div>
+
+      <div class="panel statistics-card statistics-diagnostic-card">
+        <div class="section-head">
+          <h2>题目诊断</h2>
+          <span class="muted">区分度、难度回归与异常识别</span>
+        </div>
+        <el-table :data="questionDiagnostics" height="100%" class="question-list-table compact-table">
+          <el-table-column prop="title" label="题目" min-width="220" show-overflow-tooltip />
+          <el-table-column prop="correctRate" label="正确率" width="88">
+            <template #default="{ row }">{{ percent(row.correctRate) }}</template>
+          </el-table-column>
+          <el-table-column prop="discrimination" label="区分度" width="88">
+            <template #default="{ row }">{{ formatNumber(row.discrimination) }}</template>
+          </el-table-column>
+          <el-table-column prop="difficultyDelta" label="难度偏差" width="96">
+            <template #default="{ row }">{{ signed(row.difficultyDelta) }}</template>
+          </el-table-column>
+          <el-table-column prop="anomalyCount" label="异常" width="76" />
+          <el-table-column v-if="showMediumColumns" prop="suggestion" label="建议" min-width="220" show-overflow-tooltip />
+        </el-table>
       </div>
     </div>
 
@@ -152,7 +229,8 @@
 
 <script setup>
 import { onMounted, reactive, ref } from 'vue';
-import { Refresh } from '@element-plus/icons-vue';
+import { ElMessage } from 'element-plus';
+import { DocumentAdd, Download, Refresh } from '@element-plus/icons-vue';
 import { api, buildQuery } from '../api';
 import { useResponsiveColumns } from '../composables/useResponsiveColumns';
 
@@ -173,12 +251,31 @@ const knowledgeStats = ref([]);
 const classStats = ref([]);
 const questionStats = ref([]);
 const wrongQuestionStats = ref([]);
+const scoreDistribution = ref({ total: 0, averageScore: 0, averagePercent: 0, buckets: [] });
+const classComparison = ref([]);
+const knowledgeTrend = ref([]);
+const questionDiagnostics = ref([]);
 const selectedExamName = ref('');
+const exporting = ref(false);
+const generatingWrongPaper = ref(false);
 const { showMediumColumns, showLowColumns } = useResponsiveColumns();
 
 async function load() {
   const query = statisticsQuery();
-  const [coursePage, classPage, examPage, overviewData, examPageStats, knowledge, classData, wrongQuestions] = await Promise.all([
+  const [
+    coursePage,
+    classPage,
+    examPage,
+    overviewData,
+    examPageStats,
+    knowledge,
+    classData,
+    wrongQuestions,
+    distribution,
+    classCompare,
+    trend,
+    diagnostics,
+  ] = await Promise.all([
     api('/courses?pageSize=100'),
     api('/classes?pageSize=100'),
     api('/exams?pageSize=100&sortBy=createdAt&sortOrder=desc'),
@@ -187,6 +284,10 @@ async function load() {
     api(`/statistics/knowledge${query}`),
     api(`/statistics/classes${query}`),
     api(`/statistics/wrong-questions${query}`),
+    api(`/statistics/score-distribution${query}`),
+    api(`/statistics/class-comparison${query}`),
+    api(`/statistics/knowledge-trend${query}`),
+    api(`/statistics/question-diagnostics${query}`),
   ]);
   courses.value = coursePage.items;
   classes.value = classPage.items;
@@ -196,6 +297,10 @@ async function load() {
   knowledgeStats.value = knowledge;
   classStats.value = classData;
   wrongQuestionStats.value = wrongQuestions;
+  scoreDistribution.value = distribution;
+  classComparison.value = Array.isArray(classCompare) ? classCompare : [];
+  knowledgeTrend.value = Array.isArray(trend) ? trend : [];
+  questionDiagnostics.value = Array.isArray(diagnostics) ? diagnostics : [];
   if (filter.examId) {
     await loadExamDetail({ examId: filter.examId });
   } else {
@@ -215,14 +320,88 @@ function statisticsQuery() {
   });
 }
 
+function statisticsPayload() {
+  return {
+    courseId: filter.courseId,
+    classId: filter.classId,
+    examId: filter.examId,
+    sourceType: filter.sourceType,
+    startDate: filter.dateRange?.[0],
+    endDate: filter.dateRange?.[1],
+  };
+}
+
 async function loadExamDetail(row) {
   const detail = await api(`/statistics/exams/${row.examId}`);
   questionStats.value = detail.questionStats;
   selectedExamName.value = detail.examName;
 }
 
+async function exportCurrentStatistics() {
+  if (exporting.value) return;
+  exporting.value = true;
+  try {
+    await api('/exports', {
+      method: 'POST',
+      body: {
+        type: 'statistics',
+        format: 'csv',
+        section: 'current',
+        ...statisticsPayload(),
+      },
+    });
+    ElMessage.success('统计导出任务已加入队列，可到导出中心下载');
+  } catch (error) {
+    ElMessage.error(error.message || '导出失败');
+  } finally {
+    exporting.value = false;
+  }
+}
+
+async function generateWrongPaper() {
+  if (generatingWrongPaper.value) return;
+  if (!filter.courseId) {
+    ElMessage.warning('请先选择课程，再按当前筛选生成高频错题试卷');
+    return;
+  }
+  generatingWrongPaper.value = true;
+  try {
+    const result = await api('/papers/generate-from-wrong-frequency', {
+      method: 'POST',
+      body: {
+        courseId: filter.courseId,
+        classId: filter.classId,
+        sourceType: filter.sourceType,
+        startDate: filter.dateRange?.[0],
+        endDate: filter.dateRange?.[1],
+        count: 20,
+        minWrongCount: 1,
+      },
+    });
+    ElMessage.success(`已生成高频错题试卷：${result.name || result.paper?.name || ''}`);
+  } catch (error) {
+    ElMessage.error(error.message || '生成错题试卷失败');
+  } finally {
+    generatingWrongPaper.value = false;
+  }
+}
+
 function percent(value) {
   return `${Math.round((value || 0) * 100)}%`;
+}
+
+function barWidth(value, total) {
+  if (!total) return '0%';
+  return `${Math.max(4, Math.round((Number(value || 0) / total) * 100))}%`;
+}
+
+function formatNumber(value) {
+  return Number(value || 0).toFixed(2);
+}
+
+function signed(value) {
+  const number = Number(value || 0);
+  return number > 0 ? `+${number.toFixed(2)}` : number.toFixed(2);
 }
 
 function sourceLabel(value) {
@@ -269,6 +448,63 @@ onMounted(load);
   grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
 }
 
+.statistics-insight-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+  flex: 0 0 clamp(230px, 28vh, 330px);
+  min-height: 230px;
+}
+
+.statistics-card {
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.statistics-diagnostic-card {
+  grid-column: span 1;
+}
+
+.distribution-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  overflow: auto;
+  min-height: 0;
+}
+
+.distribution-row {
+  display: grid;
+  grid-template-columns: 74px minmax(80px, 1fr) 42px;
+  gap: 10px;
+  align-items: center;
+  font-size: 14px;
+}
+
+.distribution-label {
+  color: var(--el-text-color-secondary);
+  white-space: nowrap;
+}
+
+.distribution-track {
+  height: 8px;
+  overflow: hidden;
+  background: var(--el-fill-color-light);
+  border-radius: 999px;
+}
+
+.distribution-bar {
+  display: block;
+  height: 100%;
+  background: var(--el-color-primary);
+  border-radius: inherit;
+}
+
+.compact-table :deep(.el-table__cell) {
+  padding: 7px 0;
+}
+
 .statistics-grid {
   grid-template-columns: minmax(380px, 1.35fr) minmax(300px, 1fr) minmax(300px, 1fr);
   align-items: stretch;
@@ -300,6 +536,11 @@ onMounted(load);
 }
 
 @media (max-width: 1500px) {
+  .statistics-insight-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    flex-basis: 520px;
+  }
+
   .statistics-grid {
     grid-template-columns: minmax(360px, 1.25fr) minmax(300px, 1fr);
     flex-basis: auto;
@@ -320,6 +561,15 @@ onMounted(load);
 }
 
 @media (max-width: 980px) {
+  .statistics-insight-grid {
+    grid-template-columns: 1fr;
+    flex: 0 0 auto;
+  }
+
+  .statistics-card {
+    height: 280px;
+  }
+
   .statistics-grid {
     grid-template-columns: 1fr;
   }

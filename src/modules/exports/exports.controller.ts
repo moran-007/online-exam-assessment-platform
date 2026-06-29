@@ -3,6 +3,7 @@ import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Permissions } from '../../common/decorators/permissions.decorator';
 import { RequestUser } from '../../common/interfaces/request-user.interface';
+import { BatchExportActionDto } from './dto/batch-export-action.dto';
 import { CreateExportDto } from './dto/create-export.dto';
 import { QueryExportDto } from './dto/query-export.dto';
 import { ExportsService } from './exports.service';
@@ -16,7 +17,7 @@ export class ExportsController {
   @Get()
   @Permissions('exam:result:export')
   list(@Query() query: QueryExportDto, @CurrentUser() user: RequestUser) {
-    return this.exportsService.list(query, user.id);
+    return this.exportsService.list(query, user);
   }
 
   @Post()
@@ -29,6 +30,18 @@ export class ExportsController {
   @Permissions('exam:result:export')
   retry(@Param('id') id: string, @CurrentUser() user: RequestUser) {
     return this.exportsService.retry(id, user);
+  }
+
+  @Post('batch/cancel')
+  @Permissions('exam:result:export')
+  cancelMany(@Body() dto: BatchExportActionDto, @CurrentUser() user: RequestUser) {
+    return this.exportsService.cancelMany(dto.ids, user);
+  }
+
+  @Post(':id/cancel')
+  @Permissions('exam:result:export')
+  cancel(@Param('id') id: string, @CurrentUser() user: RequestUser) {
+    return this.exportsService.cancel(id, user);
   }
 
   @Post('maintenance/cleanup-expired')
@@ -45,6 +58,6 @@ export class ExportsController {
   @Get(':id/download')
   @Permissions('exam:result:export')
   download(@Param('id') id: string, @CurrentUser() user: RequestUser) {
-    return this.exportsService.download(id, user.id);
+    return this.exportsService.download(id, user);
   }
 }
