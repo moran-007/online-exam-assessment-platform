@@ -26,6 +26,18 @@ export class ExportsController {
     return this.exportsService.create(dto, user);
   }
 
+  @Get('download-audits')
+  @Permissions('exam:result:export')
+  downloadAudits(@Query() query: QueryExportDto, @CurrentUser() user: RequestUser) {
+    return this.exportsService.downloadAudits(query, user);
+  }
+
+  @Post('batch/retry')
+  @Permissions('exam:result:export')
+  retryMany(@Body() dto: BatchExportActionDto, @CurrentUser() user: RequestUser) {
+    return this.exportsService.retryMany(dto.ids, user);
+  }
+
   @Post(':id/retry')
   @Permissions('exam:result:export')
   retry(@Param('id') id: string, @CurrentUser() user: RequestUser) {

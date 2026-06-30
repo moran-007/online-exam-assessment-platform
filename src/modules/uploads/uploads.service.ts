@@ -1,7 +1,8 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { mkdir, rename, unlink, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, rename, stat, unlink, writeFile } from 'node:fs/promises';
 import { basename, extname, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { PrismaService } from '../prisma/prisma.service';
 
 const MIME_EXTENSIONS = new Map<string, string>([
   ['image/jpeg', '.jpg'],
@@ -38,6 +39,8 @@ const BLOCKED_EXTENSIONS = new Set([
 
 @Injectable()
 export class UploadsService {
+  constructor(private readonly prisma: PrismaService) {}
+
   async saveImage(file: { originalname?: string; mimetype?: string; buffer: Buffer }) {
     if (!file.mimetype?.startsWith('image/')) {
       throw new BadRequestException('请上传图片文件');
@@ -75,6 +78,52 @@ export class UploadsService {
     }
 
     return true;
+  }
+
+  async questionAssetReport() {
+    const [files, referencedUrls] = await Promise.all([this.listQuestionAssetFiles(), this.collectReferencedQuestionAssetUrls()]);
+    const items = files
+      .map((file) => {
+        const url = `/uploads/question-assets/${file.filename}`;
+        const referenced = referencedUrls.has(url) || referencedUrls.has(encodeURI(url));
+        return {
+          ...file,
+          url,
+          kind: this.resourceKind(file.filename),
+          referenced,
+        };
+      })
+      .sort((a, b) => Number(a.referenced) - Number(b.referenced) || b.updatedAt.getTime() - a.updatedAt.getTime());
+
+    return {
+      total: items.length,
+      referencedCount: items.filter((item) => item.referenced).length,
+      orphanCount: items.filter((item) => !item.referenced).length,
+      items,
+    };
+  }
+
+  async cleanupOrphanQuestionAssets() {
+    const report = await this.questionAssetReport();
+    const deleted: Array<{ filename: string; url: string }> = [];
+    const failed: Array<{ filename: string; message: string }> = [];
+
+    for (const item of report.items.filter((asset) => !asset.referenced)) {
+      try {
+        await unlink(join(this.uploadDir('question-assets'), this.safeExistingFilename(item.filename)));
+        deleted.push({ filename: item.filename, url: item.url });
+      } catch (error) {
+        failed.push({ filename: item.filename, message: error instanceof Error ? error.message : '删除失败' });
+      }
+    }
+
+    return {
+      scanned: report.total,
+      deletedCount: deleted.length,
+      failedCount: failed.length,
+      deleted,
+      failed,
+    };
   }
 
   private async saveToFolder(file: { originalname?: string; mimetype?: string; size?: number; buffer: Buffer }, folder: 'question-assets') {
@@ -138,7 +187,12 @@ export class UploadsService {
   }
 
   private safeExistingFilename(value: string) {
-    const decoded = decodeURIComponent(String(value || ''));
+    let decoded = String(value || '');
+    try {
+      decoded = decodeURIComponent(decoded);
+    } catch {
+      // Existing local filenames may contain a literal percent sign.
+    }
     const safeName = basename(decoded);
     if (!safeName || safeName !== decoded || safeName.includes('..')) {
       throw new BadRequestException('文件名不合法');
@@ -157,5 +211,134 @@ export class UploadsService {
 
   private isImageExtension(filename: string) {
     return ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg'].includes(extname(filename).toLowerCase());
+  }
+
+  private async listQuestionAssetFiles() {
+    const dir = this.uploadDir('question-assets');
+    await mkdir(dir, { recursive: true });
+    const entries = await readdir(dir, { withFileTypes: true });
+    const files: Array<{ filename: string; displayName: string; size: number; updatedAt: Date }> = [];
+
+    for (const entry of entries) {
+      if (!entry.isFile()) continue;
+      const filename = this.safeExistingFilename(entry.name);
+      const fileStat = await stat(join(dir, filename));
+      files.push({
+        filename,
+        displayName: filename.replace(/\.[^.]+$/, ''),
+        size: fileStat.size,
+        updatedAt: fileStat.mtime,
+      });
+    }
+
+    return files;
+  }
+
+  private async collectReferencedQuestionAssetUrls() {
+    const references = new Set<string>();
+    const addReferences = (...values: unknown[]) => {
+      for (const url of this.extractResourceReferences(...values)) {
+        const normalized = this.normalizeQuestionAssetUrl(url);
+        if (normalized) references.add(normalized);
+      }
+    };
+
+    const [questions, questionVersions, paperQuestions, paperInstances] = await Promise.all([
+      this.prisma.question.findMany({
+        where: { deletedAt: null },
+        select: {
+          content: true,
+          analysis: true,
+          options: { select: { content: true } },
+          answer: { select: { answerJson: true, scoringRuleJson: true } },
+        },
+      }),
+      this.prisma.questionVersion.findMany({ select: { snapshotJson: true } }),
+      this.prisma.paperQuestion.findMany({ select: { questionSnapshotJson: true } }),
+      this.prisma.paperInstance.findMany({ select: { paperSnapshotJson: true } }),
+    ]);
+
+    for (const question of questions) {
+      addReferences(
+        question.content,
+        question.analysis,
+        question.options.map((option) => option.content),
+        question.answer?.answerJson,
+        question.answer?.scoringRuleJson,
+      );
+    }
+    for (const version of questionVersions) addReferences(version.snapshotJson);
+    for (const paperQuestion of paperQuestions) addReferences(paperQuestion.questionSnapshotJson);
+    for (const instance of paperInstances) addReferences(instance.paperSnapshotJson);
+
+    return references;
+  }
+
+  private extractResourceReferences(...values: unknown[]) {
+    const references = new Set<string>();
+    const visit = (value: unknown) => {
+      if (typeof value === 'string') {
+        const markdownLinkRegex = /!?\[[^\]]*]\(([^)]+)\)/g;
+        const uploadRegex = /(?:^|["'\s(])((?:https?:\/\/[^"'\s)]+\/uploads\/|\/uploads\/|uploads\/)[^"'\s)]+)/g;
+        let match: RegExpExecArray | null;
+        while ((match = markdownLinkRegex.exec(value))) {
+          const url = this.cleanResourceUrl(match[1]);
+          if (url) references.add(url);
+        }
+        while ((match = uploadRegex.exec(value))) {
+          const url = this.cleanResourceUrl(match[1]);
+          if (url) references.add(url);
+        }
+        return;
+      }
+      if (Array.isArray(value)) {
+        value.forEach(visit);
+        return;
+      }
+      if (value && typeof value === 'object') {
+        Object.values(value as Record<string, unknown>).forEach(visit);
+      }
+    };
+
+    values.forEach(visit);
+    return [...references];
+  }
+
+  private cleanResourceUrl(value: unknown) {
+    const raw = String(value ?? '')
+      .trim()
+      .replace(/^<|>$/g, '')
+      .split('#')[0]
+      .split('?')[0];
+    if (!raw || /^(data:|javascript:|mailto:)/i.test(raw)) return '';
+    if (/^https?:\/\//i.test(raw)) {
+      try {
+        return new URL(raw).pathname;
+      } catch {
+        return '';
+      }
+    }
+    return raw.startsWith('uploads/') ? `/${raw}` : raw;
+  }
+
+  private normalizeQuestionAssetUrl(value: string) {
+    let clean = this.cleanResourceUrl(value);
+    try {
+      clean = decodeURI(clean);
+    } catch {
+      // Keep the original value when decoding fails.
+    }
+    if (!clean.startsWith('/uploads/question-assets/')) return '';
+    return clean;
+  }
+
+  private resourceKind(filename: string) {
+    const extension = extname(filename).toLowerCase();
+    if (['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.svg'].includes(extension)) return 'image';
+    if (extension === '.pdf') return 'pdf';
+    if (['.doc', '.docx'].includes(extension)) return 'word';
+    if (['.xls', '.xlsx', '.csv'].includes(extension)) return 'sheet';
+    if (['.zip'].includes(extension)) return 'archive';
+    return 'file';
   }
 }

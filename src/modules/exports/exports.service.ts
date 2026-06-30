@@ -224,6 +224,31 @@ export class ExportsService implements OnModuleInit {
     return this.formatTask(updated);
   }
 
+  async retryMany(ids: string[], user: RequestUser) {
+    const uniqueIds = [...new Set(ids)];
+    const failed: Array<{ id: string; message: string }> = [];
+    let successCount = 0;
+
+    for (const id of uniqueIds) {
+      try {
+        await this.retry(id, user);
+        successCount += 1;
+      } catch (error) {
+        failed.push({ id, message: error instanceof Error ? error.message : '重试失败' });
+      }
+    }
+
+    await this.audit.log({
+      userId: user.id,
+      action: 'export:batch-retry',
+      module: 'export',
+      targetType: 'export_task',
+      targetId: uniqueIds[0],
+      afterData: { ids: uniqueIds, successCount, failedCount: failed.length },
+    });
+    return { successCount, failed };
+  }
+
   async cancel(id: string, user: RequestUser) {
     const task = await this.findAccessibleTask(id, user);
     const cancelableStatuses: ExportStatus[] = [ExportStatus.PENDING, ExportStatus.PROCESSING];
@@ -275,6 +300,83 @@ export class ExportsService implements OnModuleInit {
       afterData: { ids: uniqueIds, successCount, failedCount: failed.length },
     });
     return { successCount, failed };
+  }
+
+  async downloadAudits(query: QueryExportDto, user: RequestUser) {
+    if (!this.dataScope.isUnrestricted(user)) {
+      throw new ForbiddenException('只有管理员可以查看导出下载审计');
+    }
+    const { page, pageSize, skip, take } = toPagination(query);
+    const where: Prisma.AuditLogWhereInput = {
+      module: 'export',
+      action: 'export:download',
+      targetType: 'export_task',
+    };
+    const [logs, total] = await this.prisma.$transaction([
+      this.prisma.auditLog.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take,
+        include: {
+          user: {
+            select: {
+              id: true,
+              username: true,
+              realName: true,
+              userType: true,
+            },
+          },
+        },
+      }),
+      this.prisma.auditLog.count({ where }),
+    ]);
+    const taskIds = logs.map((log) => log.targetId).filter((id): id is string => Boolean(id));
+    const tasks = await this.prisma.exportTask.findMany({
+      where: { id: { in: taskIds } },
+      select: {
+        id: true,
+        type: true,
+        status: true,
+        createdBy: true,
+        createdAt: true,
+        fileUrl: true,
+      },
+    });
+    const taskMap = new Map(tasks.map((task) => [task.id, task]));
+
+    return {
+      items: logs.map((log) => {
+        const afterData = this.toRecord(log.afterData);
+        const task = log.targetId ? taskMap.get(log.targetId) : undefined;
+        return {
+          id: log.id,
+          taskId: log.targetId,
+          type: String(afterData.type ?? task?.type ?? ''),
+          fileUrl: String(afterData.fileUrl ?? task?.fileUrl ?? ''),
+          downloadedAt: log.createdAt,
+          downloadedBy: log.user
+            ? {
+                id: log.user.id,
+                username: log.user.username,
+                realName: log.user.realName,
+                userType: toApiEnum(log.user.userType),
+              }
+            : null,
+          taskStatus: task ? toApiEnum(task.status) : null,
+          taskCreatedBy: String(afterData.createdBy ?? task?.createdBy ?? ''),
+          taskCreatedAt: task?.createdAt ?? null,
+          permissionSnapshot: {
+            userId: afterData.permissionSnapshotUserId ?? null,
+            userType: afterData.permissionSnapshotUserType ?? null,
+            capturedAt: afterData.permissionSnapshotCapturedAt ?? null,
+          },
+        };
+      }),
+      page,
+      pageSize,
+      total,
+    };
   }
 
   async cleanupExpiredTasks() {
