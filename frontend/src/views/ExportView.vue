@@ -3,6 +3,7 @@
     <div class="page-head">
       <h1 class="page-title">导出中心</h1>
       <div class="toolbar">
+        <el-button v-if="canManageGlobalTasks" @click="openDownloadAudits">下载审计</el-button>
         <el-button v-if="canManageGlobalTasks" :icon="Delete" @click="cleanupExpired">清理过期</el-button>
         <el-button :icon="Refresh" @click="loadAll">刷新</el-button>
       </div>
@@ -184,10 +185,13 @@
             <el-button type="warning" plain :disabled="!selectedTaskIds.length" @click="cancelSelectedTasks">
               批量取消
             </el-button>
+            <el-button type="warning" plain :disabled="!selectedRetryTaskIds.length" @click="retrySelectedTasks">
+              批量重试
+            </el-button>
           </div>
         </div>
         <el-table :data="tasks" height="100%" class="question-list-table" @selection-change="handleTaskSelectionChange">
-          <el-table-column type="selection" width="46" :selectable="canCancel" />
+          <el-table-column type="selection" width="46" :selectable="canSelectTaskAction" />
           <el-table-column prop="type" label="类型" min-width="130">
             <template #default="{ row }">{{ typeLabel(row.type) }}</template>
           </el-table-column>
@@ -219,7 +223,7 @@
                 <el-button v-if="canCancel(row)" size="small" type="warning" plain @click="cancelTask(row)">
                   取消
                 </el-button>
-                <el-button v-if="['failed', 'expired', 'canceled'].includes(row.status)" size="small" type="warning" plain @click="retryTask(row)">
+                <el-button v-if="canRetry(row)" size="small" type="warning" plain @click="retryTask(row)">
                   重试
                 </el-button>
               </div>
@@ -242,6 +246,43 @@
         </div>
       </div>
     </div>
+
+    <el-dialog v-model="auditVisible" title="下载审计" width="880px" class="responsive-dialog">
+      <el-table v-loading="auditLoading" :data="auditLogs" max-height="520" class="question-list-table">
+        <el-table-column prop="downloadedAt" label="下载时间" width="170">
+          <template #default="{ row }">{{ formatDate(row.downloadedAt) }}</template>
+        </el-table-column>
+        <el-table-column label="下载人" min-width="150" show-overflow-tooltip>
+          <template #default="{ row }">{{ auditUserLabel(row.downloadedBy) }}</template>
+        </el-table-column>
+        <el-table-column prop="type" label="任务类型" width="120">
+          <template #default="{ row }">{{ typeLabel(row.type) }}</template>
+        </el-table-column>
+        <el-table-column prop="taskStatus" label="任务状态" width="100">
+          <template #default="{ row }">{{ statusLabel(row.taskStatus) }}</template>
+        </el-table-column>
+        <el-table-column label="权限快照" min-width="220" show-overflow-tooltip>
+          <template #default="{ row }">
+            {{ snapshotLabel(row.permissionSnapshot) }}
+          </template>
+        </el-table-column>
+        <el-table-column prop="fileUrl" label="文件" min-width="220" show-overflow-tooltip />
+      </el-table>
+      <div class="table-footer">
+        <span class="muted">共 {{ auditPagination.total }} 条下载记录</span>
+        <el-pagination
+          v-model:current-page="auditPagination.page"
+          v-model:page-size="auditPagination.pageSize"
+          background
+          small
+          layout="sizes, prev, pager, next"
+          :page-sizes="[20, 50, 100]"
+          :total="auditPagination.total"
+          @size-change="handleAuditSize"
+          @current-change="handleAuditCurrent"
+        />
+      </div>
+    </el-dialog>
   </div>
 </template>
 
@@ -270,7 +311,10 @@ const papers = ref([]);
 const exams = ref([]);
 const tasks = ref([]);
 const selectedTasks = ref([]);
+const auditLogs = ref([]);
 const exporting = ref(false);
+const auditVisible = ref(false);
+const auditLoading = ref(false);
 const { showMediumColumns, showLowColumns } = useResponsiveColumns();
 const currentUser = getCurrentUser();
 const canManageGlobalTasks = ['SUPER_ADMIN', 'ADMIN'].includes(currentUser?.userType);
@@ -278,8 +322,10 @@ const paperFilter = reactive({ keyword: '', courseId: '', status: '', sortBy: 'c
 const examFilter = reactive({ keyword: '', courseId: '', classId: '', status: '', sortBy: 'startTime', sortOrder: 'desc' });
 const taskFilter = reactive({ type: '', status: '', scope: 'mine' });
 const taskPagination = reactive({ page: 1, pageSize: 20, total: 0 });
+const auditPagination = reactive({ page: 1, pageSize: 20, total: 0 });
 let taskPollTimer = null;
 const selectedTaskIds = computed(() => selectedTasks.value.filter(canCancel).map((task) => task.id));
+const selectedRetryTaskIds = computed(() => selectedTasks.value.filter(canRetry).map((task) => task.id));
 
 async function loadBase() {
   const [coursePage, classPage] = await Promise.all([
@@ -405,6 +451,21 @@ async function retryTask(row) {
   await loadTasks();
 }
 
+async function retrySelectedTasks() {
+  if (!selectedRetryTaskIds.value.length) {
+    ElMessage.warning('请选择失败、过期或已取消任务');
+    return;
+  }
+  const result = await api('/exports/batch/retry', {
+    method: 'POST',
+    body: { ids: selectedRetryTaskIds.value },
+  });
+  const failedText = result.failed?.length ? `，${result.failed.length} 个失败` : '';
+  ElMessage.success(`已重试 ${result.successCount} 个任务${failedText}`);
+  selectedTasks.value = [];
+  await loadTasks();
+}
+
 async function cancelTask(row) {
   await api(`/exports/${row.id}/cancel`, { method: 'POST' });
   ElMessage.success('已取消导出任务');
@@ -448,12 +509,45 @@ async function downloadTask(row) {
   window.open(data.url, '_blank');
 }
 
+async function openDownloadAudits() {
+  auditVisible.value = true;
+  auditPagination.page = 1;
+  await loadDownloadAudits();
+}
+
+async function loadDownloadAudits() {
+  if (!auditVisible.value) return;
+  auditLoading.value = true;
+  try {
+    const data = await api(
+      `/exports/download-audits${buildQuery({
+        page: auditPagination.page,
+        pageSize: auditPagination.pageSize,
+      })}`,
+    );
+    auditLogs.value = data.items;
+    auditPagination.page = data.page;
+    auditPagination.pageSize = data.pageSize;
+    auditPagination.total = data.total;
+  } finally {
+    auditLoading.value = false;
+  }
+}
+
 function handleTaskSelectionChange(rows) {
   selectedTasks.value = rows;
 }
 
 function canCancel(row) {
   return ['pending', 'processing'].includes(row.status);
+}
+
+function canRetry(row) {
+  return ['failed', 'expired', 'canceled'].includes(row.status);
+}
+
+function canSelectTaskAction(row) {
+  return canCancel(row) || canRetry(row);
 }
 
 function handlePaperSortChange({ prop, order }) {
@@ -477,6 +571,17 @@ function handleTaskSize(size) {
 function handleTaskCurrent(page) {
   taskPagination.page = page;
   loadTasks();
+}
+
+function handleAuditSize(size) {
+  auditPagination.pageSize = size;
+  auditPagination.page = 1;
+  loadDownloadAudits();
+}
+
+function handleAuditCurrent(page) {
+  auditPagination.page = page;
+  loadDownloadAudits();
 }
 
 function typeLabel(type) {
@@ -505,6 +610,18 @@ function examStatusLabel(value) {
 
 function formatDate(value) {
   return value ? new Date(value).toLocaleString('zh-CN', { hour12: false }) : '-';
+}
+
+function auditUserLabel(user) {
+  if (!user) return '-';
+  return `${user.realName || user.username || user.id}（${user.userType || '-'}）`;
+}
+
+function snapshotLabel(snapshot) {
+  if (!snapshot) return '-';
+  const userType = snapshot.userType || '-';
+  const capturedAt = snapshot.capturedAt ? formatDate(snapshot.capturedAt) : '-';
+  return `${userType} / ${capturedAt}`;
 }
 
 onMounted(loadAll);

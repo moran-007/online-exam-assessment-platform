@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, Delete, Param, Patch, Post, UploadedFile, UseInterceptors } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Delete, Get, Param, Patch, Post, UploadedFile, UseInterceptors } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiBearerAuth, ApiConsumes, ApiTags } from '@nestjs/swagger';
 import { Permissions } from '../../common/decorators/permissions.decorator';
@@ -9,6 +9,18 @@ import { UploadsService } from './uploads.service';
 @Controller('uploads')
 export class UploadsController {
   constructor(private readonly uploadsService: UploadsService) {}
+
+  @Get('question-assets/report')
+  @Permissions('question:create')
+  questionAssetReport() {
+    return this.uploadsService.questionAssetReport();
+  }
+
+  @Post('question-assets/cleanup-orphans')
+  @Permissions('question:create')
+  cleanupOrphanQuestionAssets() {
+    return this.uploadsService.cleanupOrphanQuestionAssets();
+  }
 
   @Post('question-assets')
   @Permissions('question:create')

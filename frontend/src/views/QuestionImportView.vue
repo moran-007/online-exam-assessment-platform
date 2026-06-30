@@ -455,6 +455,7 @@
             <el-button :icon="Upload" :loading="uploadingAsset">继续上传</el-button>
           </el-upload>
           <el-tag type="info">{{ uploadedAssets.length }} 个附件</el-tag>
+          <el-button :icon="View" :loading="assetReportLoading" @click="loadQuestionAssetReport">资源检查</el-button>
         </div>
 
         <div v-if="uploadedAssets.length" class="uploaded-asset-list">
@@ -483,6 +484,49 @@
           </div>
         </div>
         <el-empty v-else description="暂未上传附件" />
+
+        <div class="asset-maintenance">
+          <div class="asset-maintenance-head">
+            <div>
+              <strong>资源维护</strong>
+              <p class="mini-muted">扫描题目、试卷快照和作答实例中的附件引用。</p>
+            </div>
+            <el-button
+              size="small"
+              type="danger"
+              plain
+              :disabled="!assetReport?.orphanCount"
+              :loading="assetCleanupLoading"
+              @click="cleanupQuestionAssetOrphans"
+            >
+              清理孤立附件
+            </el-button>
+          </div>
+          <div v-if="assetReport" class="asset-stat-grid">
+            <div>
+              <b>{{ assetReport.total }}</b>
+              <span>总附件</span>
+            </div>
+            <div>
+              <b>{{ assetReport.referencedCount }}</b>
+              <span>已引用</span>
+            </div>
+            <div>
+              <b>{{ assetReport.orphanCount }}</b>
+              <span>孤立</span>
+            </div>
+          </div>
+          <div v-if="assetReportPreview.length" class="asset-report-list">
+            <div v-for="asset in assetReportPreview" :key="asset.url" class="asset-report-item">
+              <span class="asset-report-name">{{ asset.displayName || asset.filename }}</span>
+              <el-tag size="small" :type="asset.referenced ? 'success' : 'warning'">
+                {{ asset.referenced ? '已引用' : '孤立' }}
+              </el-tag>
+              <small>{{ formatAssetKind(asset.kind) }} · {{ formatFileSize(asset.size) }}</small>
+            </div>
+          </div>
+          <el-empty v-else-if="assetReport" description="没有题目附件" />
+        </div>
       </div>
     </el-drawer>
   </div>
@@ -555,6 +599,9 @@ const portableUploadKey = ref(0);
 const assetUploadRef = ref(null);
 const assetDrawerUploadRef = ref(null);
 const assetUploadKey = ref(0);
+const assetReport = ref(null);
+const assetReportLoading = ref(false);
+const assetCleanupLoading = ref(false);
 
 const knowledgeTreeOptions = computed(() => convertKnowledgeTree(knowledgeTree.value));
 const selectedKnowledgeNames = computed(() => {
@@ -583,6 +630,7 @@ const singleConflictMessage = computed(() => {
   const prefix = result.status === 'conflict' ? '检测到冲突' : result.status === 'duplicate' ? '检测到重复' : '检测到相似题';
   return `${prefix}：${result.message}`;
 });
+const assetReportPreview = computed(() => (assetReport.value?.items ?? []).slice(0, 10));
 const correctChoiceKey = computed({
   get() {
     return singleForm.options.find((option) => option.isCorrect)?.optionKey ?? '';
@@ -1659,6 +1707,46 @@ async function removeUploadedAsset(asset) {
   }
 }
 
+async function loadQuestionAssetReport() {
+  assetReportLoading.value = true;
+  try {
+    assetReport.value = await api('/uploads/question-assets/report');
+    ElMessage.success('资源检查完成');
+  } catch (error) {
+    ElMessage.error(error.message || '资源检查失败');
+  } finally {
+    assetReportLoading.value = false;
+  }
+}
+
+async function cleanupQuestionAssetOrphans() {
+  if (!assetReport.value?.orphanCount) return;
+  try {
+    await ElMessageBox.confirm(
+      `将删除 ${assetReport.value.orphanCount} 个未被题目、试卷快照或作答实例引用的本地题目附件。此操作不可恢复，是否继续？`,
+      '清理孤立附件',
+      { type: 'warning' },
+    );
+  } catch {
+    return;
+  }
+
+  assetCleanupLoading.value = true;
+  try {
+    const result = await api('/uploads/question-assets/cleanup-orphans', { method: 'POST' });
+    const deletedUrls = new Set((result.deleted ?? []).map((item) => item.url));
+    if (deletedUrls.size) {
+      uploadedAssets.value = uploadedAssets.value.filter((asset) => !deletedUrls.has(asset.url));
+    }
+    ElMessage.success(`已清理 ${result.deletedCount} 个孤立附件${result.failedCount ? `，${result.failedCount} 个失败` : ''}`);
+    await loadQuestionAssetReport();
+  } catch (error) {
+    ElMessage.error(error.message || '清理失败');
+  } finally {
+    assetCleanupLoading.value = false;
+  }
+}
+
 function normalizeUploadedAsset(asset) {
   const filename = asset?.filename || '附件';
   const displayName = asset?.displayName || filename.replace(/\.[^.]+$/, '') || filename;
@@ -1670,6 +1758,18 @@ function normalizeUploadedAsset(asset) {
     align: asset?.align || 'center',
     width: Number(asset?.width) || 80,
   };
+}
+
+function formatAssetKind(kind) {
+  const map = {
+    image: '图片',
+    pdf: 'PDF',
+    word: '文档',
+    sheet: '表格',
+    archive: '压缩包',
+    file: '文件',
+  };
+  return map[kind] || '文件';
 }
 
 function assetMarkdown(asset) {
@@ -2191,5 +2291,77 @@ onMounted(async () => {
 
 :deep(.batch-row-skip) {
   --el-table-tr-bg-color: #fff8e6;
+}
+
+.asset-maintenance {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--el-border-color-lighter);
+}
+
+.asset-maintenance-head {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.asset-maintenance-head p {
+  margin: 4px 0 0;
+}
+
+.asset-stat-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.asset-stat-grid > div {
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 8px;
+  background: var(--el-fill-color-light);
+}
+
+.asset-stat-grid b {
+  display: block;
+  color: var(--el-text-color-primary);
+  font-size: 18px;
+  line-height: 1.2;
+}
+
+.asset-stat-grid span {
+  display: block;
+  margin-top: 4px;
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+}
+
+.asset-report-list {
+  display: grid;
+  gap: 8px;
+}
+
+.asset-report-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 4px 8px;
+  align-items: center;
+  padding: 8px 10px;
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 8px;
+}
+
+.asset-report-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.asset-report-item small {
+  grid-column: 1 / -1;
+  color: var(--el-text-color-secondary);
 }
 </style>

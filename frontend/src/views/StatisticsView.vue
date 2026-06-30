@@ -69,15 +69,7 @@
           <h2>成绩分布</h2>
           <span class="muted">共 {{ scoreDistribution.total || 0 }} 次提交</span>
         </div>
-        <div class="distribution-list">
-          <div v-for="bucket in scoreDistribution.buckets || []" :key="bucket.label" class="distribution-row">
-            <span class="distribution-label">{{ bucket.label }}</span>
-            <div class="distribution-track">
-              <span class="distribution-bar" :style="{ width: barWidth(bucket.count, scoreDistribution.total) }" />
-            </div>
-            <strong>{{ bucket.count }}</strong>
-          </div>
-        </div>
+        <EChartPanel :option="scoreDistributionOption" height="100%" />
       </div>
 
       <div class="panel statistics-card">
@@ -85,16 +77,7 @@
           <h2>班级对比</h2>
           <span class="muted">通过率 / 完成率</span>
         </div>
-        <el-table :data="classComparison" height="100%" class="question-list-table compact-table">
-          <el-table-column prop="className" label="班级" min-width="150" show-overflow-tooltip />
-          <el-table-column prop="averageScore" label="均分" width="80" />
-          <el-table-column prop="passRate" label="通过" width="90">
-            <template #default="{ row }">{{ percent(row.passRate) }}</template>
-          </el-table-column>
-          <el-table-column prop="completionRate" label="完成" width="90">
-            <template #default="{ row }">{{ percent(row.completionRate) }}</template>
-          </el-table-column>
-        </el-table>
+        <EChartPanel :option="classComparisonOption" height="100%" />
       </div>
 
       <div class="panel statistics-card">
@@ -102,14 +85,7 @@
           <h2>知识点趋势</h2>
           <span class="muted">按日期聚合</span>
         </div>
-        <el-table :data="knowledgeTrend" height="100%" class="question-list-table compact-table">
-          <el-table-column prop="date" label="日期" width="110" />
-          <el-table-column prop="name" label="知识点" min-width="150" show-overflow-tooltip />
-          <el-table-column prop="answerCount" label="作答" width="70" />
-          <el-table-column prop="correctRate" label="正确率" width="90">
-            <template #default="{ row }">{{ percent(row.correctRate) }}</template>
-          </el-table-column>
-        </el-table>
+        <EChartPanel :option="knowledgeTrendOption" height="100%" />
       </div>
 
       <div class="panel statistics-card statistics-diagnostic-card">
@@ -117,7 +93,8 @@
           <h2>题目诊断</h2>
           <span class="muted">区分度、难度回归与异常识别</span>
         </div>
-        <el-table :data="questionDiagnostics" height="100%" class="question-list-table compact-table">
+        <EChartPanel :option="questionDiagnosticsOption" height="180px" />
+        <el-table :data="questionDiagnostics" height="calc(100% - 190px)" class="question-list-table compact-table">
           <el-table-column prop="title" label="题目" min-width="220" show-overflow-tooltip />
           <el-table-column prop="correctRate" label="正确率" width="88">
             <template #default="{ row }">{{ percent(row.correctRate) }}</template>
@@ -228,11 +205,12 @@
 </template>
 
 <script setup>
-import { onMounted, reactive, ref } from 'vue';
+import { computed, onMounted, reactive, ref } from 'vue';
 import { ElMessage } from 'element-plus';
 import { DocumentAdd, Download, Refresh } from '@element-plus/icons-vue';
 import { api, buildQuery } from '../api';
 import { useResponsiveColumns } from '../composables/useResponsiveColumns';
+import EChartPanel from '../components/EChartPanel.vue';
 
 const filter = reactive({ courseId: '', classId: '', examId: '', sourceType: '', dateRange: [] });
 const overview = reactive({
@@ -259,6 +237,109 @@ const selectedExamName = ref('');
 const exporting = ref(false);
 const generatingWrongPaper = ref(false);
 const { showMediumColumns, showLowColumns } = useResponsiveColumns();
+
+const scoreDistributionOption = computed(() => {
+  const buckets = scoreDistribution.value.buckets || [];
+  return baseChartOption({
+    tooltip: { trigger: 'axis' },
+    grid: chartGrid(),
+    xAxis: { type: 'category', data: buckets.map((item) => item.label), axisLabel: { interval: 0 } },
+    yAxis: { type: 'value', minInterval: 1 },
+    series: [
+      {
+        name: '提交次数',
+        type: 'bar',
+        data: buckets.map((item) => item.count),
+        barMaxWidth: 34,
+        itemStyle: { color: '#409eff', borderRadius: [5, 5, 0, 0] },
+      },
+    ],
+  });
+});
+
+const classComparisonOption = computed(() => {
+  const rows = classComparison.value || [];
+  return baseChartOption({
+    tooltip: {
+      trigger: 'axis',
+      valueFormatter: (value) => (Number(value) <= 1 ? `${Math.round(Number(value) * 100)}%` : value),
+    },
+    legend: { top: 0, right: 0, data: ['均分', '通过率', '完成率'] },
+    grid: chartGrid(30),
+    xAxis: { type: 'category', data: rows.map((item) => shortLabel(item.className)), axisLabel: { interval: 0, rotate: rows.length > 4 ? 18 : 0 } },
+    yAxis: [
+      { type: 'value', name: '分数', splitLine: { lineStyle: { color: '#eef2f7' } } },
+      { type: 'value', name: '比例', min: 0, max: 1, axisLabel: { formatter: (value) => `${Math.round(value * 100)}%` } },
+    ],
+    series: [
+      { name: '均分', type: 'bar', data: rows.map((item) => Number(item.averageScore || 0)), barMaxWidth: 28, itemStyle: { color: '#409eff', borderRadius: [4, 4, 0, 0] } },
+      { name: '通过率', type: 'line', yAxisIndex: 1, data: rows.map((item) => Number(item.passRate || 0)), smooth: true, symbolSize: 6, itemStyle: { color: '#67c23a' } },
+      { name: '完成率', type: 'line', yAxisIndex: 1, data: rows.map((item) => Number(item.completionRate || 0)), smooth: true, symbolSize: 6, itemStyle: { color: '#e6a23c' } },
+    ],
+  });
+});
+
+const knowledgeTrendOption = computed(() => {
+  const rows = knowledgeTrend.value || [];
+  const dates = [...new Set(rows.map((item) => item.date))].sort();
+  const names = topKnowledgeTrendNames(rows, 6);
+  return baseChartOption({
+    tooltip: { trigger: 'axis', valueFormatter: (value) => `${Math.round(Number(value || 0) * 100)}%` },
+    legend: { top: 0, type: 'scroll', data: names },
+    grid: chartGrid(36),
+    xAxis: { type: 'category', data: dates },
+    yAxis: { type: 'value', min: 0, max: 1, axisLabel: { formatter: (value) => `${Math.round(value * 100)}%` } },
+    series: names.map((name) => ({
+      name,
+      type: 'line',
+      smooth: true,
+      connectNulls: true,
+      data: dates.map((date) => rows.find((item) => item.date === date && item.name === name)?.correctRate ?? null),
+    })),
+  });
+});
+
+const questionDiagnosticsOption = computed(() => {
+  const rows = questionDiagnostics.value || [];
+  return baseChartOption({
+    tooltip: {
+      formatter(params) {
+        const row = params.data?.[4] || {};
+        return [
+          row.title || '题目',
+          `正确率：${percent(row.correctRate)}`,
+          `区分度：${formatNumber(row.discrimination)}`,
+          `难度偏差：${signed(row.difficultyDelta)}`,
+          `异常：${row.anomalyCount || 0}`,
+        ].join('<br>');
+      },
+    },
+    grid: chartGrid(),
+    xAxis: { type: 'value', name: '区分度', min: -1, max: 1 },
+    yAxis: { type: 'value', name: '正确率', min: 0, max: 1, axisLabel: { formatter: (value) => `${Math.round(value * 100)}%` } },
+    series: [
+      {
+        type: 'scatter',
+        symbolSize: (value) => Math.min(30, Math.max(9, 9 + Number(value?.[2] || 0) * 2 + Math.abs(Number(value?.[3] || 0)) * 9)),
+        data: rows.map((row) => [
+          Number(row.discrimination || 0),
+          Number(row.correctRate || 0),
+          Number(row.anomalyCount || 0),
+          Number(row.difficultyDelta || 0),
+          row,
+        ]),
+        itemStyle: {
+          color(params) {
+            const row = params.data?.[4] || {};
+            if (Number(row.anomalyCount || 0) > 0) return '#f56c6c';
+            if (Number(row.discrimination || 0) < 0.2) return '#e6a23c';
+            return '#67c23a';
+          },
+        },
+      },
+    ],
+  });
+});
 
 async function load() {
   const query = statisticsQuery();
@@ -390,11 +471,6 @@ function percent(value) {
   return `${Math.round((value || 0) * 100)}%`;
 }
 
-function barWidth(value, total) {
-  if (!total) return '0%';
-  return `${Math.max(4, Math.round((Number(value || 0) / total) * 100))}%`;
-}
-
 function formatNumber(value) {
   return Number(value || 0).toFixed(2);
 }
@@ -416,6 +492,34 @@ function sourceLabel(value) {
 
 function formatDate(value) {
   return value ? new Date(value).toLocaleDateString() : '-';
+}
+
+function baseChartOption(option) {
+  return {
+    animationDuration: 350,
+    textStyle: { color: '#334155', fontFamily: 'inherit' },
+    ...option,
+  };
+}
+
+function chartGrid(top = 18) {
+  return { top, left: 36, right: 20, bottom: 32, containLabel: true };
+}
+
+function shortLabel(value) {
+  const text = String(value || '-');
+  return text.length > 10 ? `${text.slice(0, 10)}...` : text;
+}
+
+function topKnowledgeTrendNames(rows, limit) {
+  const counts = new Map();
+  for (const row of rows) {
+    counts.set(row.name, (counts.get(row.name) || 0) + Number(row.answerCount || 0));
+  }
+  return [...counts.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, limit)
+    .map(([name]) => name);
 }
 
 onMounted(load);
