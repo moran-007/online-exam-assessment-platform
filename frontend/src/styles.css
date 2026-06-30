@@ -1128,6 +1128,91 @@ body {
   overflow-wrap: anywhere;
 }
 
+.math-inline {
+  display: inline-block;
+  max-width: 100%;
+  padding: 1px 5px;
+  border-radius: 5px;
+  background: #f8fafc;
+  color: #0f172a;
+  font-family: "Cambria Math", "Times New Roman", serif;
+  overflow-x: auto;
+  vertical-align: middle;
+}
+
+.math-block {
+  display: block;
+  max-width: 100%;
+  margin: 10px 0;
+  padding: 12px 14px;
+  border: 1px solid #d5dde5;
+  border-radius: 8px;
+  background: #f8fafc;
+  color: #0f172a;
+  font-family: "Cambria Math", "Times New Roman", serif;
+  font-size: 16px;
+  line-height: 1.7;
+  overflow-x: auto;
+  white-space: pre-wrap;
+}
+
+.chem-formula {
+  display: inline-block;
+  max-width: 100%;
+  padding: 1px 5px;
+  border-radius: 5px;
+  background: #eefaf4;
+  color: #075f3c;
+  overflow-x: auto;
+  vertical-align: middle;
+}
+
+.chem-block {
+  display: block;
+  max-width: 100%;
+  margin: 10px 0;
+  padding: 12px 14px;
+  border: 1px solid #bae6cf;
+  border-radius: 8px;
+  background: #f0fdf6;
+  color: #075f3c;
+  line-height: 1.8;
+  overflow-x: auto;
+  white-space: pre-wrap;
+}
+
+.markdown-image {
+  width: var(--markdown-image-width, 100%);
+  max-width: 100%;
+  margin: 12px 0;
+  display: grid;
+  gap: 6px;
+}
+
+.markdown-image-left {
+  margin-right: auto;
+}
+
+.markdown-image-center {
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.markdown-image-right {
+  margin-left: auto;
+}
+
+.markdown-image img {
+  width: 100%;
+  max-width: 100%;
+}
+
+.markdown-image figcaption {
+  color: var(--muted);
+  font-size: 12px;
+  text-align: center;
+}
+
 .markdown-body code {
   font-family: "Cascadia Code", Consolas, "SFMono-Regular", monospace;
   font-size: 13px;
@@ -1303,6 +1388,14 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.asset-layout-controls {
+  display: grid;
+  grid-template-columns: minmax(88px, 1fr) 92px auto;
+  gap: 6px;
+  align-items: center;
+  min-width: 0;
 }
 
 .asset-actions {
