@@ -33,6 +33,12 @@ export class ExamsController {
     return this.examsService.bulkUpdateStatus(dto, user);
   }
 
+  @Get(':id/announcement-reads')
+  @Permissions('exam:result:read')
+  announcementReads(@Param('id') id: string, @CurrentUser() user: RequestUser) {
+    return this.examsService.announcementReads(id, user);
+  }
+
   @Get(':id')
   @Permissions('exam:read')
   detail(@Param('id') id: string, @CurrentUser() user: RequestUser) {

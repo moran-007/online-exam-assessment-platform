@@ -89,6 +89,7 @@
                       <el-dropdown-item command="edit">编辑</el-dropdown-item>
                       <el-dropdown-item command="trial">试答</el-dropdown-item>
                       <el-dropdown-item command="ranking">成绩</el-dropdown-item>
+                      <el-dropdown-item command="announcementReads">公告阅读</el-dropdown-item>
                       <el-dropdown-item v-if="row.status === 'draft'" command="publish">发布</el-dropdown-item>
                       <el-dropdown-item v-else-if="row.status === 'scheduled'" command="unpublish">取消发布</el-dropdown-item>
                       <el-dropdown-item v-if="row.status === 'scheduled'" command="start">开始</el-dropdown-item>
@@ -227,6 +228,9 @@
           <el-button :icon="View" @click="trial(selectedExam)">预览/试答试卷</el-button>
           <el-button :icon="User" @click="simulate(selectedExam)">模拟学生</el-button>
           <el-button :icon="DataAnalysis" @click="openRanking(selectedExam)">查看排名</el-button>
+          <el-button :icon="DataAnalysis" :loading="announcementReadsLoading" @click="openAnnouncementReads(selectedExam)">
+            公告阅读
+          </el-button>
         </div>
       </div>
       <el-empty v-else description="请先选择考试" />
@@ -243,6 +247,72 @@
         <el-table-column prop="status" label="状态" width="120" />
         <el-table-column prop="submittedAt" label="提交时间" min-width="170" />
       </el-table>
+    </el-drawer>
+
+    <el-drawer
+      v-model="announcementReadsVisible"
+      :title="announcementReadReport ? `公告阅读：${announcementReadReport.examName}` : '公告阅读'"
+      size="760px"
+      destroy-on-close
+    >
+      <div v-if="announcementReadReport" class="announcement-read-drawer">
+        <el-alert
+          v-if="announcementReadReport.announcement"
+          type="warning"
+          show-icon
+          :closable="false"
+          :title="`第 ${announcementReadReport.announcement.version} 版公告`"
+          :description="announcementReadReport.announcement.content"
+        />
+        <el-empty v-else description="该考试暂未设置公告" />
+        <div class="announcement-stat-grid">
+          <div>
+            <b>{{ announcementReadReport.expectedCount }}</b>
+            <span>应读人数</span>
+          </div>
+          <div>
+            <b>{{ announcementReadReport.readCount }}</b>
+            <span>已读</span>
+          </div>
+          <div>
+            <b>{{ announcementReadReport.unreadCount }}</b>
+            <span>未读</span>
+          </div>
+          <div>
+            <b>{{ announcementReadReport.enteredCount }}</b>
+            <span>已进入</span>
+          </div>
+          <div>
+            <b>{{ announcementReadReport.submittedCount || 0 }}</b>
+            <span>已提交</span>
+          </div>
+        </div>
+        <el-table :data="announcementReadReport.items" height="460">
+          <el-table-column label="学生" min-width="160">
+            <template #default="{ row }">{{ row.realName || row.username }}</template>
+          </el-table-column>
+          <el-table-column prop="username" label="账号" width="130" />
+          <el-table-column label="阅读" width="90">
+            <template #default="{ row }">
+              <el-tag :type="row.read ? 'success' : 'warning'" size="small">{{ row.read ? '已读' : '未读' }}</el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column label="阅读时间" min-width="170">
+            <template #default="{ row }">{{ formatDateTime(row.readAt) }}</template>
+          </el-table-column>
+          <el-table-column label="进入考试" width="100">
+            <template #default="{ row }">
+              <el-tag :type="row.entered ? 'success' : 'info'" size="small">{{ row.entered ? '已进入' : '未进入' }}</el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column label="提交" width="90">
+            <template #default="{ row }">
+              <el-tag :type="row.submitted ? 'success' : 'info'" size="small">{{ row.submitted ? '已交' : '未交' }}</el-tag>
+            </template>
+          </el-table-column>
+        </el-table>
+      </div>
+      <el-empty v-else description="请选择考试并加载阅读统计" />
     </el-drawer>
   </div>
 </template>
@@ -270,6 +340,9 @@ const bulkStatus = ref('');
 const examFormVisible = ref(false);
 const examPreviewVisible = ref(false);
 const rankingVisible = ref(false);
+const announcementReadsVisible = ref(false);
+const announcementReadReport = ref(null);
+const announcementReadsLoading = ref(false);
 const editingId = ref('');
 const editingOriginalStatus = ref('');
 const { showMediumColumns, showLowColumns } = useResponsiveColumns();
@@ -530,6 +603,7 @@ function handleExamCommand(row, command) {
     edit: () => editExam(row),
     trial: () => trial(row),
     ranking: () => openRanking(row),
+    announcementReads: () => openAnnouncementReads(row),
     publish: () => publish(row),
     unpublish: () => unpublish(row),
     start: () => changeStatus(row, 'running'),
@@ -611,6 +685,23 @@ async function openRanking(row = selectedExam.value || exams.value[0]) {
   rankingVisible.value = true;
 }
 
+async function openAnnouncementReads(row = selectedExam.value || exams.value[0]) {
+  if (!row?.id) {
+    ElMessage.warning('请先选择考试');
+    return;
+  }
+  selectedExam.value = row;
+  announcementReadsLoading.value = true;
+  try {
+    announcementReadReport.value = await api(`/exams/${row.id}/announcement-reads`);
+    announcementReadsVisible.value = true;
+  } catch (error) {
+    ElMessage.error(error.message || '公告阅读统计加载失败');
+  } finally {
+    announcementReadsLoading.value = false;
+  }
+}
+
 function statusLabel(value) {
   return statusOptions.find((status) => status.value === value)?.label ?? value;
 }
@@ -622,3 +713,38 @@ function formatDateTime(value) {
 
 onMounted(loadAll);
 </script>
+
+<style scoped>
+.announcement-read-drawer {
+  display: grid;
+  gap: 16px;
+}
+
+.announcement-stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(112px, 1fr));
+  gap: 10px;
+}
+
+.announcement-stat-grid > div {
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 8px;
+  background: var(--el-fill-color-light);
+}
+
+.announcement-stat-grid b {
+  display: block;
+  color: var(--el-text-color-primary);
+  font-size: 22px;
+  line-height: 1.2;
+}
+
+.announcement-stat-grid span {
+  display: block;
+  margin-top: 6px;
+  color: var(--el-text-color-secondary);
+  font-size: 13px;
+}
+</style>

@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { ExamStatus, PaperStatus, Prisma } from '@prisma/client';
+import { ExamStatus, PaperStatus, Prisma, UserStatus, UserType } from '@prisma/client';
 import { toPagination } from '../../common/dto/pagination-query.dto';
 import { normalizeExamStatus, toApiEnum } from '../../common/utils/enum-normalizer';
 import { AuditService } from '../audit/audit.service';
@@ -460,6 +460,162 @@ export class ExamsService {
     };
   }
 
+  async announcementReads(id: string, user: RequestUser) {
+    await this.dataScope.assertExamAccessible(user, id);
+    const exam = await this.prisma.exam.findFirst({
+      where: { id, deletedAt: null },
+      include: {
+        course: { select: { name: true } },
+        announcements: {
+          where: { isActive: true },
+          orderBy: { version: 'desc' },
+          take: 1,
+          include: {
+            reads: {
+              orderBy: { readAt: 'desc' },
+              include: {
+                user: {
+                  select: {
+                    id: true,
+                    username: true,
+                    realName: true,
+                    userType: true,
+                    status: true,
+                  },
+                },
+              },
+            },
+          },
+        },
+        attempts: {
+          select: {
+            userId: true,
+            startedAt: true,
+            submittedAt: true,
+          },
+        },
+      },
+    });
+
+    if (!exam) {
+      throw new NotFoundException('考试不存在');
+    }
+
+    const classMap = await this.loadClassMap(exam.classId ? [exam.classId] : []);
+    const className = exam.classId ? classMap.get(exam.classId)?.name ?? '' : '公开';
+    const activeAnnouncement = exam.announcements[0] ?? null;
+    if (!activeAnnouncement) {
+      return {
+        examId: id,
+        examName: exam.name,
+        courseName: exam.course.name,
+        className,
+        announcement: null,
+        expectedCount: 0,
+        readCount: 0,
+        unreadCount: 0,
+        enteredCount: [...new Set(exam.attempts.map((attempt) => attempt.userId))].length,
+        submittedCount: [...new Set(exam.attempts.filter((attempt) => attempt.submittedAt).map((attempt) => attempt.userId))]
+          .length,
+        items: [],
+      };
+    }
+
+    const readMap = new Map(
+      activeAnnouncement.reads.map((read) => [
+        read.userId,
+        {
+          readAt: read.readAt,
+          user: read.user,
+        },
+      ]),
+    );
+    const attemptMap = new Map<string, { enteredAt: Date; submittedAt: Date | null }>();
+    for (const attempt of exam.attempts) {
+      const current = attemptMap.get(attempt.userId);
+      if (!current) {
+        attemptMap.set(attempt.userId, { enteredAt: attempt.startedAt, submittedAt: attempt.submittedAt });
+        continue;
+      }
+      if (attempt.startedAt < current.enteredAt) {
+        current.enteredAt = attempt.startedAt;
+      }
+      if (!current.submittedAt && attempt.submittedAt) {
+        current.submittedAt = attempt.submittedAt;
+      }
+    }
+
+    const expectedUsers = exam.classId ? await this.studentsInClass(exam.classId) : [];
+    const targetMap = new Map(expectedUsers.map((item) => [item.id, item]));
+    for (const read of activeAnnouncement.reads) {
+      if (read.user.userType === UserType.STUDENT && read.user.status === UserStatus.ACTIVE) {
+        targetMap.set(read.user.id, read.user);
+      }
+    }
+    if (!exam.classId) {
+      const attemptedUserIds = [...attemptMap.keys()];
+      if (attemptedUserIds.length) {
+        const attemptedUsers = await this.prisma.user.findMany({
+          where: {
+            id: { in: attemptedUserIds },
+            userType: UserType.STUDENT,
+            status: UserStatus.ACTIVE,
+            deletedAt: null,
+          },
+          select: {
+            id: true,
+            username: true,
+            realName: true,
+            userType: true,
+            status: true,
+          },
+        });
+        for (const student of attemptedUsers) {
+          targetMap.set(student.id, student);
+        }
+      }
+    }
+
+    const targetUsers = [...targetMap.values()].sort((a, b) =>
+      String(a.realName || a.username).localeCompare(String(b.realName || b.username), 'zh-CN'),
+    );
+    const items = targetUsers.map((student) => {
+      const read = readMap.get(student.id);
+      const attempt = attemptMap.get(student.id);
+      return {
+        userId: student.id,
+        username: student.username,
+        realName: student.realName,
+        read: Boolean(read),
+        readAt: read?.readAt ?? null,
+        entered: Boolean(attempt),
+        enteredAt: attempt?.enteredAt ?? null,
+        submitted: Boolean(attempt?.submittedAt),
+        submittedAt: attempt?.submittedAt ?? null,
+      };
+    });
+
+    return {
+      examId: id,
+      examName: exam.name,
+      courseName: exam.course.name,
+      className,
+      announcement: {
+        id: activeAnnouncement.id,
+        version: activeAnnouncement.version,
+        content: activeAnnouncement.content,
+        createdAt: activeAnnouncement.createdAt,
+        updatedAt: activeAnnouncement.updatedAt,
+      },
+      expectedCount: items.length,
+      readCount: items.filter((item) => item.read).length,
+      unreadCount: items.filter((item) => !item.read).length,
+      enteredCount: items.filter((item) => item.entered).length,
+      submittedCount: items.filter((item) => item.submitted).length,
+      items,
+    };
+  }
+
   private normalizeShowAnswerMode(value: string) {
     return value.replace(/-/g, '_').toUpperCase() as never;
   }
@@ -584,5 +740,31 @@ export class ExamsService {
       select: { id: true, name: true },
     });
     return new Map(classes.map((item) => [item.id, item]));
+  }
+
+  private async studentsInClass(classId: string) {
+    const relations = await this.prisma.classStudent.findMany({
+      where: {
+        classId,
+        student: {
+          userType: UserType.STUDENT,
+          status: UserStatus.ACTIVE,
+          deletedAt: null,
+        },
+      },
+      include: {
+        student: {
+          select: {
+            id: true,
+            username: true,
+            realName: true,
+            userType: true,
+            status: true,
+          },
+        },
+      },
+    });
+
+    return relations.map((relation) => relation.student);
   }
 }
