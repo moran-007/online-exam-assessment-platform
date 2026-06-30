@@ -114,6 +114,19 @@
                     <el-button size="small" :icon="DocumentAdd" @click="insertCodeBlock(singleForm, 'content')">
                       代码块
                     </el-button>
+                    <el-dropdown trigger="click" @command="insertFormatSnippet">
+                      <el-button size="small">插入格式</el-button>
+                      <template #dropdown>
+                        <el-dropdown-menu>
+                          <el-dropdown-item command="math-inline">行内数学公式</el-dropdown-item>
+                          <el-dropdown-item command="math-block">数学公式块</el-dropdown-item>
+                          <el-dropdown-item command="chem-inline">化学式</el-dropdown-item>
+                          <el-dropdown-item command="chem-equation">化学方程式</el-dropdown-item>
+                          <el-dropdown-item command="symbols">常用特殊符号</el-dropdown-item>
+                          <el-dropdown-item command="table">Markdown 表格</el-dropdown-item>
+                        </el-dropdown-menu>
+                      </template>
+                    </el-dropdown>
                     <el-button size="small" :icon="DocumentCopy" @click="loadSingleTemplate">加载模板</el-button>
                   </div>
                   <el-input
@@ -208,6 +221,19 @@
               <el-form-item label="操作">
                 <div class="toolbar">
                   <el-button :icon="DocumentCopy" @click="loadBatchTemplate">加载模板</el-button>
+                  <el-dropdown trigger="click" @command="insertFormatSnippet">
+                    <el-button>插入格式</el-button>
+                    <template #dropdown>
+                      <el-dropdown-menu>
+                        <el-dropdown-item command="math-inline">行内数学公式</el-dropdown-item>
+                        <el-dropdown-item command="math-block">数学公式块</el-dropdown-item>
+                        <el-dropdown-item command="chem-inline">化学式</el-dropdown-item>
+                        <el-dropdown-item command="chem-equation">化学方程式</el-dropdown-item>
+                        <el-dropdown-item command="symbols">常用特殊符号</el-dropdown-item>
+                        <el-dropdown-item command="table">Markdown 表格</el-dropdown-item>
+                      </el-dropdown-menu>
+                    </template>
+                  </el-dropdown>
                   <el-button :icon="View" @click="previewBatch">解析预览</el-button>
                   <el-button :icon="Refresh" :loading="duplicateChecking" :disabled="!batchPreview.length" @click="runDuplicateCheck()">
                     重复检测
@@ -440,6 +466,15 @@
             <div class="asset-main">
               <el-input v-model="asset.displayName" size="small" placeholder="附件引用名" @blur="renameAsset(asset)" />
               <small>{{ asset.filename }} · {{ formatFileSize(asset.size) }}</small>
+              <div v-if="asset.isImage" class="asset-layout-controls">
+                <el-select v-model="asset.align" size="small" placeholder="对齐">
+                  <el-option label="居中" value="center" />
+                  <el-option label="左对齐" value="left" />
+                  <el-option label="右对齐" value="right" />
+                </el-select>
+                <el-input-number v-model="asset.width" size="small" :min="20" :max="100" :step="5" controls-position="right" />
+                <span class="mini-muted">%</span>
+              </div>
             </div>
             <div class="asset-actions">
               <el-button size="small" @click="insertUploadedAsset(asset)">插入</el-button>
@@ -474,6 +509,15 @@ const typeOptions = [
   { label: 'Scratch 项目题', value: 'scratch_project' },
   { label: 'Arduino 项目题', value: 'arduino_project' },
 ];
+
+const formatSnippets = {
+  'math-inline': '$a^2 + b^2 = c^2$',
+  'math-block': ['$$', 'x = \\frac{-b \\pm \\sqrt{b^2 - 4ac}}{2a}', '$$'].join('\n'),
+  'chem-inline': '@chem{H2SO4}',
+  'chem-equation': '@chem{2H2 + O2 -> 2H2O}',
+  symbols: '≤ ≥ ≠ ≈ ± × ÷ √ ∑ ∞ ° ℃ → ← ↔ ∴ ∵ α β γ Δ Ω',
+  table: ['| 项目 | 内容 |', '| --- | --- |', '| 条件 | $x > 0$ |', '| 结论 | @chem{CO2} |'].join('\n'),
+};
 
 const courses = ref([]);
 const tags = ref([]);
@@ -762,11 +806,21 @@ function resetSingleForm() {
 function loadSingleTemplate() {
   Object.assign(singleForm, {
     type: 'single_choice',
-    title: '单题示例：Python 输出',
-    content: ['阅读代码，输出结果是什么？', '', '```python', 'print(2 + 5)', '```'].join('\n'),
+    title: '单题示例：Markdown 公式与代码',
+    content: [
+      '阅读代码，输出结果是什么？题干可包含数学公式 $a^2 + b^2 = c^2$、化学式 @chem{H2SO4}。',
+      '',
+      '$$',
+      'S = \\pi\\,r^2',
+      '$$',
+      '',
+      '```python',
+      'print(2 + 5)',
+      '```',
+    ].join('\n'),
     difficulty: 1,
     defaultScore: 2,
-    analysis: '`2 + 5` 的结果是 `7`。',
+    analysis: '`2 + 5` 的结果是 `7`。化学方程式示例：@chem{2H2 + O2 -> 2H2O}。',
     options: [
       { optionKey: 'A', content: '`5`', isCorrect: false, sortOrder: 1 },
       { optionKey: 'B', content: '`7`', isCorrect: true, sortOrder: 2 },
@@ -1045,10 +1099,15 @@ function splitQuestionBlocks(text) {
   const blocks = [];
   let current = [];
   let inCode = false;
+  let inMath = false;
 
   for (const line of text.replace(/\r\n/g, '\n').split('\n')) {
     const fenceCount = (line.match(/```/g) ?? []).length;
-    if (!inCode && line.trim() === '---') {
+    const trimmed = line.trim();
+    if (!inCode && (trimmed === '$$' || trimmed === '\\[' || trimmed === '\\]')) {
+      inMath = !inMath;
+    }
+    if (!inCode && !inMath && trimmed === '---') {
       const block = current.join('\n').trim();
       if (block) blocks.push(block);
       current = [];
@@ -1265,7 +1324,11 @@ function loadBatchTemplate() {
     '标签：Python,代码阅读',
     '知识点：变量与表达式',
     '题干：',
-    '阅读代码，输出结果是什么？',
+    '阅读代码，输出结果是什么？题干可包含数学公式 $a^2 + b^2 = c^2$ 和化学式 @chem{CO2}。',
+    '',
+    '$$',
+    'f(x)=x^2+2x+1',
+    '$$',
     '',
     '```python',
     'print(1 + 2)',
@@ -1276,7 +1339,7 @@ function loadBatchTemplate() {
     'C. `12`',
     'D. `None`',
     '解析：',
-    '表达式 `1 + 2` 的结果是 `3`。',
+    '表达式 `1 + 2` 的结果是 `3`。常用特殊符号：≤ ≥ ≠ ± × ÷ √ ∑ ∞。',
     '---',
     '标题：批量示例：可变容器',
     '题型：多选题',
@@ -1302,6 +1365,34 @@ function loadBatchTemplate() {
 function insertCodeBlock(target, field) {
   target[field] = `${target[field] || ''}\n\`\`\`python\nprint("hello")\n\`\`\`\n`;
   setImageInsertTarget(target, field);
+}
+
+function insertFormatSnippet(command) {
+  const snippet = formatSnippets[command];
+  if (!snippet) return;
+  insertMarkdownSnippet(snippet);
+}
+
+function insertMarkdownSnippet(markdown) {
+  if (!assetInsertTarget.value) {
+    if (importMode.value === 'batch') {
+      setBatchInsertTarget('batchText');
+    } else {
+      setImageInsertTarget(singleForm, 'content');
+    }
+  }
+
+  if (assetInsertTarget.value?.type === 'object') {
+    appendMarkdownToObject(assetInsertTarget.value.target, assetInsertTarget.value.field, markdown);
+  } else if (assetInsertTarget.value?.field === 'batchAnswerText') {
+    batchAnswerText.value = appendMarkdownText(batchAnswerText.value, markdown);
+  } else if (assetInsertTarget.value?.field === 'singleContent') {
+    singleForm.content = appendMarkdownText(singleForm.content, markdown);
+  } else {
+    batchText.value = appendMarkdownText(batchText.value, markdown);
+  }
+
+  refreshPreview();
 }
 
 function setImageInsertTarget(target, field) {
@@ -1576,6 +1667,8 @@ function normalizeUploadedAsset(asset) {
     displayName,
     savedDisplayName: displayName,
     isImage: Boolean(asset?.isImage) || /\.(png|jpe?g|gif|webp|svg)$/i.test(filename),
+    align: asset?.align || 'center',
+    width: Number(asset?.width) || 80,
   };
 }
 
@@ -1583,7 +1676,20 @@ function assetMarkdown(asset) {
   const url = asset?.url;
   if (!url) return asset?.markdown || '';
   const label = String(asset.displayName || asset.filename || '附件').trim() || '附件';
-  return asset.isImage ? `![${label}](${url})` : `[${label}](${url})`;
+  return asset.isImage ? `![${label}](${assetImageUrl(asset)})` : `[${label}](${url})`;
+}
+
+function assetImageUrl(asset) {
+  const url = new URL(asset.url, window.location.origin);
+  url.searchParams.set('align', ['left', 'center', 'right'].includes(asset.align) ? asset.align : 'center');
+  url.searchParams.set('w', String(clampImageWidth(asset.width)));
+  return `${url.pathname}${url.search}${url.hash}`;
+}
+
+function clampImageWidth(value) {
+  const nextValue = Number(value);
+  if (!Number.isFinite(nextValue)) return 80;
+  return Math.min(100, Math.max(20, Math.round(nextValue)));
 }
 
 function parseStoredZip(arrayBuffer) {
