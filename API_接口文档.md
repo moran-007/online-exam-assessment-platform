@@ -1077,7 +1077,64 @@ GET /api/v1/exams/:id/statistics
 
 ---
 
-### 8.10 导出考试成绩
+### 8.10 获取考试公告阅读统计
+
+```http
+GET /api/v1/exams/:id/announcement-reads
+```
+
+权限：
+
+```txt
+exam:result:read
+```
+
+说明：
+
+1. 用于教师/管理员查看学生是否已阅读当前有效公告。
+2. 班级考试按 `class_students` 统计应读学生。
+3. 公开考试按已阅读公告或已进入考试的学生汇总，不默认统计全站学生。
+4. 当考试没有有效公告时返回空统计。
+
+返回：
+
+```json
+{
+  "examId": "exam_001",
+  "examName": "Python 第一阶段考试",
+  "courseName": "Python Basic",
+  "className": "一班",
+  "announcement": {
+    "id": "announcement_001",
+    "version": 2,
+    "content": "请先阅读考试规则。",
+    "createdAt": "2026-06-30T10:00:00.000Z",
+    "updatedAt": "2026-06-30T10:00:00.000Z"
+  },
+  "expectedCount": 30,
+  "readCount": 28,
+  "unreadCount": 2,
+  "enteredCount": 25,
+  "submittedCount": 20,
+  "items": [
+    {
+      "userId": "user_001",
+      "username": "student001",
+      "realName": "学生一",
+      "read": true,
+      "readAt": "2026-06-30T10:05:00.000Z",
+      "entered": true,
+      "enteredAt": "2026-06-30T10:06:00.000Z",
+      "submitted": false,
+      "submittedAt": null
+    }
+  ]
+}
+```
+
+---
+
+### 8.11 导出考试成绩
 
 ```http
 POST /api/v1/exams/:id/export-results
@@ -2200,6 +2257,7 @@ PATCH /exams/:id
 POST /exams/:id/publish
 GET /exams/:id/results
 GET /exams/:id/statistics
+GET /exams/:id/announcement-reads
 POST /exams/:id/export-results
 
 Student:
