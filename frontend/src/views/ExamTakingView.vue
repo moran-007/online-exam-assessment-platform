@@ -20,8 +20,8 @@
         <el-button v-if="isSimulating" :icon="Close" @click="exitSimulation">退出模拟</el-button>
         <el-tag :type="remainingType">剩余 {{ remainingText }}</el-tag>
         <el-tag>{{ answeredCount }} / {{ totalCount }}</el-tag>
-        <el-button :icon="Upload" @click="saveAll">保存</el-button>
-        <el-button type="primary" :icon="Check" @click="submit">提交</el-button>
+        <el-button :icon="Upload" :disabled="autoSubmitting" @click="saveAll">保存</el-button>
+        <el-button type="primary" :icon="Check" :loading="autoSubmitting" @click="submit">提交</el-button>
       </div>
     </div>
 
@@ -252,8 +252,8 @@
             {{ currentQuestionId && isFlagged(currentQuestionId) ? '取消本题标疑' : '本题标疑' }}
           </el-button>
           <el-button :icon="Delete" :disabled="!currentQuestionId" @click="clearCurrentAnswer">清除本题</el-button>
-          <el-button :icon="Upload" @click="saveAll">保存全部</el-button>
-          <el-button type="primary" :icon="Check" @click="submit">提交试卷</el-button>
+          <el-button :icon="Upload" :disabled="autoSubmitting" @click="saveAll">保存全部</el-button>
+          <el-button type="primary" :icon="Check" :loading="autoSubmitting" @click="submit">提交试卷</el-button>
         </div>
       </aside>
     </div>
@@ -282,6 +282,8 @@ const codeSubmitLoading = reactive({});
 const codeSubmitFeedback = reactive({});
 const viewMode = ref('single');
 const currentIndex = ref(0);
+const autoSubmitting = ref(false);
+const submitted = ref(false);
 const simulateStudentId = computed(() => String(route.query.simulateStudentId || ''));
 const isSimulating = computed(() => Boolean(simulateStudentId.value));
 let clockTimer = null;
@@ -620,7 +622,8 @@ async function goQuestion(index) {
   }
 }
 
-async function saveAll() {
+async function saveAll(options = {}) {
+  const { silent = false } = options;
   const body = {
     answers: flatQuestions.value.map((entry) => ({
       questionId: entry.question.questionId,
@@ -634,26 +637,47 @@ async function saveAll() {
     method: 'POST',
     body: isSimulating.value ? { ...body, studentId: simulateStudentId.value } : body,
   });
-  ElMessage.success('已保存');
+  if (!silent) ElMessage.success('已保存');
 }
 
-async function submit() {
+async function submit(options = {}) {
+  if (submitted.value || autoSubmitting.value) return;
+  const { skipConfirm = false, auto = false } = options;
   const unanswered = totalCount.value - answeredCount.value;
   const flaggedText = flaggedCount.value ? `，其中 ${flaggedCount.value} 题已标疑` : '';
-  await ElMessageBox.confirm(`还有 ${unanswered} 题未作答${flaggedText}。提交后不能继续修改答案。`, '确认提交', { type: 'warning' });
-  await saveAll();
-  const result = await api(
-    isSimulating.value
-      ? `/student/simulate/attempts/${attemptId.value}/submit`
-      : `/student/attempts/${attemptId.value}/submit`,
-    {
-      method: 'POST',
-      body: isSimulating.value ? { studentId: simulateStudentId.value } : { confirm: true },
-    },
-  );
-  ElMessage.success('已提交');
-  const query = isSimulating.value ? `?simulateStudentId=${simulateStudentId.value}` : '';
-  router.push(`/student/attempts/${result.attemptId || attemptId.value}/result${query}`);
+  if (!skipConfirm) {
+    await ElMessageBox.confirm(`还有 ${unanswered} 题未作答${flaggedText}。提交后不能继续修改答案。`, '确认提交', { type: 'warning' });
+  }
+  autoSubmitting.value = true;
+  try {
+    await saveAll({ silent: auto });
+    const result = await api(
+      isSimulating.value
+        ? `/student/simulate/attempts/${attemptId.value}/submit`
+        : `/student/attempts/${attemptId.value}/submit`,
+      {
+        method: 'POST',
+        body: isSimulating.value ? { studentId: simulateStudentId.value } : { confirm: true },
+      },
+    );
+    submitted.value = true;
+    ElMessage.success(auto ? '考试时间已到，系统已自动交卷' : '已提交');
+    const query = isSimulating.value ? `?simulateStudentId=${simulateStudentId.value}` : '';
+    router.push(`/student/attempts/${result.attemptId || attemptId.value}/result${query}`);
+  } finally {
+    if (!submitted.value) autoSubmitting.value = false;
+  }
+}
+
+async function autoSubmitExam() {
+  if (submitted.value || autoSubmitting.value || !attemptId.value) return;
+  try {
+    ElMessage.error('考试时间已到，正在自动交卷');
+    await submit({ skipConfirm: true, auto: true });
+  } catch (error) {
+    autoSubmitting.value = false;
+    ElMessage.error(error.message || '自动交卷失败，请手动提交');
+  }
 }
 
 function startClock() {
@@ -677,7 +701,7 @@ function checkTimeWarnings() {
 
   if (remainingMs.value <= 0 && !warnedThresholds.has(0)) {
     warnedThresholds.add(0);
-    ElMessage.error('本次答题时间已到，请尽快提交');
+    autoSubmitExam();
   }
 }
 

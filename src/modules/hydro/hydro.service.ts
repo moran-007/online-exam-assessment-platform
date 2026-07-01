@@ -104,6 +104,8 @@ type HydroRecordResult = {
 @Injectable()
 export class HydroService implements OnModuleInit, OnModuleDestroy {
   private pollTimer?: ReturnType<typeof setInterval>;
+  private readonly hydroBotChallengeMessage =
+    'Hydro 触发人机验证/机器人检测，系统不会绕过该验证。请先在浏览器打开对应 OJ 完成人工验证，或改用自建 Hydro 站点后重试。';
 
   constructor(
     private readonly prisma: PrismaService,
@@ -1079,14 +1081,19 @@ export class HydroService implements OnModuleInit, OnModuleDestroy {
           : await fetch(candidate, {
               headers: { 'User-Agent': 'MoranExamHydroPull/1.0' },
               signal: controller.signal,
-            });
+        });
         const html = await response.text();
+        if (this.isHydroBotChallenge(html, response.url || candidate)) {
+          throw new BadRequestException(this.hydroBotChallengeMessage);
+        }
         if (!response.ok) {
           lastError = `${response.status} ${html.slice(0, 120)}`;
           continue;
         }
         return { url: response.url || candidate, html };
       } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (this.isHydroBotChallenge(message)) throw error;
         lastError = error instanceof Error ? error.message : String(error);
       } finally {
         clearTimeout(timeout);
@@ -1368,6 +1375,38 @@ export class HydroService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
+  private isHydroBotChallenge(content?: string | null, locationOrUrl?: string | null) {
+    const raw = `${content || ''} ${locationOrUrl || ''}`;
+    const text = this.decodeHtml(this.stripTags(raw)).replace(/\s+/g, ' ').toLowerCase();
+    const source = raw.toLowerCase();
+    return (
+      source.includes('cerberus challenge') ||
+      source.includes("making sure you're not a bot") ||
+      (source.includes('not a bot') && source.includes('challenge')) ||
+      /\/challenge(?:[/?#\s]|$)/i.test(String(locationOrUrl || '')) ||
+      text.includes('cerberus challenge') ||
+      text.includes("making sure you're not a bot") ||
+      text.includes('机器人检测') ||
+      text.includes('人机验证')
+    );
+  }
+
+  private sanitizeHydroMessage(value: string, fallback: string) {
+    if (this.isHydroBotChallenge(value)) return this.hydroBotChallengeMessage;
+    return this.decodeHtml(this.stripTags(value)).replace(/\s+/g, ' ').trim().slice(0, 240) || fallback;
+  }
+
+  private async markHydroAccountBlocked(account: Pick<HydroAccount, 'id'>) {
+    await this.prisma.hydroAccount.updateMany({
+      where: { id: account.id },
+      data: {
+        lastLoginStatus: 'blocked',
+        lastLoginMessage: this.hydroBotChallengeMessage,
+        lastLoginAt: new Date(),
+      },
+    });
+  }
+
   private async testHydroAccountLogin(account: HydroAccount) {
     if (account.platformCode !== 'hydro') {
       throw new BadRequestException('当前只支持 Hydro 平台登录检测');
@@ -1383,7 +1422,13 @@ export class HydroService implements OnModuleInit, OnModuleDestroy {
       status = 'success';
       message = 'Hydro 登录检测通过';
     } catch (error) {
-      message = error instanceof Error ? error.message : message;
+      const rawMessage = error instanceof Error ? error.message : message;
+      if (this.isHydroBotChallenge(rawMessage)) {
+        status = 'blocked';
+        message = this.hydroBotChallengeMessage;
+      } else {
+        message = this.sanitizeHydroMessage(rawMessage, message);
+      }
     }
 
     const updated = await this.prisma.hydroAccount.update({
@@ -1407,6 +1452,10 @@ export class HydroService implements OnModuleInit, OnModuleDestroy {
     dto: SubmitHydroCodeDto,
     account: HydroAccount,
   ): Promise<HydroSubmitResult> {
+    if (account.lastLoginStatus === 'blocked') {
+      throw new BadRequestException(this.hydroBotChallengeMessage);
+    }
+
     const judgeConfig = this.toRecord(binding.judgeConfig);
     const baseUrl = this.normalizePlatformBaseUrl(
       binding.platformBaseUrl ||
@@ -1435,15 +1484,22 @@ export class HydroService implements OnModuleInit, OnModuleDestroy {
     });
     const text = await response.text().catch(() => '');
     const location = response.headers.get('location') || '';
+    if (this.isHydroBotChallenge(text, `${response.url} ${location}`)) {
+      await this.markHydroAccountBlocked(account);
+      throw new BadRequestException(this.hydroBotChallengeMessage);
+    }
     const externalSubmissionId = this.extractHydroRecordIdFromLocation(location);
     if (!externalSubmissionId) {
-      const message = this.decodeHtml(this.stripTags(text)).replace(/\s+/g, ' ').slice(0, 240);
+      const message = this.sanitizeHydroMessage(text, '未返回评测记录');
       throw new BadRequestException(`Hydro 提交失败：${response.status} ${message || '未返回评测记录'}`);
     }
 
     const recordUrl = this.absoluteHydroUrl(location, baseUrl);
-    let record = await this.fetchHydroRecordResult(session, externalSubmissionId, recordUrl).catch((error) => {
+    let record = await this.fetchHydroRecordResult(session, externalSubmissionId, recordUrl).catch(async (error) => {
       const message = error instanceof Error ? error.message : 'Hydro 结果读取失败';
+      if (this.isHydroBotChallenge(message)) {
+        await this.markHydroAccountBlocked(account);
+      }
       return {
         externalSubmissionId,
         recordUrl,
@@ -1458,7 +1514,13 @@ export class HydroService implements OnModuleInit, OnModuleDestroy {
     for (const waitMs of [1000, 2000, 3000]) {
       if (record.final) break;
       await this.delay(waitMs);
-      record = await this.fetchHydroRecordResult(session, externalSubmissionId, recordUrl).catch(() => record);
+      record = await this.fetchHydroRecordResult(session, externalSubmissionId, recordUrl).catch(async (error) => {
+        const message = error instanceof Error ? error.message : 'Hydro 结果读取失败';
+        if (this.isHydroBotChallenge(message)) {
+          await this.markHydroAccountBlocked(account);
+        }
+        return record;
+      });
     }
 
     return {
@@ -1508,7 +1570,14 @@ export class HydroService implements OnModuleInit, OnModuleDestroy {
     };
 
     const loginUrl = `${baseUrl}/login`;
-    await sessionFetch(loginUrl, { redirect: 'manual' });
+    const loginPageResponse = await sessionFetch(loginUrl, { redirect: 'manual' });
+    const loginPageText = await loginPageResponse.text().catch(() => '');
+    const loginPageLocation = loginPageResponse.headers.get('location') || '';
+    if (this.isHydroBotChallenge(loginPageText, `${loginPageResponse.url} ${loginPageLocation}`)) {
+      await this.markHydroAccountBlocked(account);
+      throw new BadRequestException(this.hydroBotChallengeMessage);
+    }
+
     const body = new URLSearchParams({
       uname: account.loginUsername ?? '',
       password: account.loginPassword ?? '',
@@ -1527,13 +1596,15 @@ export class HydroService implements OnModuleInit, OnModuleDestroy {
     });
     const text = await response.text().catch(() => '');
     const location = response.headers.get('location') || '';
+    if (this.isHydroBotChallenge(text, `${response.url} ${location}`)) {
+      await this.markHydroAccountBlocked(account);
+      throw new BadRequestException(this.hydroBotChallengeMessage);
+    }
     const redirectedAway = response.status >= 300 && response.status < 400 && !/\/login\b/i.test(location);
     const hasSession = cookies.has('sid') || cookies.has('sid.sig');
     const bodyLooksLoggedIn = /退出|注销|logout/i.test(text) && !/密码错误|登录失败|LoginError|password/i.test(text);
     if (!((redirectedAway && hasSession) || bodyLooksLoggedIn)) {
-      const message =
-        this.decodeHtml(this.stripTags(text)).replace(/\s+/g, ' ').slice(0, 180) ||
-        `Hydro 登录失败：${response.status}`;
+      const message = this.sanitizeHydroMessage(text, `Hydro 登录失败：${response.status}`);
       throw new BadRequestException(message);
     }
 
@@ -1560,6 +1631,9 @@ export class HydroService implements OnModuleInit, OnModuleDestroy {
       headers: { Referer: session.baseUrl },
     });
     const html = await response.text();
+    if (this.isHydroBotChallenge(html, response.url || targetUrl)) {
+      throw new BadRequestException(this.hydroBotChallengeMessage);
+    }
     if (!response.ok) {
       throw new BadRequestException(`Hydro 结果读取失败：${response.status}`);
     }
@@ -1621,6 +1695,7 @@ export class HydroService implements OnModuleInit, OnModuleDestroy {
     const accountId = String(resultJson.hydroAccountId ?? '');
     const account = accountId ? await this.prisma.hydroAccount.findFirst({ where: { id: accountId } }) : null;
     if (!account) return null;
+    if (account.lastLoginStatus === 'blocked') return null;
     const session = await this.createHydroSession(account);
     const recordUrl = String(resultJson.recordUrl || '');
     const record = await this.fetchHydroRecordResult(session, submission.externalSubmissionId as string, recordUrl || undefined);

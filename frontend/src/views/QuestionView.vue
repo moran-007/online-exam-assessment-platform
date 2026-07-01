@@ -414,7 +414,7 @@
       </div>
     </div>
 
-    <el-dialog v-model="practiceVisible" title="题目作答" width="780px">
+    <el-dialog v-model="practiceVisible" title="题目作答" :width="practiceDetail?.type === 'programming' ? '1180px' : '780px'">
       <template v-if="practiceDetail">
         <div class="paper-preview-head">
           <div>
@@ -425,32 +425,89 @@
             {{ statusLabel(practiceDetail.status) || practiceDetail.status }}
           </el-tag>
         </div>
-        <MarkdownRenderer :source="practiceDetail.content || ''" />
+        <template v-if="practiceDetail.type === 'programming'">
+          <div class="programming-exam-split programming-practice-split">
+            <div class="programming-statement">
+              <MarkdownRenderer :source="practiceDetail.content || ''" />
+            </div>
+            <div class="programming-code-panel">
+              <div class="programming-toolbar">
+                <span class="programming-language-label">语言</span>
+                <el-select v-model="practiceAnswer.language" style="width: 170px">
+                  <el-option
+                    v-for="language in languageOptionsFor(practiceDetail)"
+                    :key="language"
+                    :label="languageLabel(language)"
+                    :value="language"
+                  />
+                </el-select>
+                <el-tag v-if="practiceDetail.programmingRef?.domainId" type="info">
+                  域：{{ formatHydroDomainLabel(practiceDetail.programmingRef) }}
+                </el-tag>
+                <el-tag v-if="practiceDetail.programmingRef?.externalProblemId" type="success">
+                  {{ practiceDetail.programmingRef.externalProblemId }}
+                </el-tag>
+                <el-button :icon="Link" :disabled="!practiceDetail.programmingRef?.externalProblemUrl" @click="openHydroProblem(practiceDetail)">
+                  打开 Hydro
+                </el-button>
+              </div>
+              <el-alert
+                v-if="practiceProgrammingResult"
+                class="code-submit-feedback"
+                :type="practiceProgrammingResult.status === 'accepted' ? 'success' : 'info'"
+                :closable="false"
+                show-icon
+              >
+                <template #title>{{ practiceProgrammingResult.status === 'accepted' ? '判题通过' : 'Hydro 结果' }}</template>
+                <div class="code-submit-meta">
+                  <span>状态：{{ practiceProgrammingResult.status || '-' }}</span>
+                  <span>语言：{{ languageLabel(practiceProgrammingResult.language || practiceAnswer.language) }}</span>
+                  <span v-if="practiceProgrammingResult.externalSubmissionId">Hydro提交：{{ practiceProgrammingResult.externalSubmissionId }}</span>
+                  <span v-if="practiceProgrammingResult.score !== null && practiceProgrammingResult.score !== undefined">
+                    得分：{{ practiceProgrammingResult.score }}
+                  </span>
+                </div>
+                <div v-if="practiceProgrammingResult.message" class="code-submit-message">{{ practiceProgrammingResult.message }}</div>
+              </el-alert>
+              <el-input
+                v-model="practiceAnswer.code"
+                class="answer-input code-answer-input"
+                type="textarea"
+                :rows="18"
+                placeholder="在这里编写代码"
+              />
+            </div>
+          </div>
+        </template>
 
-        <el-radio-group
-          v-if="['single_choice', 'true_false'].includes(practiceDetail.type)"
-          v-model="practiceAnswer.selectedOptionIds[0]"
-          class="answer-options"
-        >
-          <el-radio v-for="option in practiceOptions" :key="option.optionId" :label="option.optionId" class="answer-option">
-            <span class="option-choice">
-              <strong>{{ option.label }}.</strong>
-              <MarkdownRenderer :source="option.content" />
-            </span>
-          </el-radio>
-        </el-radio-group>
+        <template v-else>
+          <MarkdownRenderer :source="practiceDetail.content || ''" />
 
-        <el-checkbox-group v-else-if="practiceDetail.type === 'multiple_choice'" v-model="practiceAnswer.selectedOptionIds" class="answer-options">
-          <el-checkbox v-for="option in practiceOptions" :key="option.optionId" :label="option.optionId" class="answer-option">
-            <span class="option-choice">
-              <strong>{{ option.label }}.</strong>
-              <MarkdownRenderer :source="option.content" />
-            </span>
-          </el-checkbox>
-        </el-checkbox-group>
+          <el-radio-group
+            v-if="['single_choice', 'true_false'].includes(practiceDetail.type)"
+            v-model="practiceAnswer.selectedOptionIds[0]"
+            class="answer-options"
+          >
+            <el-radio v-for="option in practiceOptions" :key="option.optionId" :label="option.optionId" class="answer-option">
+              <span class="option-choice">
+                <strong>{{ option.label }}.</strong>
+                <MarkdownRenderer :source="option.content" />
+              </span>
+            </el-radio>
+          </el-radio-group>
 
-        <el-input v-else-if="practiceDetail.type === 'fill_blank'" v-model="practiceAnswer.blanks[0].value" placeholder="填写答案" />
-        <el-input v-else v-model="practiceAnswer.text" type="textarea" :rows="5" placeholder="填写答案" />
+          <el-checkbox-group v-else-if="practiceDetail.type === 'multiple_choice'" v-model="practiceAnswer.selectedOptionIds" class="answer-options">
+            <el-checkbox v-for="option in practiceOptions" :key="option.optionId" :label="option.optionId" class="answer-option">
+              <span class="option-choice">
+                <strong>{{ option.label }}.</strong>
+                <MarkdownRenderer :source="option.content" />
+              </span>
+            </el-checkbox>
+          </el-checkbox-group>
+
+          <el-input v-else-if="practiceDetail.type === 'fill_blank'" v-model="practiceAnswer.blanks[0].value" placeholder="填写答案" />
+          <el-input v-else v-model="practiceAnswer.text" type="textarea" :rows="5" placeholder="填写答案" />
+        </template>
 
         <el-alert
           v-if="practiceDetail.status !== 'published'"
@@ -474,7 +531,14 @@
       <template #footer>
         <el-button @click="practiceVisible = false">关闭</el-button>
         <el-button :icon="Edit" @click="practiceDetail && editQuestionFromPractice()">进入编辑模式</el-button>
-        <el-button type="primary" :disabled="practiceDetail?.status !== 'published'" @click="checkPracticeAnswer">提交作答</el-button>
+        <el-button
+          type="primary"
+          :loading="practiceProgrammingSubmitLoading"
+          :disabled="practiceDetail?.status !== 'published'"
+          @click="practiceDetail?.type === 'programming' ? submitPracticeProgrammingAnswer() : checkPracticeAnswer()"
+        >
+          {{ practiceDetail?.type === 'programming' ? '提交 Hydro 评测' : '提交作答' }}
+        </el-button>
       </template>
     </el-dialog>
 
@@ -600,6 +664,8 @@ const form = reactive(baseForm());
 const practiceVisible = ref(false);
 const practiceDetail = ref(null);
 const practiceResult = ref(null);
+const practiceProgrammingResult = ref(null);
+const practiceProgrammingSubmitLoading = ref(false);
 const practiceAnswer = reactive(emptyPracticeAnswer());
 
 const isEditing = computed(() => Boolean(editingId.value));
@@ -624,7 +690,7 @@ const hydroProblemUrl = computed(() => {
 const hydroAccountOptions = computed(() =>
   hydroAccounts.value.map((account) => ({
     ...account,
-    label: `${account.loginUsername || account.hydroUsername} · ${account.platformBaseUrl} · ${account.ownerName || account.ownerUsername || account.studentName || '账号'}`,
+    label: `${account.loginUsername || account.hydroUsername} · ${account.platformName || 'Hydro'} · ${shortHost(account.platformBaseUrl)} · ${account.ownerName || account.ownerUsername || account.studentName || '账号'}`,
   })),
 );
 const selectedHydroAccount = computed(() =>
@@ -646,6 +712,33 @@ function formatHydroDomainLabel(ref) {
     return `${domainId} / ${domainName}`;
   }
   return domainId || domainName || 'system';
+}
+
+function languageOptionsFor(question) {
+  const languages = question?.programmingRef?.languages || [];
+  return languages.length ? languages : ['cc.cc17o2', 'py.py3', 'java'];
+}
+
+function languageLabel(language) {
+  const labels = {
+    'cc.cc17o2': 'C++17(O2)',
+    'cc.cc17': 'C++17',
+    'cc.cc14o2': 'C++14(O2)',
+    'cc.cc14': 'C++14',
+    'cc.cc11o2': 'C++11(O2)',
+    'cc.cc11': 'C++11',
+    'py.py3': 'Python 3',
+    'py.py2': 'Python 2',
+    'cc.cc20o2': 'C++20(O2)',
+    'cc.cc20': 'C++20',
+    cpp17: 'C++17',
+    python3: 'Python 3',
+    java: 'Java',
+    c: 'C',
+    cc: 'C++',
+    pas: 'Pascal',
+  };
+  return labels[language] ?? language;
 }
 const practiceOptions = computed(() =>
   (practiceDetail.value?.options ?? []).map((option, index) => ({
@@ -1306,6 +1399,10 @@ function editQuestionFromPractice() {
 
 async function checkPracticeAnswer() {
   if (!practiceDetail.value) return;
+  if (practiceDetail.value.type === 'programming') {
+    await submitPracticeProgrammingAnswer();
+    return;
+  }
   try {
     practiceResult.value = await api(`/questions/${practiceDetail.value.id}/check-answer`, {
       method: 'POST',
@@ -1316,17 +1413,56 @@ async function checkPracticeAnswer() {
   }
 }
 
+async function submitPracticeProgrammingAnswer() {
+  if (!practiceDetail.value) return;
+  if (!String(practiceAnswer.code ?? '').trim()) {
+    ElMessage.warning('请先填写代码');
+    return;
+  }
+  practiceProgrammingSubmitLoading.value = true;
+  try {
+    const response = await api(`/hydro/questions/${practiceDetail.value.id}/submit-code`, {
+      method: 'POST',
+      body: {
+        language: practiceAnswer.language || languageOptionsFor(practiceDetail.value)[0],
+        code: practiceAnswer.code,
+      },
+    });
+    practiceProgrammingResult.value = response;
+    ElMessage.success(response.message || '代码已提交到 Hydro');
+  } catch (error) {
+    ElMessage.error(error.message || 'Hydro 提交失败');
+  } finally {
+    practiceProgrammingSubmitLoading.value = false;
+  }
+}
+
+function openHydroProblem(question) {
+  const url = question?.programmingRef?.externalProblemUrl;
+  if (!url) {
+    ElMessage.warning('该题尚未配置 Hydro 链接');
+    return;
+  }
+  window.open(url, '_blank', 'noopener,noreferrer');
+}
+
 function emptyPracticeAnswer() {
   return {
     selectedOptionIds: [],
     blanks: [{ index: 1, value: '' }],
     text: '',
+    code: '',
+    language: 'cc.cc17o2',
   };
 }
 
 function clearPracticeAnswer() {
   Object.assign(practiceAnswer, emptyPracticeAnswer());
+  if (practiceDetail.value?.type === 'programming') {
+    practiceAnswer.language = languageOptionsFor(practiceDetail.value)[0] || 'cc.cc17o2';
+  }
   practiceResult.value = null;
+  practiceProgrammingResult.value = null;
 }
 
 function payloadForPracticeAnswer() {
@@ -1338,6 +1474,13 @@ function payloadForPracticeAnswer() {
   }
   if (String(practiceAnswer.text ?? '').trim()) {
     return { text: practiceAnswer.text };
+  }
+  if (String(practiceAnswer.code ?? '').trim()) {
+    return {
+      text: practiceAnswer.code,
+      code: practiceAnswer.code,
+      language: practiceAnswer.language || 'cc.cc17o2',
+    };
   }
   return {};
 }

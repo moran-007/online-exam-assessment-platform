@@ -56,8 +56,18 @@
         </el-table-column>
         <el-table-column label="状态" min-width="160">
           <template #default="{ row }">
-            <el-tag :type="row.lastLoginStatus === 'success' ? 'success' : row.lastLoginStatus ? 'warning' : 'info'">
-              {{ row.lastLoginStatus === 'success' ? '登录正常' : row.lastLoginMessage || '未检测' }}
+            <el-tooltip
+              v-if="row.lastLoginMessage"
+              :content="row.lastLoginMessage"
+              placement="top"
+              :show-after="300"
+            >
+              <el-tag :type="loginStatusTagType(row)" class="status-tag">
+                {{ loginStatusLabel(row) }}
+              </el-tag>
+            </el-tooltip>
+            <el-tag v-else :type="loginStatusTagType(row)" class="status-tag">
+              {{ loginStatusLabel(row) }}
             </el-tag>
           </template>
         </el-table-column>
@@ -102,6 +112,9 @@
               :value="platform.code"
             />
           </el-select>
+        </el-form-item>
+        <el-form-item label="平台名称">
+          <el-input v-model="accountForm.platformName" placeholder="例如：Tarjan OJ / 校内 Hydro" />
         </el-form-item>
         <el-form-item label="OJ站点">
           <el-input v-model="accountForm.platformBaseUrl" placeholder="http://moran007.top" />
@@ -158,6 +171,7 @@ const accountForm = reactive({
   id: '',
   studentId: '',
   platformCode: 'hydro',
+  platformName: 'Hydro',
   platformBaseUrl: 'http://moran007.top',
   loginUsername: '',
   loginPassword: '',
@@ -212,11 +226,13 @@ async function loadAccounts() {
 }
 
 function openCreateDialog() {
+  const platform = platforms.value[0];
   Object.assign(accountForm, {
     id: '',
     studentId: owners.value[0]?.id || '',
-    platformCode: platforms.value[0]?.code || 'hydro',
-    platformBaseUrl: platforms.value[0]?.baseUrl || 'http://moran007.top',
+    platformCode: platform?.code || 'hydro',
+    platformName: platform?.name || 'Hydro',
+    platformBaseUrl: platform?.baseUrl || 'http://moran007.top',
     loginUsername: '',
     loginPassword: '',
     hydroUsername: '',
@@ -231,6 +247,7 @@ function openEditDialog(row) {
     id: row.id,
     studentId: row.studentId || row.ownerId,
     platformCode: row.platformCode || 'hydro',
+    platformName: row.platformName || '',
     platformBaseUrl: row.platformBaseUrl || 'http://moran007.top',
     loginUsername: row.loginUsername || '',
     loginPassword: '',
@@ -257,6 +274,7 @@ async function saveAccount() {
       body: {
         id: accountForm.id || undefined,
         platformCode: accountForm.platformCode,
+        platformName: accountForm.platformName.trim() || undefined,
         platformBaseUrl: accountForm.platformBaseUrl,
         loginUsername: accountForm.loginUsername.trim(),
         loginPassword: accountForm.loginPassword.trim() || undefined,
@@ -280,7 +298,8 @@ async function testAccount(row) {
   try {
     const result = await api(`/hydro/accounts/${row.id}/test`, { method: 'POST' });
     await loadAccounts();
-    ElMessage[result.success ? 'success' : 'warning'](result.message || '检测完成');
+    const messageType = result.status === 'blocked' ? 'error' : result.success ? 'success' : 'warning';
+    ElMessage[messageType](result.message || '检测完成');
   } catch (error) {
     ElMessage.error(error.message || '检测失败');
   } finally {
@@ -290,12 +309,39 @@ async function testAccount(row) {
 
 function handlePlatformChange(code) {
   const platform = platforms.value.find((item) => item.code === code);
-  if (platform) accountForm.platformBaseUrl = platform.baseUrl;
+  if (platform) {
+    accountForm.platformBaseUrl = platform.baseUrl;
+    accountForm.platformName = platform.name;
+  }
 }
 
 function openOj(row) {
   window.open(row.platformBaseUrl || 'http://moran007.top', '_blank', 'noopener,noreferrer');
 }
 
+function loginStatusTagType(row) {
+  if (row.lastLoginStatus === 'success') return 'success';
+  if (row.lastLoginStatus === 'blocked') return 'danger';
+  if (row.lastLoginStatus) return 'warning';
+  return 'info';
+}
+
+function loginStatusLabel(row) {
+  if (row.lastLoginStatus === 'success') return '登录正常';
+  if (row.lastLoginStatus === 'blocked') return '需要人机验证';
+  if (row.lastLoginStatus) return row.lastLoginMessage || '登录异常';
+  return '未检测';
+}
+
 onMounted(load);
 </script>
+
+<style scoped>
+.status-tag {
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+</style>
