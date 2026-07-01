@@ -67,8 +67,8 @@ export class HydroController {
 
   @Get('accounts')
   @Permissions('class:read')
-  accounts(@Query() query: QueryHydroSummaryDto) {
-    return this.hydroService.accounts(query);
+  accounts(@Query() query: QueryHydroSummaryDto, @CurrentUser() user: RequestUser) {
+    return this.hydroService.accounts(query, user);
   }
 
   @Put('accounts/:studentId')
@@ -83,8 +83,8 @@ export class HydroController {
 
   @Post('accounts/:accountId/test')
   @Permissions('class:update')
-  testAccount(@Param('accountId') accountId: string) {
-    return this.hydroService.testAccount(accountId);
+  testAccount(@Param('accountId') accountId: string, @CurrentUser() user: RequestUser) {
+    return this.hydroService.testAccount(accountId, user);
   }
 
   @Get('my/accounts')

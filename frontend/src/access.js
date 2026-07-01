@@ -13,6 +13,7 @@ export const adminMenuItems = [
   { path: '/dashboard', label: '看板', icon: 'DataBoard', permissions: ['statistics:read'] },
   { path: '/courses', label: '课程', icon: 'Collection', permissions: ['course:read'] },
   { path: '/classes', label: '班级', icon: 'UserFilled', permissions: ['class:read'] },
+  { path: '/users', label: '用户权限', icon: 'Setting', userTypes: ['SUPER_ADMIN'] },
   { path: '/knowledge', label: '课程知识点', icon: 'Share', permissions: ['knowledge-point:read'] },
   { path: '/tags', label: '标签', icon: 'PriceTag', permissions: ['tag:read'] },
   { path: '/questions', label: '题库', icon: 'EditPen', permissions: ['question:read'] },
@@ -22,7 +23,7 @@ export const adminMenuItems = [
   { path: '/grading', label: '批改', icon: 'Checked', permissions: ['grading:read'] },
   { path: '/exports', label: '导出', icon: 'Download', permissions: ['exam:result:export'] },
   { path: '/statistics', label: '统计', icon: 'TrendCharts', permissions: ['statistics:read'] },
-  { path: '/external-accounts', label: '外部账号', icon: 'Link', permissions: ['class:read'] },
+  { path: '/external-accounts', label: '外部账号', icon: 'Link', permissions: ['class:read'], userTypes: ['SUPER_ADMIN', 'TEACHER'] },
 ];
 
 export function isStudent(user) {
@@ -45,6 +46,7 @@ export function canAccessByMeta(user, meta = {}) {
   if (!user) return false;
   if (meta.studentOnly) return isStudent(user);
   if (meta.adminOnly && !isPrivilegedUser(user)) return false;
+  if (meta.userTypes?.length && !meta.userTypes.includes(user.userType)) return false;
   return hasAnyPermission(user, meta.permissions);
 }
 
@@ -52,7 +54,9 @@ export function menuForUser(user) {
   if (!user) return publicMenuItems;
   if (isStudent(user)) return studentMenuItems;
   if (!isPrivilegedUser(user)) return publicMenuItems;
-  return adminMenuItems.filter((item) => hasAnyPermission(user, item.permissions));
+  return adminMenuItems.filter(
+    (item) => (!item.userTypes?.length || item.userTypes.includes(user.userType)) && hasAnyPermission(user, item.permissions),
+  );
 }
 
 export function firstAccessiblePath(user) {
