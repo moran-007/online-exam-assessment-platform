@@ -368,10 +368,17 @@ export class HydroService implements OnModuleInit, OnModuleDestroy {
     return true;
   }
 
-  async accounts(query: QueryHydroSummaryDto) {
+  async accounts(query: QueryHydroSummaryDto, user: RequestUser) {
     const { page, pageSize, skip, take } = toPagination(query);
+    const canManageAll = this.canManageAllExternalAccounts(user);
+    if (!canManageAll && !this.canManageOwnExternalAccounts(user)) {
+      throw new ForbiddenException('无权限管理外部账号');
+    }
+    if (!canManageAll && query.studentId && query.studentId !== user.id) {
+      throw new ForbiddenException('只能查看自己的外部账号');
+    }
     const where: Prisma.HydroAccountWhereInput = {
-      studentId: query.studentId,
+      studentId: canManageAll ? query.studentId : user.id,
       platformCode: query.platformCode ? this.normalizePlatformCode(query.platformCode) : undefined,
       platformBaseUrl: query.platformBaseUrl ? this.normalizePlatformBaseUrl(query.platformBaseUrl) : undefined,
       bindStatus: query.status,
@@ -411,6 +418,7 @@ export class HydroService implements OnModuleInit, OnModuleDestroy {
   }
 
   async myAccounts(user: RequestUser) {
+    this.assertCanManageOwnExternalAccounts(user);
     const accounts = await this.prisma.hydroAccount.findMany({
       where: { studentId: user.id },
       orderBy: { updatedAt: 'desc' },
@@ -419,6 +427,7 @@ export class HydroService implements OnModuleInit, OnModuleDestroy {
   }
 
   async myAccount(user: RequestUser) {
+    this.assertCanManageOwnExternalAccounts(user);
     const account = await this.prisma.hydroAccount.findFirst({
       where: { studentId: user.id, platformCode: 'hydro' },
       orderBy: { updatedAt: 'desc' },
@@ -427,12 +436,14 @@ export class HydroService implements OnModuleInit, OnModuleDestroy {
   }
 
   async bindMyAccount(dto: BindHydroAccountDto, user: RequestUser) {
+    this.assertCanManageOwnExternalAccounts(user);
     return this.bindAccount({ ...dto, studentId: user.id }, user);
   }
 
   async bindAccount(dto: BindHydroAccountDto, user: RequestUser) {
     const studentId = dto.studentId;
     if (!studentId) throw new BadRequestException('缺少用户 ID');
+    this.assertCanManageExternalAccount(user, studentId);
     const platformCode = this.normalizePlatformCode(dto.platformCode);
     const platformBaseUrl = this.normalizePlatformBaseUrl(dto.platformBaseUrl);
     const loginUsername = dto.loginUsername?.trim() || dto.hydroUsername?.trim() || dto.hydroUserId?.trim();
@@ -445,11 +456,12 @@ export class HydroService implements OnModuleInit, OnModuleDestroy {
       where: {
         id: studentId,
         status: UserStatus.ACTIVE,
+        userType: { in: [UserType.STUDENT, UserType.TEACHER] },
         deletedAt: null,
       },
       select: { id: true },
     });
-    if (!targetUser) throw new NotFoundException('用户不存在或不可用');
+    if (!targetUser) throw new NotFoundException('用户不存在、不可用或不支持绑定外部账号');
 
     const existing = dto.id
       ? await this.prisma.hydroAccount.findFirst({ where: { id: dto.id, studentId } })
@@ -511,14 +523,16 @@ export class HydroService implements OnModuleInit, OnModuleDestroy {
   }
 
   async testMyAccount(accountId: string, user: RequestUser) {
+    this.assertCanManageOwnExternalAccounts(user);
     const account = await this.prisma.hydroAccount.findFirst({ where: { id: accountId, studentId: user.id } });
     if (!account) throw new NotFoundException('外部账号不存在');
     return this.testHydroAccountLogin(account);
   }
 
-  async testAccount(accountId: string) {
+  async testAccount(accountId: string, user: RequestUser) {
     const account = await this.prisma.hydroAccount.findFirst({ where: { id: accountId } });
     if (!account) throw new NotFoundException('外部账号不存在');
+    this.assertCanManageExternalAccount(user, account.studentId);
     return this.testHydroAccountLogin(account);
   }
 
@@ -2114,6 +2128,26 @@ export class HydroService implements OnModuleInit, OnModuleDestroy {
     if (user.userType !== 'STUDENT') {
       throw new ForbiddenException('仅学生账号可以访问学生端 Hydro 接口');
     }
+  }
+
+  private canManageAllExternalAccounts(user: RequestUser) {
+    return user.userType === UserType.SUPER_ADMIN;
+  }
+
+  private canManageOwnExternalAccounts(user: RequestUser) {
+    return user.userType === UserType.STUDENT || user.userType === UserType.TEACHER;
+  }
+
+  private assertCanManageOwnExternalAccounts(user: RequestUser) {
+    if (!this.canManageOwnExternalAccounts(user)) {
+      throw new ForbiddenException('只有学生或教师可以添加自己的外部账号');
+    }
+  }
+
+  private assertCanManageExternalAccount(user: RequestUser, ownerId: string) {
+    if (this.canManageAllExternalAccounts(user)) return;
+    if (this.canManageOwnExternalAccounts(user) && ownerId === user.id) return;
+    throw new ForbiddenException('外部账号只能由超级管理员管理，或由本人添加和维护');
   }
 
   private isPrivilegedUser(user: RequestUser) {

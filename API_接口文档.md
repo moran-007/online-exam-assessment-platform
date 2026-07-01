@@ -1606,6 +1606,24 @@ POST /api/v1/hydro/accounts/bind
 }
 ```
 
+当前外部账号管理接口：
+
+```txt
+GET  /hydro/accounts
+PUT  /hydro/accounts/:studentId
+POST /hydro/accounts/:accountId/test
+GET  /hydro/my/accounts
+PUT  /hydro/my/account
+POST /hydro/my/accounts/:accountId/test
+```
+
+权限规则：
+
+- `SUPER_ADMIN` 可查看、创建、编辑、检测学生或教师的外部账号。
+- `TEACHER` 只能查看、添加、编辑、检测自己的外部账号。
+- `STUDENT` 只能通过 `/hydro/my/*` 查看、添加、编辑、检测自己的外部账号。
+- 普通 `ADMIN` / `ASSISTANT` 不管理外部账号。
+
 ---
 
 ### 12.2 创建 Hydro 测评任务
@@ -2473,15 +2491,64 @@ POST   /classes/:id/students
 DELETE /classes/:id/students/:studentId
 POST   /classes/:id/teachers
 DELETE /classes/:id/teachers/:teacherId
+GET    /users/students
+POST   /users/students
+POST   /users/students/batch
 GET    /users/teachers
+POST   /users/teachers
+POST   /users/teachers/batch
 ```
 
 说明：
 
 - 考试继续使用 `exams.class_id` 表示可见班级。
 - 学生端只展示公开考试或本班考试。
+- 学生账号由 `SUPER_ADMIN` / `ADMIN` / `TEACHER` 通过 `/users/students` 单个创建，或通过 `/users/students/batch` 批量创建；班级成员接口只负责选择并添加已有学生。
+- 教师账号由 `SUPER_ADMIN` / `ADMIN` 通过 `/users/teachers` 创建；班级教师成员接口只负责选择并添加已有教师。
+- 教师账号也支持通过 `/users/teachers/batch` 批量创建，输入格式与学生批量创建一致。
 
-### 22.4 统计分析
+### 22.4 用户与权限管理
+
+```txt
+GET   /users?page=1&pageSize=20&keyword=tom&userType=TEACHER&status=ACTIVE
+POST  /users
+PATCH /users/:id
+GET   /users/roles
+POST  /users/roles
+PATCH /users/roles/:id
+PUT   /users/roles/:id/permissions
+GET   /users/permissions
+```
+
+权限：
+
+- 仅 `SUPER_ADMIN` 可访问总用户、角色和权限管理接口。
+- `userType` 表示用户身份/职位：`SUPER_ADMIN`、`ADMIN`、`TEACHER`、`ASSISTANT`、`STUDENT`、`PARENT`。
+- `roles` / `roleIds` 表示权限角色，最终功能访问由角色关联的 `permissions` 决定。
+- 超级管理员不能在当前登录账号上修改自己的身份、状态或角色，避免误操作导致失去管理入口。
+
+创建用户请求：
+
+```json
+{
+  "username": "teacher002",
+  "realName": "李老师",
+  "password": "123456",
+  "userType": "TEACHER",
+  "status": "ACTIVE",
+  "roleIds": ["role_uuid"]
+}
+```
+
+更新角色权限请求：
+
+```json
+{
+  "permissionIds": ["permission_uuid"]
+}
+```
+
+### 22.5 统计分析
 
 ```txt
 GET /statistics/overview

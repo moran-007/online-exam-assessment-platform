@@ -14,6 +14,9 @@
         </el-select>
         <el-button :icon="Search" @click="loadFirstPage">查询</el-button>
         <el-button :icon="Refresh" @click="load">刷新</el-button>
+        <el-button v-if="canCreateStudents" :icon="Plus" @click="openCreateStudent">新增学生</el-button>
+        <el-button v-if="canCreateStudents" :icon="Upload" @click="openBatchCreateStudents">批量创建学生</el-button>
+        <el-button v-if="canCreateTeachers" :icon="Upload" @click="openBatchCreateTeachers">批量创建教师</el-button>
         <el-button type="primary" :icon="Plus" @click="openCreate">新增班级</el-button>
       </div>
     </div>
@@ -105,7 +108,7 @@
           <span class="muted">{{ detail.courseName || '未绑定课程' }} · {{ statusLabel(detail.status) }}</span>
         </div>
         <div class="member-tools">
-          <el-select v-model="selectedStudentIds" multiple filterable placeholder="添加学生">
+          <el-select v-model="selectedStudentIds" multiple filterable placeholder="选择已有学生" no-data-text="暂无可选学生">
             <el-option
               v-for="student in students"
               :key="student.id"
@@ -114,6 +117,8 @@
             />
           </el-select>
           <el-button :icon="Plus" @click="addStudents">添加学生</el-button>
+          <el-button v-if="canCreateStudents" :icon="Plus" @click="openCreateStudent">新增学生</el-button>
+          <el-button v-if="canCreateStudents" :icon="Upload" @click="openBatchCreateStudents">批量创建学生</el-button>
         </div>
         <el-table :data="detail.students" height="220">
           <el-table-column prop="realName" label="学生" min-width="150" />
@@ -135,6 +140,8 @@
             />
           </el-select>
           <el-button :icon="Plus" @click="addTeachers">添加教师</el-button>
+          <el-button v-if="canCreateTeachers" :icon="Plus" @click="openCreateTeacher">新增教师</el-button>
+          <el-button v-if="canCreateTeachers" :icon="Upload" @click="openBatchCreateTeachers">批量创建教师</el-button>
         </div>
         <el-table :data="detail.teachers" height="220">
           <el-table-column prop="realName" label="教师" min-width="150" />
@@ -147,18 +154,101 @@
         </el-table>
       </div>
     </el-drawer>
+
+    <el-dialog v-model="studentCreateVisible" title="新增学生" width="520px" destroy-on-close>
+      <el-form :model="studentCreateForm" label-width="80px">
+        <el-form-item label="账号">
+          <el-input v-model="studentCreateForm.username" />
+        </el-form-item>
+        <el-form-item label="姓名">
+          <el-input v-model="studentCreateForm.realName" />
+        </el-form-item>
+        <el-form-item label="密码">
+          <el-input v-model="studentCreateForm.password" show-password placeholder="默认 123456" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="studentCreateVisible = false">取消</el-button>
+        <el-button type="primary" :icon="Plus" :loading="studentCreateLoading" @click="createStudent">新增学生</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog v-model="teacherCreateVisible" title="新增教师" width="520px" destroy-on-close>
+      <el-form :model="teacherCreateForm" label-width="80px">
+        <el-form-item label="账号">
+          <el-input v-model="teacherCreateForm.username" />
+        </el-form-item>
+        <el-form-item label="姓名">
+          <el-input v-model="teacherCreateForm.realName" />
+        </el-form-item>
+        <el-form-item label="密码">
+          <el-input v-model="teacherCreateForm.password" show-password placeholder="默认 123456" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="teacherCreateVisible = false">取消</el-button>
+        <el-button type="primary" :icon="Plus" :loading="teacherCreateLoading" @click="createTeacher">新增教师</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog v-model="teacherBatchVisible" title="批量创建教师" width="760px" destroy-on-close>
+      <el-form label-width="90px">
+        <el-form-item label="默认密码">
+          <el-input v-model="teacherBatchDefaultPassword" show-password />
+        </el-form-item>
+        <el-form-item label="教师名单">
+          <el-input
+            v-model="teacherBatchText"
+            type="textarea"
+            :rows="12"
+            resize="vertical"
+            placeholder="账号,姓名,密码&#10;teacher002,王老师,123456&#10;teacher003,李老师"
+          />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="teacherBatchVisible = false">取消</el-button>
+        <el-button type="primary" :icon="Upload" :loading="teacherBatchLoading" @click="createTeachersBatch">批量创建</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog v-model="studentBatchVisible" title="批量创建学生" width="760px" destroy-on-close>
+      <el-form label-width="90px">
+        <el-form-item label="默认密码">
+          <el-input v-model="studentBatchDefaultPassword" show-password />
+        </el-form-item>
+        <el-form-item label="学生名单">
+          <el-input
+            v-model="studentBatchText"
+            type="textarea"
+            :rows="12"
+            resize="vertical"
+            placeholder="账号,姓名,密码&#10;student002,张三,123456&#10;student003,李四"
+          />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="studentBatchVisible = false">取消</el-button>
+        <el-button type="primary" :icon="Upload" :loading="studentBatchLoading" @click="createStudentsBatch">批量创建</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup>
 import { onMounted, reactive, ref } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
-import { Plus, Refresh, Search } from '@element-plus/icons-vue';
-import { api, buildQuery } from '../api';
+import { Plus, Refresh, Search, Upload } from '@element-plus/icons-vue';
+import { api, buildQuery, getCurrentUser } from '../api';
 
 const filter = reactive({ keyword: '', courseId: '', status: '', sortBy: 'sortOrder', sortOrder: 'asc' });
 const pagination = reactive({ page: 1, pageSize: 20, total: 0 });
 const form = reactive(baseForm());
+const studentCreateForm = reactive(baseStudentCreateForm());
+const teacherCreateForm = reactive(baseUserCreateForm());
+const currentUser = getCurrentUser();
+const canCreateStudents = ['SUPER_ADMIN', 'ADMIN', 'TEACHER'].includes(currentUser?.userType);
+const canCreateTeachers = ['SUPER_ADMIN', 'ADMIN'].includes(currentUser?.userType);
 const items = ref([]);
 const courses = ref([]);
 const students = ref([]);
@@ -167,11 +257,31 @@ const detail = ref(null);
 const editingId = ref('');
 const formVisible = ref(false);
 const detailVisible = ref(false);
+const studentCreateVisible = ref(false);
+const studentCreateLoading = ref(false);
+const teacherCreateVisible = ref(false);
+const teacherCreateLoading = ref(false);
+const teacherBatchVisible = ref(false);
+const teacherBatchLoading = ref(false);
+const teacherBatchDefaultPassword = ref('123456');
+const teacherBatchText = ref('');
+const studentBatchVisible = ref(false);
+const studentBatchLoading = ref(false);
+const studentBatchDefaultPassword = ref('123456');
+const studentBatchText = ref('');
 const selectedStudentIds = ref([]);
 const selectedTeacherIds = ref([]);
 
 function baseForm() {
   return { name: '', courseId: '', description: '', status: 'active', sortOrder: 0 };
+}
+
+function baseStudentCreateForm() {
+  return { username: '', realName: '', password: '' };
+}
+
+function baseUserCreateForm() {
+  return { username: '', realName: '', password: '' };
 }
 
 async function load() {
@@ -213,6 +323,24 @@ function editClass(row) {
   formVisible.value = true;
 }
 
+function openBatchCreateStudents() {
+  studentBatchVisible.value = true;
+}
+
+function openBatchCreateTeachers() {
+  teacherBatchVisible.value = true;
+}
+
+function openCreateStudent() {
+  Object.assign(studentCreateForm, baseStudentCreateForm());
+  studentCreateVisible.value = true;
+}
+
+function openCreateTeacher() {
+  Object.assign(teacherCreateForm, baseUserCreateForm());
+  teacherCreateVisible.value = true;
+}
+
 async function saveClass() {
   const body = Object.fromEntries(Object.entries(form).filter(([, value]) => value !== ''));
   await api(editingId.value ? `/classes/${editingId.value}` : '/classes', {
@@ -222,6 +350,174 @@ async function saveClass() {
   ElMessage.success('班级已保存');
   formVisible.value = false;
   await load();
+}
+
+async function createStudent() {
+  const username = studentCreateForm.username.trim();
+  if (!username) {
+    ElMessage.warning('请填写学生账号');
+    return;
+  }
+
+  studentCreateLoading.value = true;
+  try {
+    const result = await api('/users/students', {
+      method: 'POST',
+      body: {
+        username,
+        realName: studentCreateForm.realName.trim() || undefined,
+        password: studentCreateForm.password.trim() || undefined,
+      },
+    });
+    students.value = await api('/users/students');
+
+    let addedText = '';
+    if (detailVisible.value && detail.value?.id && result.student?.id) {
+      await api(`/classes/${detail.value.id}/students`, { method: 'POST', body: { userIds: [result.student.id] } });
+      await openDetail(detail.value);
+      await load();
+      addedText = '，已加入当前班级';
+    }
+
+    ElMessage.success(`${result.created ? '学生已创建' : '学生账号已存在'}${addedText}`);
+    studentCreateVisible.value = false;
+  } finally {
+    studentCreateLoading.value = false;
+  }
+}
+
+async function createTeacher() {
+  const username = teacherCreateForm.username.trim();
+  if (!username) {
+    ElMessage.warning('请填写教师账号');
+    return;
+  }
+
+  teacherCreateLoading.value = true;
+  try {
+    const result = await api('/users/teachers', {
+      method: 'POST',
+      body: {
+        username,
+        realName: teacherCreateForm.realName.trim() || undefined,
+        password: teacherCreateForm.password.trim() || undefined,
+      },
+    });
+    teachers.value = await api('/users/teachers');
+
+    let addedText = '';
+    if (detailVisible.value && detail.value?.id && result.teacher?.id) {
+      await api(`/classes/${detail.value.id}/teachers`, { method: 'POST', body: { userIds: [result.teacher.id] } });
+      await openDetail(detail.value);
+      await load();
+      addedText = '，已加入当前班级';
+    }
+
+    ElMessage.success(`${result.created ? '教师已创建' : '教师账号已存在'}${addedText}`);
+    teacherCreateVisible.value = false;
+  } finally {
+    teacherCreateLoading.value = false;
+  }
+}
+
+function parseStudentBatchText() {
+  return parseBatchText(studentBatchText.value);
+}
+
+function parseTeacherBatchText() {
+  return parseBatchText(teacherBatchText.value);
+}
+
+function parseBatchText(text) {
+  return text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const columns = line.includes(',') || line.includes('，') || line.includes('\t')
+        ? line.split(/[,，\t]/)
+        : line.split(/\s+/);
+      const [username = '', realName = '', password = ''] = columns.map((column) => column.trim());
+      const student = {
+        username,
+        realName,
+      };
+      if (password) student.password = password;
+      return student;
+    })
+    .filter((item) => item.username);
+}
+
+async function createStudentsBatch() {
+  const batchStudents = parseStudentBatchText();
+  if (!batchStudents.length) {
+    ElMessage.warning('请填写学生名单');
+    return;
+  }
+
+  studentBatchLoading.value = true;
+  try {
+    const result = await api('/users/students/batch', {
+      method: 'POST',
+      body: {
+        defaultPassword: studentBatchDefaultPassword.value.trim() || undefined,
+        students: batchStudents,
+      },
+    });
+    students.value = await api('/users/students');
+
+    let addedCount = 0;
+    const availableIds = (result.availableStudents || []).map((student) => student.id).filter(Boolean);
+    if (detailVisible.value && detail.value?.id && availableIds.length) {
+      await api(`/classes/${detail.value.id}/students`, { method: 'POST', body: { userIds: availableIds } });
+      addedCount = availableIds.length;
+      await openDetail(detail.value);
+      await load();
+    }
+
+    const addedText = addedCount ? `，已加入当前班级 ${addedCount} 人` : '';
+    ElMessage.success(`已创建 ${result.createdCount} 人，跳过 ${result.skippedCount} 人${addedText}`);
+    studentBatchVisible.value = false;
+    studentBatchText.value = '';
+  } finally {
+    studentBatchLoading.value = false;
+  }
+}
+
+async function createTeachersBatch() {
+  const batchTeachers = parseTeacherBatchText();
+  if (!batchTeachers.length) {
+    ElMessage.warning('请填写教师名单');
+    return;
+  }
+
+  teacherBatchLoading.value = true;
+  try {
+    const result = await api('/users/teachers/batch', {
+      method: 'POST',
+      body: {
+        defaultPassword: teacherBatchDefaultPassword.value.trim() || undefined,
+        teachers: batchTeachers,
+      },
+    });
+    teachers.value = await api('/users/teachers');
+
+    let addedCount = 0;
+    const availableIds = (result.availableTeachers || []).map((teacher) => teacher.id).filter(Boolean);
+    if (detailVisible.value && detail.value?.id && availableIds.length) {
+      await api(`/classes/${detail.value.id}/teachers`, { method: 'POST', body: { userIds: availableIds } });
+      addedCount = availableIds.length;
+      await openDetail(detail.value);
+      await load();
+    }
+
+    const addedText = addedCount ? `，已加入当前班级 ${addedCount} 人` : '';
+    ElMessage.success(`已创建 ${result.createdCount} 人，跳过 ${result.skippedCount} 人${addedText}`);
+    teacherBatchVisible.value = false;
+    teacherBatchText.value = '';
+  } finally {
+    teacherBatchLoading.value = false;
+  }
 }
 
 async function openDetail(row) {

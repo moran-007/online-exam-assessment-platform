@@ -3,7 +3,7 @@
     <div class="page-head">
       <div>
         <h1 class="page-title">外部账号</h1>
-        <span class="muted">管理用户在 Hydro 等 OJ 平台的登录账号</span>
+        <span class="muted">{{ isSuperAdmin ? '管理用户在 Hydro 等 OJ 平台的登录账号' : '管理自己在 Hydro 等 OJ 平台的登录账号' }}</span>
       </div>
       <div class="toolbar">
         <el-button :icon="Refresh" @click="load">刷新</el-button>
@@ -93,7 +93,7 @@
 
     <el-dialog v-model="dialogVisible" :title="accountForm.id ? '编辑外部账号' : '新增外部账号'" width="560px">
       <el-form label-width="112px">
-        <el-form-item label="所属用户">
+        <el-form-item v-if="isSuperAdmin" label="所属用户">
           <el-select v-model="accountForm.studentId" filterable style="width: 100%">
             <el-option
               v-for="owner in owners"
@@ -112,6 +112,9 @@
               :value="platform.code"
             />
           </el-select>
+        </el-form-item>
+        <el-form-item v-if="!isSuperAdmin" label="所属用户">
+          <el-input :model-value="ownerLabel(currentUser)" disabled />
         </el-form-item>
         <el-form-item label="平台名称">
           <el-input v-model="accountForm.platformName" placeholder="例如：Tarjan OJ / 校内 Hydro" />
@@ -147,8 +150,10 @@
 import { computed, onMounted, reactive, ref } from 'vue';
 import { ElMessage } from 'element-plus';
 import { Link, Refresh } from '@element-plus/icons-vue';
-import { api, buildQuery } from '../api';
+import { api, buildQuery, getCurrentUser } from '../api';
 
+const currentUser = getCurrentUser();
+const isSuperAdmin = currentUser?.userType === 'SUPER_ADMIN';
 const platforms = ref([]);
 const students = ref([]);
 const teachers = ref([]);
@@ -184,22 +189,28 @@ const statusOptions = [
   { label: '停用', value: 'disabled' },
 ];
 const owners = computed(() => {
+  if (!isSuperAdmin) {
+    return currentUser ? [currentUser] : [];
+  }
   const map = new Map();
-  [...students.value, ...teachers.value].forEach((user) => map.set(user.id, user));
+  [...students.value, ...teachers.value.filter((user) => user.userType === 'TEACHER')].forEach((user) =>
+    map.set(user.id, user),
+  );
   return [...map.values()].sort((a, b) => String(a.realName || a.username).localeCompare(String(b.realName || b.username)));
 });
 
 async function load() {
   loading.value = true;
   try {
-    const [platformResult, studentResult, teacherResult] = await Promise.all([
-      api('/hydro/platforms'),
-      api('/users/students'),
-      api('/users/teachers'),
-    ]);
-    platforms.value = platformResult;
-    students.value = studentResult;
-    teachers.value = teacherResult;
+    platforms.value = await api('/hydro/platforms');
+    if (isSuperAdmin) {
+      const [studentResult, teacherResult] = await Promise.all([api('/users/students'), api('/users/teachers')]);
+      students.value = studentResult;
+      teachers.value = teacherResult;
+    } else {
+      students.value = [];
+      teachers.value = [];
+    }
     await loadAccounts();
   } finally {
     loading.value = false;
@@ -229,7 +240,7 @@ function openCreateDialog() {
   const platform = platforms.value[0];
   Object.assign(accountForm, {
     id: '',
-    studentId: owners.value[0]?.id || '',
+    studentId: owners.value[0]?.id || currentUser?.id || '',
     platformCode: platform?.code || 'hydro',
     platformName: platform?.name || 'Hydro',
     platformBaseUrl: platform?.baseUrl || 'http://moran007.top',
@@ -259,6 +270,9 @@ function openEditDialog(row) {
 }
 
 async function saveAccount() {
+  if (!isSuperAdmin) {
+    accountForm.studentId = currentUser?.id || '';
+  }
   if (!accountForm.studentId || !accountForm.loginUsername.trim() || !accountForm.hydroUsername.trim()) {
     ElMessage.warning('请补全所属用户、登录账号和 Hydro 用户名');
     return;
@@ -269,7 +283,7 @@ async function saveAccount() {
   }
   saving.value = true;
   try {
-    await api(`/hydro/accounts/${accountForm.studentId}`, {
+    await api(isSuperAdmin ? `/hydro/accounts/${accountForm.studentId}` : '/hydro/my/account', {
       method: 'PUT',
       body: {
         id: accountForm.id || undefined,
@@ -296,7 +310,9 @@ async function saveAccount() {
 async function testAccount(row) {
   testingId.value = row.id;
   try {
-    const result = await api(`/hydro/accounts/${row.id}/test`, { method: 'POST' });
+    const result = await api(isSuperAdmin ? `/hydro/accounts/${row.id}/test` : `/hydro/my/accounts/${row.id}/test`, {
+      method: 'POST',
+    });
     await loadAccounts();
     const messageType = result.status === 'blocked' ? 'error' : result.success ? 'success' : 'warning';
     ElMessage[messageType](result.message || '检测完成');
@@ -317,6 +333,11 @@ function handlePlatformChange(code) {
 
 function openOj(row) {
   window.open(row.platformBaseUrl || 'http://moran007.top', '_blank', 'noopener,noreferrer');
+}
+
+function ownerLabel(user) {
+  if (!user) return '';
+  return `${user.realName || user.username}（${user.username}）`;
 }
 
 function loginStatusTagType(row) {

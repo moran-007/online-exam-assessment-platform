@@ -22,6 +22,7 @@ import WrongQuestionView from './views/WrongQuestionView.vue';
 import PublicQuestionView from './views/PublicQuestionView.vue';
 import StudentProfileView from './views/StudentProfileView.vue';
 import ExternalAccountView from './views/ExternalAccountView.vue';
+import UserManagementView from './views/UserManagementView.vue';
 
 const routes = [
   { path: '/login', component: LoginView, meta: { public: true } },
@@ -31,6 +32,7 @@ const routes = [
   { path: '/dashboard', component: DashboardView, meta: { adminOnly: true, permissions: ['statistics:read'] } },
   { path: '/courses', component: CourseView, meta: { adminOnly: true, permissions: ['course:read'] } },
   { path: '/classes', component: ClassView, meta: { adminOnly: true, permissions: ['class:read'] } },
+  { path: '/users', component: UserManagementView, meta: { adminOnly: true, userTypes: ['SUPER_ADMIN'] } },
   { path: '/knowledge', component: KnowledgeView, meta: { adminOnly: true, permissions: ['knowledge-point:read'] } },
   { path: '/tags', component: TagView, meta: { adminOnly: true, permissions: ['tag:read'] } },
   { path: '/questions', component: QuestionView, meta: { adminOnly: true, permissions: ['question:read'] } },
@@ -41,7 +43,11 @@ const routes = [
   { path: '/grading', component: GradingView, meta: { adminOnly: true, permissions: ['grading:read'] } },
   { path: '/exports', component: ExportView, meta: { adminOnly: true, permissions: ['exam:result:export'] } },
   { path: '/statistics', component: StatisticsView, meta: { adminOnly: true, permissions: ['statistics:read'] } },
-  { path: '/external-accounts', component: ExternalAccountView, meta: { adminOnly: true, permissions: ['class:read'] } },
+  {
+    path: '/external-accounts',
+    component: ExternalAccountView,
+    meta: { adminOnly: true, permissions: ['class:read'], userTypes: ['SUPER_ADMIN', 'TEACHER'] },
+  },
   { path: '/student/exams', component: StudentExamView, meta: { studentOnly: true } },
   { path: '/student/exams/:examId', component: ExamTakingView, meta: { studentOnly: true } },
   { path: '/student/attempts/:attemptId/result', component: ResultView, meta: { studentOnly: true } },
