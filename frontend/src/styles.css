@@ -1591,6 +1591,23 @@ body {
   padding: 18px 20px 22px;
 }
 
+.programming-exam-question .programming-statement {
+  max-height: calc(100vh - 170px);
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
+.programming-practice-split .programming-statement {
+  max-height: 66vh;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
+.programming-statement .markdown-body .code-block pre {
+  max-height: 320px;
+  overflow: auto;
+}
+
 .programming-code-panel {
   border-left: 1px solid var(--border);
   padding: 0 16px 16px;
@@ -1859,6 +1876,11 @@ body {
     position: static;
     border-left: 0;
     padding-left: 0;
+  }
+
+  .programming-exam-question .programming-statement,
+  .programming-practice-split .programming-statement {
+    max-height: none;
   }
 
   .code-answer-input .el-textarea__inner,

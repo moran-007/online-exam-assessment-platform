@@ -677,7 +677,7 @@ const singleHydroProblemUrl = computed(() => {
 const hydroAccountOptions = computed(() =>
   hydroAccounts.value.map((account) => ({
     ...account,
-    label: `${account.loginUsername || account.hydroUsername} · ${account.platformBaseUrl} · ${account.ownerName || account.ownerUsername || account.studentName || '账号'}`,
+    label: `${account.loginUsername || account.hydroUsername} · ${account.platformName || 'Hydro'} · ${shortHost(account.platformBaseUrl)} · ${account.ownerName || account.ownerUsername || account.studentName || '账号'}`,
   })),
 );
 const selectedSingleHydroAccount = computed(() =>
