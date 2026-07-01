@@ -1134,7 +1134,48 @@ exam:result:read
 
 ---
 
-### 8.11 导出考试成绩
+### 8.11 发送考试公告未读提醒
+
+```http
+POST /api/v1/exams/:id/announcement-reads/remind
+```
+
+权限：
+
+```txt
+exam:result:read
+```
+
+请求：
+
+```json
+{
+  "content": "请尽快阅读考试公告，确认考试规则后再进入考试。"
+}
+```
+
+说明：
+
+1. 基于 `GET /exams/:id/announcement-reads` 的未读名单生成站内通知。
+2. 已存在未读提醒且学生未读通知时不会重复创建。
+3. 前端可筛选未读学生，并支持导出 CSV 名单。
+
+返回：
+
+```json
+{
+  "examId": "exam_001",
+  "announcementId": "announcement_001",
+  "targetCount": 2,
+  "createdCount": 1,
+  "skippedCount": 1,
+  "items": []
+}
+```
+
+---
+
+### 8.12 导出考试成绩
 
 ```http
 POST /api/v1/exams/:id/export-results
@@ -2036,11 +2077,39 @@ PATCH /api/v1/uploads/question-assets/:filename
 DELETE /api/v1/uploads/question-assets/:filename
 ```
 
-说明：用于题目尚未创建前删除导入页临时上传的资源。前端会同步移除当前草稿中引用该附件的 Markdown 行。
+说明：
+
+1. 用于题目尚未创建前删除导入页临时上传的资源。前端会同步移除当前草稿中引用该附件的 Markdown 行。
+2. 如果附件已被题目、题目版本、试卷快照或答题实例引用，接口会拒绝删除并返回引用数量与部分位置。
 
 ---
 
-### 16.4 兼容接口
+### 16.4 查询题目附件引用
+
+```http
+GET /api/v1/uploads/question-assets/:filename/references
+GET /api/v1/uploads/question-assets/report
+```
+
+返回：
+
+```json
+{
+  "filename": "2026-06-30-demo.png",
+  "url": "/uploads/question-assets/2026-06-30-demo.png",
+  "referenceCount": 3,
+  "locations": ["题目：循环基础", "试卷题目快照"]
+}
+```
+
+说明：
+
+- `report` 返回全部题目附件的引用计数、孤立资源数量和前若干处引用位置。
+- 题目删除影响接口也会返回资源引用计数，便于确认删除风险。
+
+---
+
+### 16.5 兼容接口
 
 ```http
 POST /api/v1/uploads/images
@@ -2076,20 +2145,30 @@ GET /api/v1/audit-logs/:id
 ### 18.1 获取我的通知
 
 ```http
-GET /api/v1/notifications
+GET /api/v1/notifications?page=1&pageSize=20&unreadOnly=true
 ```
+
+返回分页通知，同时返回 `unreadCount`。
 
 ---
 
-### 18.2 标记已读
+### 18.2 获取未读通知数量
 
 ```http
-POST /api/v1/notifications/:id/read
+GET /api/v1/notifications/unread-count
 ```
 
 ---
 
-### 18.3 全部标记已读
+### 18.3 标记单条已读
+
+```http
+PATCH /api/v1/notifications/:id/read
+```
+
+---
+
+### 18.4 全部标记已读
 
 ```http
 POST /api/v1/notifications/read-all
@@ -2097,9 +2176,60 @@ POST /api/v1/notifications/read-all
 
 ---
 
-## 十九、关键接口业务规则
+## 十九、复习提醒 ReviewRule 接口
 
-### 19.1 进入考试接口规则
+### 19.1 获取复习提醒规则
+
+```http
+GET /api/v1/review-rules?courseId=<uuid>&classId=<uuid>&knowledgePointId=<uuid>
+```
+
+权限：
+
+```txt
+statistics:read
+```
+
+### 19.2 创建复习提醒规则
+
+```http
+POST /api/v1/review-rules
+```
+
+请求：
+
+```json
+{
+  "courseId": "course_uuid",
+  "classId": "class_uuid",
+  "knowledgePointId": "kp_uuid",
+  "intervalsDays": [1, 3, 7, 14, 30],
+  "masteryRule": {
+    "correctStreak": 2,
+    "reviewingIntervalDays": 3
+  },
+  "enabled": true
+}
+```
+
+### 19.3 更新/删除复习提醒规则
+
+```http
+PATCH /api/v1/review-rules/:id
+DELETE /api/v1/review-rules/:id
+```
+
+说明：
+
+1. 规则可按课程、班级、知识点配置，字段为空表示不限制该范围。
+2. 学生错题提醒会按知识点 > 班级 > 课程优先匹配规则。
+3. `intervalsDays` 控制未掌握错题的复习间隔，`masteryRule` 控制复习中题目的掌握判断提示。
+
+---
+
+## 二十、关键接口业务规则
+
+### 20.1 进入考试接口规则
 
 `POST /student/exams/:examId/enter`
 
@@ -2118,7 +2248,7 @@ POST /api/v1/notifications/read-all
 
 ---
 
-### 19.2 保存答案接口规则
+### 20.2 保存答案接口规则
 
 `POST /student/attempts/:attemptId/save-answer`
 
@@ -2134,7 +2264,7 @@ POST /api/v1/notifications/read-all
 
 ---
 
-### 19.3 提交试卷接口规则
+### 20.3 提交试卷接口规则
 
 `POST /student/attempts/:attemptId/submit`
 
@@ -2153,7 +2283,7 @@ POST /api/v1/notifications/read-all
 
 ---
 
-### 19.4 发布试卷接口规则
+### 20.4 发布试卷接口规则
 
 `POST /papers/:id/publish`
 
@@ -2170,7 +2300,7 @@ POST /api/v1/notifications/read-all
 
 ---
 
-### 19.5 规则组卷接口规则
+### 20.5 规则组卷接口规则
 
 `POST /papers/:id/generate-by-rule`
 
@@ -2187,7 +2317,7 @@ POST /api/v1/notifications/read-all
 
 ---
 
-### 19.6 Hydro 回调接口规则
+### 20.6 Hydro 回调接口规则
 
 必须校验：
 
@@ -2203,7 +2333,7 @@ POST /api/v1/notifications/read-all
 
 ---
 
-## 二十、第一阶段必须实现接口清单
+## 二十一、第一阶段必须实现接口清单
 
 MVP 必做：
 
@@ -2290,9 +2420,9 @@ Advanced Export
 
 ---
 
-## 二十一、2026-06-27 已新增接口
+## 二十二、2026-06-27 已新增接口
 
-### 21.1 主观题批改中心
+### 22.1 主观题批改中心
 
 ```txt
 GET   /grading/answers
@@ -2305,7 +2435,7 @@ PATCH /grading/answers/:answerRecordId
 - `GET /grading/answers` 支持 `examId`、`studentId`、`status`、`keyword`、分页和排序。
 - `PATCH /grading/answers/:answerRecordId` 保存分数和批改意见，并自动重算答题记录总分。
 
-### 21.2 导出中心
+### 22.2 导出中心
 
 ```txt
 GET  /exports
@@ -2331,7 +2461,7 @@ csv
 json
 ```
 
-### 21.3 班级与权限范围
+### 22.3 班级与权限范围
 
 ```txt
 GET    /classes
@@ -2351,7 +2481,7 @@ GET    /users/teachers
 - 考试继续使用 `exams.class_id` 表示可见班级。
 - 学生端只展示公开考试或本班考试。
 
-### 21.4 统计分析
+### 22.4 统计分析
 
 ```txt
 GET /statistics/overview

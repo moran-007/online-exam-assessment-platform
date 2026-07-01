@@ -54,6 +54,9 @@ export function onSessionChange(handler) {
 
 export async function api(path, options = {}) {
   try {
+    if (path !== '/auth/refresh') {
+      await refreshSessionIfNeeded();
+    }
     return await request(path, options);
   } catch (error) {
     if (!isUnauthorized(error) || path === '/auth/refresh') {
@@ -123,6 +126,31 @@ async function refreshSession() {
   }
 
   return refreshingSession;
+}
+
+async function refreshSessionIfNeeded() {
+  const token = getToken();
+  if (!token || !isTokenExpiringSoon(token)) return;
+  await refreshSession();
+}
+
+function isTokenExpiringSoon(token) {
+  const payload = decodeJwtPayload(token);
+  if (!payload?.exp) return false;
+  const expiresAt = Number(payload.exp) * 1000;
+  return Number.isFinite(expiresAt) && expiresAt - Date.now() < 60_000;
+}
+
+function decodeJwtPayload(token) {
+  const [, rawPayload] = token.split('.');
+  if (!rawPayload) return null;
+  try {
+    const normalized = rawPayload.replace(/-/g, '+').replace(/_/g, '/');
+    const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, '=');
+    return JSON.parse(atob(padded));
+  } catch {
+    return null;
+  }
 }
 
 function isUnauthorized(error) {

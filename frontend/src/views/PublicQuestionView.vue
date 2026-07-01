@@ -100,7 +100,7 @@
             v-model:current-page="pagination.page"
             v-model:page-size="pagination.pageSize"
             background
-            small
+            size="small"
             :pager-count="5"
             layout="sizes, prev, pager, next"
             :page-sizes="pageSizes"
@@ -112,7 +112,7 @@
       </div>
     </div>
 
-    <el-dialog v-model="practiceVisible" title="题目作答" width="780px">
+    <el-dialog v-model="practiceVisible" title="题目作答" :width="detail?.type === 'programming' ? '1180px' : '780px'">
       <template v-if="detail">
         <div class="paper-preview-head">
           <div>
@@ -122,47 +122,107 @@
           <el-tag type="success">公开</el-tag>
         </div>
 
-        <MarkdownRenderer :source="detail.content" />
+        <template v-if="detail.type === 'programming'">
+          <div class="programming-exam-split programming-practice-split">
+            <div class="programming-statement">
+              <MarkdownRenderer :source="detail.content" />
+            </div>
+            <div class="programming-code-panel">
+              <div class="programming-toolbar">
+                <span class="programming-language-label">语言</span>
+                <el-select v-model="answer.language" style="width: 170px">
+                  <el-option
+                    v-for="language in languageOptionsFor(detail)"
+                    :key="language"
+                    :label="languageLabel(language)"
+                    :value="language"
+                  />
+                </el-select>
+                <el-tag v-if="detail.programmingRef?.domainId" type="info">
+                  域：{{ detail.programmingRef.domainName || detail.programmingRef.domainId }}
+                </el-tag>
+                <el-tag v-if="detail.programmingRef?.externalProblemId" type="success">
+                  {{ detail.programmingRef.externalProblemId }}
+                </el-tag>
+                <el-button :disabled="!detail.programmingRef?.externalProblemUrl" @click="openHydroProblem(detail)">打开 Hydro</el-button>
+              </div>
+              <el-alert
+                v-if="programmingResult"
+                class="code-submit-feedback"
+                :type="programmingResult.status === 'accepted' ? 'success' : 'info'"
+                :closable="false"
+                show-icon
+              >
+                <template #title>{{ programmingResult.status === 'accepted' ? '判题通过' : 'Hydro 结果' }}</template>
+                <div class="code-submit-meta">
+                  <span>状态：{{ programmingResult.status }}</span>
+                  <span>语言：{{ languageLabel(programmingResult.language) }}</span>
+                  <span v-if="programmingResult.externalSubmissionId">Hydro提交：{{ programmingResult.externalSubmissionId }}</span>
+                  <span v-if="programmingResult.score !== null && programmingResult.score !== undefined">得分：{{ programmingResult.score }}</span>
+                </div>
+                <div v-if="programmingResult.message" class="code-submit-message">{{ programmingResult.message }}</div>
+              </el-alert>
+              <el-input
+                v-model="answer.code"
+                class="answer-input code-answer-input"
+                type="textarea"
+                :rows="18"
+                placeholder="在这里编写代码"
+              />
+            </div>
+          </div>
+        </template>
 
-        <el-radio-group
-          v-if="['single_choice', 'true_false'].includes(detail.type)"
-          v-model="answer.selectedOptionIds[0]"
-          class="answer-options"
-        >
-          <el-radio v-for="option in detail.options" :key="option.optionId" :label="option.optionId" class="answer-option">
-            <span class="option-choice">
-              <strong>{{ option.label }}.</strong>
-              <MarkdownRenderer :source="option.content" />
-            </span>
-          </el-radio>
-        </el-radio-group>
+        <template v-else>
+          <MarkdownRenderer :source="detail.content" />
 
-        <el-checkbox-group v-else-if="detail.type === 'multiple_choice'" v-model="answer.selectedOptionIds" class="answer-options">
-          <el-checkbox v-for="option in detail.options" :key="option.optionId" :label="option.optionId" class="answer-option">
-            <span class="option-choice">
-              <strong>{{ option.label }}.</strong>
-              <MarkdownRenderer :source="option.content" />
-            </span>
-          </el-checkbox>
-        </el-checkbox-group>
+          <el-radio-group
+            v-if="['single_choice', 'true_false'].includes(detail.type)"
+            v-model="answer.selectedOptionIds[0]"
+            class="answer-options"
+          >
+            <el-radio v-for="option in detail.options" :key="option.optionId" :label="option.optionId" class="answer-option">
+              <span class="option-choice">
+                <strong>{{ option.label }}.</strong>
+                <MarkdownRenderer :source="option.content" />
+              </span>
+            </el-radio>
+          </el-radio-group>
 
-        <el-input v-else-if="detail.type === 'fill_blank'" v-model="answer.blanks[0].value" class="answer-input" placeholder="填写答案" />
-        <el-input v-else v-model="answer.text" class="answer-input" type="textarea" :rows="5" placeholder="填写答案" />
+          <el-checkbox-group v-else-if="detail.type === 'multiple_choice'" v-model="answer.selectedOptionIds" class="answer-options">
+            <el-checkbox v-for="option in detail.options" :key="option.optionId" :label="option.optionId" class="answer-option">
+              <span class="option-choice">
+                <strong>{{ option.label }}.</strong>
+                <MarkdownRenderer :source="option.content" />
+              </span>
+            </el-checkbox>
+          </el-checkbox-group>
 
-        <el-alert
-          v-if="result"
-          :title="`${result.message}，得分 ${result.score} / ${result.totalScore}`"
-          :type="result.isCorrect ? 'success' : result.isCorrect === false ? 'error' : 'warning'"
-          show-icon
-          :closable="false"
-          class="batch-alert"
-        />
-        <AnswerFeedback :result="result" />
+          <el-input v-else-if="detail.type === 'fill_blank'" v-model="answer.blanks[0].value" class="answer-input" placeholder="填写答案" />
+          <el-input v-else v-model="answer.text" class="answer-input" type="textarea" :rows="5" placeholder="填写答案" />
+
+          <el-alert
+            v-if="result"
+            :title="`${result.message}，得分 ${result.score} / ${result.totalScore}`"
+            :type="result.isCorrect ? 'success' : result.isCorrect === false ? 'error' : 'warning'"
+            show-icon
+            :closable="false"
+            class="batch-alert"
+          />
+          <AnswerFeedback :result="result" />
+        </template>
       </template>
       <template #footer>
         <el-button @click="practiceVisible = false">关闭</el-button>
         <el-button :icon="Delete" @click="clearAnswer">清空</el-button>
-        <el-button type="primary" :icon="Check" @click="checkAnswer">提交作答</el-button>
+        <el-button
+          type="primary"
+          :icon="Check"
+          :loading="programmingSubmitLoading"
+          @click="detail?.type === 'programming' ? submitProgrammingAnswer() : checkAnswer()"
+        >
+          {{ detail?.type === 'programming' ? '提交 Hydro 评测' : '提交作答' }}
+        </el-button>
       </template>
     </el-dialog>
   </div>
@@ -192,6 +252,8 @@ const items = ref([]);
 const selectedRows = ref([]);
 const detail = ref(null);
 const result = ref(null);
+const programmingResult = ref(null);
+const programmingSubmitLoading = ref(false);
 const practiceVisible = ref(false);
 const answer = reactive(emptyAnswer());
 const user = ref(getCurrentUser());
@@ -312,12 +374,18 @@ function emptyAnswer() {
     selectedOptionIds: [],
     blanks: [{ index: 1, value: '' }],
     text: '',
+    code: '',
+    language: 'cc.cc17o2',
   };
 }
 
 function clearAnswer() {
   Object.assign(answer, emptyAnswer());
+  if (detail.value?.type === 'programming') {
+    answer.language = languageOptionsFor(detail.value)[0] || 'cc.cc17o2';
+  }
   result.value = null;
+  programmingResult.value = null;
 }
 
 function payloadForAnswer() {
@@ -331,6 +399,68 @@ function payloadForAnswer() {
     return { text: answer.text };
   }
   return {};
+}
+
+async function submitProgrammingAnswer() {
+  if (!getToken()) {
+    ElMessage.warning('请先登录后再作答');
+    router.push('/login');
+    return;
+  }
+  if (!String(answer.code ?? '').trim()) {
+    ElMessage.warning('请先填写代码');
+    return;
+  }
+  programmingSubmitLoading.value = true;
+  try {
+    const response = await api(`/hydro/questions/${detail.value.id}/submit-code`, {
+      method: 'POST',
+      body: {
+        language: answer.language || languageOptionsFor(detail.value)[0],
+        code: answer.code,
+      },
+    });
+    programmingResult.value = response;
+    ElMessage.success(response.message || '代码已提交到 Hydro');
+  } catch (error) {
+    ElMessage.error(error.message || 'Hydro 提交失败');
+  } finally {
+    programmingSubmitLoading.value = false;
+  }
+}
+
+function languageOptionsFor(question) {
+  const languages = question?.programmingRef?.languages || [];
+  return languages.length ? languages : ['cc.cc17o2', 'py.py3', 'java'];
+}
+
+function languageLabel(language) {
+  const labels = {
+    'cc.cc17o2': 'C++17(O2)',
+    'cc.cc17': 'C++17',
+    'cc.cc14o2': 'C++14(O2)',
+    'cc.cc14': 'C++14',
+    'cc.cc11o2': 'C++11(O2)',
+    'cc.cc11': 'C++11',
+    'py.py3': 'Python 3',
+    'py.py2': 'Python 2',
+    'cc.cc20o2': 'C++20(O2)',
+    'cc.cc20': 'C++20',
+    java: 'Java',
+    c: 'C',
+    cc: 'C++',
+    pas: 'Pascal',
+  };
+  return labels[language] ?? language;
+}
+
+function openHydroProblem(question) {
+  const url = question?.programmingRef?.externalProblemUrl;
+  if (!url) {
+    ElMessage.warning('该题尚未配置 Hydro 链接');
+    return;
+  }
+  window.open(url, '_blank', 'noopener,noreferrer');
 }
 
 function typeLabel(value) {

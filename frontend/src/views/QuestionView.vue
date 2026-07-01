@@ -182,6 +182,51 @@
               <el-form-item label="分值">
                 <el-input-number v-model="form.defaultScore" :min="0" :step="1" />
               </el-form-item>
+              <template v-if="form.type === 'programming'">
+                <el-form-item label="Hydro题目">
+                  <div class="hydro-inline-field">
+                    <el-input v-model="form.programmingRef.externalProblemId" placeholder="输入 Hydro 题号或题名，例如 P1000" />
+                    <el-button :icon="Refresh" :loading="hydroPulling" :disabled="!canPullHydroProblem" @click="pullHydroProblem">
+                      拉取
+                    </el-button>
+                    <el-button :icon="Link" :disabled="!hydroProblemUrl" @click="openHydroProblemUrl">打开</el-button>
+                  </div>
+                </el-form-item>
+                <el-form-item label="Hydro链接">
+                  <el-input v-model="form.programmingRef.externalProblemUrl" placeholder="留空则按 Hydro 站点自动生成" />
+                </el-form-item>
+                <el-form-item label="Hydro站点">
+                  <el-input v-model="form.programmingRef.platformBaseUrl" placeholder="例如 http://moran007.top" />
+                </el-form-item>
+                <el-form-item label="Hydro域">
+                  <div class="hydro-inline-field">
+                    <el-input v-model="form.programmingRef.domainId" placeholder="默认 system；其他域填写域 ID" />
+                    <el-input v-model="form.programmingRef.domainName" placeholder="域名称/备注，可选" />
+                  </div>
+                </el-form-item>
+                <el-form-item label="录入账号">
+                  <div class="hydro-inline-field">
+                    <el-select
+                      v-model="form.programmingRef.accountId"
+                      clearable
+                      filterable
+                      placeholder="选择用于拉取题目的外部账号"
+                      @change="handleHydroAccountChange"
+                    >
+                      <el-option
+                        v-for="account in hydroAccountOptions"
+                        :key="account.id"
+                        :label="account.label"
+                        :value="account.id"
+                      />
+                    </el-select>
+                    <el-tag v-if="hydroBindingLabel" type="info">{{ hydroBindingLabel }}</el-tag>
+                  </div>
+                </el-form-item>
+                <el-form-item label="测评语言">
+                  <el-input v-model="form.programmingRef.languagesText" placeholder="cc.cc17o2, py.py3, java" />
+                </el-form-item>
+              </template>
 
               <template v-if="isChoice">
                 <el-form-item label="选项">
@@ -357,7 +402,7 @@
             v-model:current-page="pagination.page"
             v-model:page-size="pagination.pageSize"
             background
-            small
+            size="small"
             :pager-count="5"
             layout="sizes, prev, pager, next"
             :page-sizes="pageSizes"
@@ -463,6 +508,7 @@
         <el-button type="primary" :icon="Download" @click="confirmQuestionExport">生成导出</el-button>
       </template>
     </el-dialog>
+
   </div>
 </template>
 
@@ -479,6 +525,7 @@ import {
   DocumentCopy,
   Edit,
   Hide,
+  Link,
   MoreFilled,
   Plus,
   Refresh,
@@ -523,6 +570,7 @@ const answerReference = ref('');
 const previewVisible = ref(true);
 const entryMode = ref('single');
 const saving = ref(false);
+const hydroPulling = ref(false);
 const editingId = ref('');
 const editMode = ref(false);
 const editorVisible = ref(false);
@@ -542,6 +590,7 @@ const pageSizes = [20, 50, 100];
 const bulkQuestionStatus = ref('');
 const questionExportVisible = ref(false);
 const pendingExportQuestionIds = ref([]);
+const hydroAccounts = ref([]);
 const questionExportOptions = reactive({
   format: 'zip',
   includeAnswers: true,
@@ -560,6 +609,44 @@ const formKnowledgeTreeOptions = computed(() => convertKnowledgeTree(formKnowled
 const filterKnowledgeTreeOptions = computed(() => convertKnowledgeTree(filterKnowledgeTree.value));
 const editorTitle = computed(() => (isEditing.value ? '编辑题目 / 复制题目' : '题目编辑'));
 const selectedQuestionIds = computed(() => selectedQuestionRows.value.map((row) => row.id));
+const canPullHydroProblem = computed(() =>
+  Boolean(form.programmingRef.externalProblemId?.trim() || form.programmingRef.externalProblemUrl?.trim()),
+);
+const hydroProblemUrl = computed(() => {
+  const explicit = form.programmingRef.externalProblemUrl?.trim();
+  const problemId = form.programmingRef.externalProblemId?.trim();
+  if (explicit) return explicit;
+  const baseUrl = normalizeBaseUrl(form.programmingRef.platformBaseUrl || 'http://moran007.top');
+  const domainId = form.programmingRef.domainId?.trim();
+  const domainPrefix = domainId && domainId !== 'system' ? `/d/${encodeURIComponent(domainId)}` : '';
+  return problemId ? `${baseUrl}${domainPrefix}/p/${encodeURIComponent(problemId)}` : '';
+});
+const hydroAccountOptions = computed(() =>
+  hydroAccounts.value.map((account) => ({
+    ...account,
+    label: `${account.loginUsername || account.hydroUsername} · ${account.platformBaseUrl} · ${account.ownerName || account.ownerUsername || account.studentName || '账号'}`,
+  })),
+);
+const selectedHydroAccount = computed(() =>
+  hydroAccounts.value.find((account) => account.id === form.programmingRef.accountId) ?? null,
+);
+const hydroBindingLabel = computed(() => {
+  const parts = [
+    form.programmingRef.platformBaseUrl,
+    `域 ${formatHydroDomainLabel(form.programmingRef)}`,
+    form.programmingRef.accountLabel || selectedHydroAccount.value?.loginUsername,
+  ].filter(Boolean);
+  return parts.join(' / ');
+});
+
+function formatHydroDomainLabel(ref) {
+  const domainId = String(ref?.domainId || '').trim();
+  const domainName = String(ref?.domainName || '').trim();
+  if (domainId && domainName && domainName !== domainId && domainName !== 'system') {
+    return `${domainId} / ${domainName}`;
+  }
+  return domainId || domainName || 'system';
+}
 const practiceOptions = computed(() =>
   (practiceDetail.value?.options ?? []).map((option, index) => ({
     optionId: option.id ?? option.optionId,
@@ -590,6 +677,7 @@ function baseForm() {
     difficulty: 1,
     defaultScore: 2,
     analysis: '',
+    programmingRef: emptyProgrammingRef(),
     options: [
       { optionKey: 'A', content: '', isCorrect: false, sortOrder: 1 },
       { optionKey: 'B', content: '', isCorrect: true, sortOrder: 2 },
@@ -599,12 +687,47 @@ function baseForm() {
   };
 }
 
+function emptyProgrammingRef() {
+  return {
+    externalProblemId: '',
+    externalProblemUrl: '',
+    platformBaseUrl: 'http://moran007.top',
+    domainId: 'system',
+    domainName: 'system',
+    accountId: '',
+    accountLabel: '',
+    languagesText: 'cc.cc17o2, py.py3',
+    timeLimit: null,
+    memoryLimit: null,
+    judgeConfig: null,
+  };
+}
+
 async function loadCourses() {
   const data = await api('/courses?pageSize=100');
   courses.value = data.items;
   if (!form.courseId) form.courseId = courses.value[0]?.id ?? '';
   await loadFormKnowledgeTree();
   await loadFilterKnowledgeTree();
+}
+
+async function loadHydroAccounts() {
+  try {
+    const data = await api('/hydro/accounts?pageSize=100&platformCode=hydro');
+    hydroAccounts.value = data.items ?? [];
+  } catch {
+    hydroAccounts.value = [];
+  }
+}
+
+function handleHydroAccountChange(accountId) {
+  const account = hydroAccounts.value.find((item) => item.id === accountId);
+  if (!account) {
+    form.programmingRef.accountLabel = '';
+    return;
+  }
+  form.programmingRef.platformBaseUrl = account.platformBaseUrl || form.programmingRef.platformBaseUrl;
+  form.programmingRef.accountLabel = `${account.loginUsername || account.hydroUsername}@${shortHost(account.platformBaseUrl)}`;
 }
 
 async function loadFormKnowledgeTree() {
@@ -803,6 +926,10 @@ async function buildQuestionPayload(options = {}) {
       : [],
   };
 
+  if (form.type === 'programming') {
+    payload.programmingRef = buildProgrammingRefPayload();
+  }
+
   if (includeStatus) {
     payload.status = form.status;
   }
@@ -863,6 +990,19 @@ async function editQuestion(row) {
     difficulty: detail.difficulty,
     defaultScore: Number(detail.defaultScore),
     analysis: detail.analysis ?? '',
+    programmingRef: {
+      externalProblemId: detail.programmingRef?.externalProblemId ?? '',
+      externalProblemUrl: detail.programmingRef?.externalProblemUrl ?? '',
+      platformBaseUrl: detail.programmingRef?.platformBaseUrl ?? detail.programmingRef?.judgeConfig?.platformBaseUrl ?? 'http://moran007.top',
+      domainId: detail.programmingRef?.domainId ?? detail.programmingRef?.judgeConfig?.domainId ?? 'system',
+      domainName: detail.programmingRef?.domainName ?? detail.programmingRef?.judgeConfig?.domainName ?? 'system',
+      accountId: detail.programmingRef?.accountId ?? detail.programmingRef?.judgeConfig?.accountId ?? '',
+      accountLabel: detail.programmingRef?.accountLabel ?? detail.programmingRef?.judgeConfig?.accountLabel ?? '',
+      languagesText: (detail.programmingRef?.languages ?? []).join(', ') || 'cc.cc17o2, py.py3',
+      timeLimit: detail.programmingRef?.timeLimit ?? null,
+      memoryLimit: detail.programmingRef?.memoryLimit ?? null,
+      judgeConfig: detail.programmingRef?.judgeConfig ?? null,
+    },
     options: (detail.options ?? []).map((option, index) => ({
       optionKey: option.optionKey || optionKeyForIndex(index),
       content: option.content,
@@ -1026,6 +1166,97 @@ function handleQuestionCommand(row, command) {
   return actions[command]?.();
 }
 
+function buildProgrammingRefPayload() {
+  const externalProblemId = form.programmingRef.externalProblemId.trim();
+  if (!externalProblemId) return null;
+  const payload = {
+    externalProblemId,
+    externalProblemUrl: form.programmingRef.externalProblemUrl.trim() || undefined,
+    platformBaseUrl: form.programmingRef.platformBaseUrl?.trim() || undefined,
+    domainId: form.programmingRef.domainId?.trim() || undefined,
+    domainName: form.programmingRef.domainName?.trim() || undefined,
+    accountId: form.programmingRef.accountId || undefined,
+    accountLabel: form.programmingRef.accountLabel?.trim() || undefined,
+    languages: parseHydroLanguages(form.programmingRef.languagesText),
+  };
+  if (form.programmingRef.timeLimit) payload.timeLimit = Number(form.programmingRef.timeLimit);
+  if (form.programmingRef.memoryLimit) payload.memoryLimit = Number(form.programmingRef.memoryLimit);
+  if (form.programmingRef.judgeConfig) payload.judgeConfig = form.programmingRef.judgeConfig;
+  return payload;
+}
+
+async function pullHydroProblem() {
+  if (!canPullHydroProblem.value) {
+    ElMessage.warning('请先填写 Hydro 题号或链接');
+    return;
+  }
+
+  hydroPulling.value = true;
+  try {
+    const pulled = await api(
+      `/hydro/problems/pull${buildQuery({
+        problemId: form.programmingRef.externalProblemId.trim(),
+        problemUrl: form.programmingRef.externalProblemUrl.trim(),
+        platformBaseUrl: form.programmingRef.platformBaseUrl.trim(),
+        domainId: form.programmingRef.domainId.trim(),
+        domainName: form.programmingRef.domainName.trim(),
+        accountId: form.programmingRef.accountId,
+      })}`,
+    );
+    applyPulledHydroProblem(form, pulled);
+    ElMessage.success('Hydro 题目已拉取');
+  } catch (error) {
+    ElMessage.error(error.message || 'Hydro 题目拉取失败');
+  } finally {
+    hydroPulling.value = false;
+  }
+}
+
+function applyPulledHydroProblem(target, pulled) {
+  const ref = pulled.programmingRef ?? pulled;
+  target.type = 'programming';
+  target.title = pulled.title || target.title;
+  target.content = pulled.content || target.content;
+  target.programmingRef.externalProblemId = ref.externalProblemId || pulled.externalProblemId || target.programmingRef.externalProblemId;
+  target.programmingRef.externalProblemUrl = ref.externalProblemUrl || pulled.externalProblemUrl || target.programmingRef.externalProblemUrl;
+  target.programmingRef.platformBaseUrl = ref.platformBaseUrl || ref.judgeConfig?.platformBaseUrl || target.programmingRef.platformBaseUrl;
+  const pulledDomainId = ref.domainId || ref.judgeConfig?.domainId || target.programmingRef.domainId || 'system';
+  target.programmingRef.domainId = pulledDomainId;
+  target.programmingRef.domainName = ref.domainName || ref.judgeConfig?.domainName || pulledDomainId;
+  target.programmingRef.accountId = ref.accountId || ref.judgeConfig?.accountId || target.programmingRef.accountId || '';
+  target.programmingRef.accountLabel = ref.accountLabel || ref.judgeConfig?.accountLabel || target.programmingRef.accountLabel || '';
+  target.programmingRef.languagesText = (ref.languages || pulled.languages || []).join(', ') || target.programmingRef.languagesText;
+  target.programmingRef.timeLimit = ref.timeLimit ?? pulled.timeLimit ?? null;
+  target.programmingRef.memoryLimit = ref.memoryLimit ?? pulled.memoryLimit ?? null;
+  target.programmingRef.judgeConfig = ref.judgeConfig ?? null;
+  resetOptions();
+}
+
+function openHydroProblemUrl() {
+  if (!hydroProblemUrl.value) return;
+  window.open(hydroProblemUrl.value, '_blank', 'noopener,noreferrer');
+}
+
+function normalizeBaseUrl(value) {
+  const raw = String(value || 'http://moran007.top').trim() || 'http://moran007.top';
+  return (/^https?:\/\//i.test(raw) ? raw : `http://${raw}`).replace(/\/+$/, '');
+}
+
+function shortHost(value) {
+  try {
+    return new URL(normalizeBaseUrl(value)).host;
+  } catch {
+    return String(value || '').replace(/^https?:\/\//i, '').replace(/\/+$/, '');
+  }
+}
+
+function parseHydroLanguages(value) {
+  return String(value || '')
+    .split(/[,，、\s]+/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
 async function exportQuestions(questionIds) {
   try {
     await api('/exports', {
@@ -1152,12 +1383,18 @@ async function removeQuestion(row) {
     const references = impact.references || {};
     const resources = impact.resources || [];
     const risks = impact.risks || [];
+    const resourceReferenceCount = resources.reduce((sum, item) => sum + Number(item.referenceCount || 0), 0);
+    const resourceLocations = resources
+      .flatMap((item) => item.locations || [])
+      .slice(0, 3)
+      .join('；');
     const lines = [
       `试卷引用：${references.paperCount || 0} 份 / ${references.paperQuestionCount || 0} 个位置`,
       `关联考试：${references.examCount || 0} 场，其中进行中或已安排 ${references.activeExamCount || 0} 场`,
       `试卷快照：${references.paperInstanceCount || 0} 份`,
       `答题记录：${references.answerRecordCount || 0} 条，错题记录：${references.wrongQuestionCount || 0} 条`,
-      `资源引用：${resources.length} 个${resources.some((item) => !item.managed) ? '（含未纳管资源）' : ''}`,
+      `资源引用：${resources.length} 个资源 / ${resourceReferenceCount} 处引用${resources.some((item) => !item.managed) ? '（含未纳管资源）' : ''}`,
+      ...(resourceLocations ? [`资源位置：${resourceLocations}`] : []),
       ...risks,
     ];
     await ElMessageBox.confirm(
@@ -1298,7 +1535,7 @@ function buildBlankAnswer(value, score) {
 }
 
 onMounted(async () => {
-  await Promise.all([loadCourses(), loadTags()]);
+  await Promise.all([loadCourses(), loadTags(), loadHydroAccounts()]);
   await load();
 });
 </script>

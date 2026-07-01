@@ -1045,6 +1045,42 @@ daily_practice
 
 ---
 
+### 8.3 review_reminder_rules 复习提醒规则表
+
+字段：
+
+```txt
+id                    UUID / BIGINT
+course_id             UUID / BIGINT
+class_id              UUID / BIGINT
+knowledge_point_id    UUID / BIGINT
+intervals_json        JSONB
+mastery_rule_json     JSONB
+enabled               BOOLEAN
+created_by            UUID / BIGINT
+updated_by            UUID / BIGINT
+created_at            TIMESTAMP
+updated_at            TIMESTAMP
+```
+
+说明：
+
+1. `course_id`、`class_id`、`knowledge_point_id` 允许为空，空值表示不限制对应范围。
+2. `intervals_json` 示例：`[1, 3, 7, 14, 30]`。
+3. `mastery_rule_json` 示例：`{"correctStreak":2,"reviewingIntervalDays":3}`。
+4. 学生错题提醒按知识点 > 班级 > 课程的优先级匹配规则。
+
+索引：
+
+```txt
+INDEX(course_id)
+INDEX(class_id)
+INDEX(knowledge_point_id)
+INDEX(enabled)
+```
+
+---
+
 ## 九、编程题与 Hydro 表
 
 ### 9.1 programming_problem_refs 编程题外部引用表
@@ -1371,6 +1407,11 @@ private
 temporary
 ```
 
+说明：
+
+1. 题目附件、导入恢复附件、导出打包资源统一记录在 `files` 表，并以 `uploads/question-assets` 为当前本地目录。
+2. 引用计数由题目 Markdown、答案配置、题目版本、试卷快照和答题实例扫描得到；删除附件前必须确认引用计数为 0。
+
 ---
 
 ## 十二、通知与日志表
@@ -1679,6 +1720,7 @@ exam_attempts
 answer_records
 
 wrong_questions
+review_reminder_rules
 export_tasks
 files
 audit_logs

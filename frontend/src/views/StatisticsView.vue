@@ -27,6 +27,7 @@
           @change="load"
         />
         <el-button :icon="Refresh" @click="load">刷新</el-button>
+        <el-button plain :icon="Setting" @click="openReviewRules">复习规则</el-button>
         <el-button type="primary" plain :icon="Download" :loading="exporting" @click="exportCurrentStatistics">
           导出当前筛选
         </el-button>
@@ -52,6 +53,10 @@
       <div class="metric">
         <span>待批改</span>
         <strong>{{ overview.pendingManual }}</strong>
+      </div>
+      <div class="metric">
+        <span>判题待回写</span>
+        <strong>{{ hydroSummary.metrics?.pendingCount || 0 }}</strong>
       </div>
       <div class="metric">
         <span>活跃错题</span>
@@ -111,46 +116,64 @@
       </div>
     </div>
 
-    <div class="analytics-grid statistics-grid">
-      <div class="panel library-table-panel statistics-table-panel statistics-table-panel-main">
-        <div class="section-head">
-          <h2>考试表现</h2>
-          <span class="muted">点击一行查看题目正确率</span>
-        </div>
-        <el-table :data="examStats" height="100%" class="question-list-table" @row-click="loadExamDetail">
-          <el-table-column prop="examName" label="考试" min-width="180" show-overflow-tooltip />
-          <el-table-column v-if="showMediumColumns" prop="courseName" label="课程" width="130" show-overflow-tooltip />
-          <el-table-column v-if="showLowColumns" prop="className" label="班级" width="130" show-overflow-tooltip />
-          <el-table-column prop="submitCount" label="提交" width="80" />
-          <el-table-column prop="averageScore" label="平均分" width="100" />
-          <el-table-column v-if="showMediumColumns" prop="maxScore" label="最高" width="80" />
-        </el-table>
-      </div>
-      <div class="panel library-table-panel statistics-table-panel">
-        <div class="section-head">
-          <h2>知识点表现</h2>
-        </div>
-        <el-table :data="knowledgeStats" height="100%" class="question-list-table">
-          <el-table-column prop="name" label="知识点" min-width="180" show-overflow-tooltip />
-          <el-table-column prop="answerCount" label="作答" width="80" />
-          <el-table-column prop="correctRate" label="正确率" width="100">
-            <template #default="{ row }">{{ percent(row.correctRate) }}</template>
-          </el-table-column>
-          <el-table-column v-if="showMediumColumns" prop="averageScore" label="平均分" width="100" />
-        </el-table>
-      </div>
-      <div class="panel library-table-panel statistics-table-panel">
-        <div class="section-head">
-          <h2>班级概览</h2>
-        </div>
-        <el-table :data="classStats" height="100%" class="question-list-table">
-          <el-table-column prop="className" label="班级" min-width="160" show-overflow-tooltip />
-          <el-table-column v-if="showMediumColumns" prop="courseName" label="课程" width="130" show-overflow-tooltip />
-          <el-table-column prop="studentCount" label="学生" width="80" />
-          <el-table-column prop="submitCount" label="提交" width="80" />
-          <el-table-column v-if="showMediumColumns" prop="averageScore" label="平均分" width="100" />
-        </el-table>
-      </div>
+    <div class="panel library-table-panel statistics-detail-panel">
+      <el-tabs class="statistics-tabs">
+        <el-tab-pane label="考试表现">
+          <el-table :data="examStats" height="100%" class="question-list-table" @row-click="loadExamDetail">
+            <el-table-column prop="examName" label="考试" min-width="180" show-overflow-tooltip />
+            <el-table-column v-if="showMediumColumns" prop="courseName" label="课程" width="130" show-overflow-tooltip />
+            <el-table-column v-if="showLowColumns" prop="className" label="班级" width="130" show-overflow-tooltip />
+            <el-table-column prop="submitCount" label="提交" width="80" />
+            <el-table-column prop="averageScore" label="平均分" width="100" />
+            <el-table-column v-if="showMediumColumns" prop="maxScore" label="最高" width="80" />
+          </el-table>
+        </el-tab-pane>
+        <el-tab-pane label="知识点表现">
+          <el-table :data="knowledgeStats" height="100%" class="question-list-table">
+            <el-table-column prop="name" label="知识点" min-width="180" show-overflow-tooltip />
+            <el-table-column prop="answerCount" label="作答" width="80" />
+            <el-table-column prop="correctRate" label="正确率" width="100">
+              <template #default="{ row }">{{ percent(row.correctRate) }}</template>
+            </el-table-column>
+            <el-table-column v-if="showMediumColumns" prop="averageScore" label="平均分" width="100" />
+          </el-table>
+        </el-tab-pane>
+        <el-tab-pane label="班级概览">
+          <el-table :data="classStats" height="100%" class="question-list-table">
+            <el-table-column prop="className" label="班级" min-width="160" show-overflow-tooltip />
+            <el-table-column v-if="showMediumColumns" prop="courseName" label="课程" width="130" show-overflow-tooltip />
+            <el-table-column prop="studentCount" label="学生" width="80" />
+            <el-table-column prop="submitCount" label="提交" width="80" />
+            <el-table-column v-if="showMediumColumns" prop="averageScore" label="平均分" width="100" />
+          </el-table>
+        </el-tab-pane>
+        <el-tab-pane label="Hydro 判题">
+          <el-table :data="hydroSummary.items || []" height="100%" class="question-list-table">
+            <el-table-column prop="examName" label="考试" min-width="150" show-overflow-tooltip />
+            <el-table-column prop="studentName" label="学生" width="120" show-overflow-tooltip />
+            <el-table-column prop="questionTitle" label="题目" min-width="180" show-overflow-tooltip />
+            <el-table-column prop="externalProblemId" label="Hydro" width="100" />
+            <el-table-column prop="score" label="得分" width="80" />
+            <el-table-column label="状态" width="100">
+              <template #default="{ row }">
+                <el-tag :type="row.status === 'judge_done' ? 'success' : 'warning'">
+                  {{ hydroStatusLabel(row.status) }}
+                </el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column v-if="showMediumColumns" label="最近提交" min-width="160" show-overflow-tooltip>
+              <template #default="{ row }">
+                {{ row.latestSubmission?.externalSubmissionId || row.latestSubmission?.submissionId || '-' }}
+              </template>
+            </el-table-column>
+            <el-table-column label="操作" width="96">
+              <template #default="{ row }">
+                <el-button size="small" :disabled="!row.latestSubmission" @click="openHydroWriteback(row)">回写</el-button>
+              </template>
+            </el-table-column>
+          </el-table>
+        </el-tab-pane>
+      </el-tabs>
     </div>
 
     <div class="panel library-table-panel stats-question-panel statistics-question-panel">
@@ -201,13 +224,141 @@
         </el-table-column>
       </el-table>
     </div>
+
+    <el-dialog v-model="hydroWritebackVisible" title="Hydro 判题回写" width="520px" destroy-on-close>
+      <el-form label-width="96px">
+        <el-form-item label="提交">
+          <span>{{ hydroWritebackForm.externalSubmissionId || hydroWritebackForm.submissionId || '-' }}</span>
+        </el-form-item>
+        <el-form-item label="状态">
+          <el-select v-model="hydroWritebackForm.status" style="width: 100%">
+            <el-option label="Accepted" value="accepted" />
+            <el-option label="Wrong Answer" value="wrong_answer" />
+            <el-option label="Compile Error" value="compile_error" />
+            <el-option label="Runtime Error" value="runtime_error" />
+            <el-option label="Time Limit" value="time_limit_exceeded" />
+            <el-option label="System Error" value="system_error" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="得分">
+          <el-input-number v-model="hydroWritebackForm.score" :min="0" :step="1" />
+        </el-form-item>
+        <el-form-item label="备注">
+          <el-input v-model="hydroWritebackForm.message" type="textarea" :rows="3" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="hydroWritebackVisible = false">取消</el-button>
+        <el-button type="primary" :loading="hydroWritebackSaving" @click="submitHydroWriteback">确认回写</el-button>
+      </template>
+    </el-dialog>
+
+    <el-drawer v-model="reviewRulesVisible" title="错题复习提醒规则" size="720px" class="review-rule-drawer">
+      <div class="review-rule-body">
+        <el-alert
+          type="info"
+          show-icon
+          :closable="false"
+          title="规则可按课程、班级、知识点叠加；命中多条时优先使用知识点，其次班级，最后课程。"
+        />
+        <section class="review-rule-editor">
+          <div class="section-head">
+            <h2>{{ reviewRuleForm.id ? '编辑规则' : '新增规则' }}</h2>
+            <el-button size="small" @click="resetReviewRuleForm">清空</el-button>
+          </div>
+          <el-form label-width="98px" class="review-rule-form">
+            <el-form-item label="课程范围">
+              <el-select
+                v-model="reviewRuleForm.courseId"
+                clearable
+                filterable
+                placeholder="全部课程"
+                style="width: 100%"
+                @change="handleReviewRuleCourseChange"
+              >
+                <el-option v-for="course in courses" :key="course.id" :label="course.name" :value="course.id" />
+              </el-select>
+            </el-form-item>
+            <el-form-item label="班级范围">
+              <el-select v-model="reviewRuleForm.classId" clearable filterable placeholder="全部班级" style="width: 100%">
+                <el-option v-for="item in classes" :key="item.id" :label="item.name" :value="item.id" />
+              </el-select>
+            </el-form-item>
+            <el-form-item label="知识点">
+              <el-tree-select
+                v-model="reviewRuleForm.knowledgePointId"
+                :data="reviewKnowledgeTreeOptions"
+                check-strictly
+                clearable
+                filterable
+                :disabled="!reviewRuleForm.courseId"
+                placeholder="不限知识点"
+                style="width: 100%"
+              />
+            </el-form-item>
+            <el-form-item label="间隔天数">
+              <el-input v-model="reviewRuleForm.intervalsText" placeholder="例如：1,3,7,14,30" />
+            </el-form-item>
+            <el-form-item label="掌握规则">
+              <div class="review-mastery-grid">
+                <el-input-number v-model="reviewRuleForm.correctStreak" :min="1" :max="20" />
+                <span class="muted">连续答对次数</span>
+                <el-input-number v-model="reviewRuleForm.reviewingIntervalDays" :min="1" :max="365" />
+                <span class="muted">掌握前复习间隔</span>
+              </div>
+            </el-form-item>
+            <el-form-item label="启用">
+              <el-switch v-model="reviewRuleForm.enabled" />
+            </el-form-item>
+            <el-form-item label="操作">
+              <div class="toolbar">
+                <el-button type="primary" :loading="reviewRuleSaving" @click="saveReviewRule">保存规则</el-button>
+                <el-button @click="resetReviewRuleForm">重置</el-button>
+              </div>
+            </el-form-item>
+          </el-form>
+        </section>
+        <section class="review-rule-list">
+          <div class="section-head">
+            <h2>已有规则</h2>
+            <el-button :icon="Refresh" :loading="reviewRulesLoading" @click="loadReviewRules">刷新</el-button>
+          </div>
+          <el-table :data="reviewRules" height="100%" class="question-list-table compact-table">
+            <el-table-column label="范围" min-width="220" show-overflow-tooltip>
+              <template #default="{ row }">{{ reviewRuleScope(row) }}</template>
+            </el-table-column>
+            <el-table-column label="间隔" min-width="140" show-overflow-tooltip>
+              <template #default="{ row }">{{ (row.intervalsDays || []).join(' / ') }} 天</template>
+            </el-table-column>
+            <el-table-column label="掌握" min-width="160" show-overflow-tooltip>
+              <template #default="{ row }">
+                连续 {{ row.masteryRule?.correctStreak || 2 }} 次，{{ row.masteryRule?.reviewingIntervalDays || 3 }} 天复习
+              </template>
+            </el-table-column>
+            <el-table-column label="状态" width="90">
+              <template #default="{ row }">
+                <el-tag :type="row.enabled ? 'success' : 'info'">{{ row.enabled ? '启用' : '停用' }}</el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column label="操作" width="150">
+              <template #default="{ row }">
+                <div class="question-actions">
+                  <el-button size="small" @click="editReviewRule(row)">编辑</el-button>
+                  <el-button size="small" type="danger" plain @click="deleteReviewRule(row)">删除</el-button>
+                </div>
+              </template>
+            </el-table-column>
+          </el-table>
+        </section>
+      </div>
+    </el-drawer>
   </div>
 </template>
 
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue';
-import { ElMessage } from 'element-plus';
-import { DocumentAdd, Download, Refresh } from '@element-plus/icons-vue';
+import { ElMessage, ElMessageBox } from 'element-plus';
+import { DocumentAdd, Download, Refresh, Setting } from '@element-plus/icons-vue';
 import { api, buildQuery } from '../api';
 import { useResponsiveColumns } from '../composables/useResponsiveColumns';
 import EChartPanel from '../components/EChartPanel.vue';
@@ -233,10 +384,42 @@ const scoreDistribution = ref({ total: 0, averageScore: 0, averagePercent: 0, bu
 const classComparison = ref([]);
 const knowledgeTrend = ref([]);
 const questionDiagnostics = ref([]);
+const hydroSummary = ref({
+  metrics: { answerCount: 0, submissionCount: 0, pendingSubmissionCount: 0, judgedCount: 0, pendingCount: 0, averageScore: 0, maxScore: 0 },
+  byQuestion: [],
+  items: [],
+});
 const selectedExamName = ref('');
 const exporting = ref(false);
 const generatingWrongPaper = ref(false);
+const hydroWritebackVisible = ref(false);
+const hydroWritebackSaving = ref(false);
+const hydroWritebackForm = reactive({
+  submissionId: '',
+  externalSubmissionId: '',
+  status: 'accepted',
+  score: 0,
+  message: '',
+});
+const reviewRulesVisible = ref(false);
+const reviewRulesLoading = ref(false);
+const reviewRuleSaving = ref(false);
+const reviewRules = ref([]);
+const reviewKnowledgeTree = ref([]);
+const reviewKnowledgeMap = ref(new Map());
+const reviewRuleForm = reactive({
+  id: '',
+  courseId: '',
+  classId: '',
+  knowledgePointId: '',
+  intervalsText: '1,3,7,14,30',
+  correctStreak: 2,
+  reviewingIntervalDays: 3,
+  enabled: true,
+});
 const { showMediumColumns, showLowColumns } = useResponsiveColumns();
+
+const reviewKnowledgeTreeOptions = computed(() => convertKnowledgeTree(reviewKnowledgeTree.value));
 
 const scoreDistributionOption = computed(() => {
   const buckets = scoreDistribution.value.buckets || [];
@@ -356,6 +539,7 @@ async function load() {
     classCompare,
     trend,
     diagnostics,
+    hydroData,
   ] = await Promise.all([
     api('/courses?pageSize=100'),
     api('/classes?pageSize=100'),
@@ -369,6 +553,7 @@ async function load() {
     api(`/statistics/class-comparison${query}`),
     api(`/statistics/knowledge-trend${query}`),
     api(`/statistics/question-diagnostics${query}`),
+    api(`/hydro/summary${query}`),
   ]);
   courses.value = coursePage.items;
   classes.value = classPage.items;
@@ -382,11 +567,54 @@ async function load() {
   classComparison.value = Array.isArray(classCompare) ? classCompare : [];
   knowledgeTrend.value = Array.isArray(trend) ? trend : [];
   questionDiagnostics.value = Array.isArray(diagnostics) ? diagnostics : [];
+  hydroSummary.value = hydroData;
   if (filter.examId) {
     await loadExamDetail({ examId: filter.examId });
   } else {
     questionStats.value = [];
     selectedExamName.value = '';
+  }
+}
+
+function openHydroWriteback(row) {
+  const latest = row.latestSubmission || {};
+  Object.assign(hydroWritebackForm, {
+    submissionId: latest.submissionId || '',
+    externalSubmissionId: latest.externalSubmissionId || '',
+    status: latest.status === 'accepted' ? 'accepted' : 'accepted',
+    score: Number(row.score || latest.score || 0),
+    message: '',
+  });
+  hydroWritebackVisible.value = true;
+}
+
+async function submitHydroWriteback() {
+  if (!hydroWritebackForm.submissionId && !hydroWritebackForm.externalSubmissionId) {
+    ElMessage.warning('缺少提交记录，无法回写');
+    return;
+  }
+
+  hydroWritebackSaving.value = true;
+  try {
+    const path = hydroWritebackForm.submissionId
+      ? `/hydro/submissions/${hydroWritebackForm.submissionId}/result`
+      : '/hydro/writeback';
+    await api(path, {
+      method: hydroWritebackForm.submissionId ? 'PATCH' : 'POST',
+      body: {
+        externalSubmissionId: hydroWritebackForm.externalSubmissionId || undefined,
+        score: Number(hydroWritebackForm.score) || 0,
+        status: hydroWritebackForm.status,
+        message: hydroWritebackForm.message.trim(),
+      },
+    });
+    ElMessage.success('Hydro 判题结果已回写');
+    hydroWritebackVisible.value = false;
+    await load();
+  } catch (error) {
+    ElMessage.error(error.message || 'Hydro 回写失败');
+  } finally {
+    hydroWritebackSaving.value = false;
   }
 }
 
@@ -467,6 +695,185 @@ async function generateWrongPaper() {
   }
 }
 
+async function openReviewRules() {
+  reviewRulesVisible.value = true;
+  if (!courses.value.length || !classes.value.length) {
+    await load();
+  }
+  await loadReviewRules();
+}
+
+async function loadReviewRules() {
+  reviewRulesLoading.value = true;
+  try {
+    const rules = await api('/review-rules');
+    reviewRules.value = rules;
+    const courseIds = [...new Set(rules.map((item) => item.courseId).filter(Boolean))];
+    await Promise.all(courseIds.map((courseId) => loadReviewKnowledgePoints(courseId, { silent: true })));
+  } catch (error) {
+    ElMessage.error(error.message || '复习规则加载失败');
+  } finally {
+    reviewRulesLoading.value = false;
+  }
+}
+
+async function handleReviewRuleCourseChange(courseId) {
+  reviewRuleForm.knowledgePointId = '';
+  reviewKnowledgeTree.value = [];
+  if (courseId) {
+    await loadReviewKnowledgePoints(courseId);
+  }
+}
+
+async function loadReviewKnowledgePoints(courseId, options = {}) {
+  if (!courseId) return [];
+  try {
+    const tree = await api(`/knowledge-points/tree?courseId=${courseId}`);
+    if (!options.silent) reviewKnowledgeTree.value = tree;
+    const nextMap = new Map(reviewKnowledgeMap.value);
+    for (const item of flattenKnowledgeTree(tree)) {
+      nextMap.set(item.id, item.name);
+    }
+    reviewKnowledgeMap.value = nextMap;
+    return tree;
+  } catch (error) {
+    if (!options.silent) ElMessage.error(error.message || '知识点加载失败');
+    return [];
+  }
+}
+
+function editReviewRule(row) {
+  Object.assign(reviewRuleForm, {
+    id: row.id,
+    courseId: row.courseId || '',
+    classId: row.classId || '',
+    knowledgePointId: row.knowledgePointId || '',
+    intervalsText: (row.intervalsDays || []).join(','),
+    correctStreak: Number(row.masteryRule?.correctStreak || 2),
+    reviewingIntervalDays: Number(row.masteryRule?.reviewingIntervalDays || 3),
+    enabled: Boolean(row.enabled),
+  });
+  if (row.courseId) loadReviewKnowledgePoints(row.courseId);
+}
+
+function resetReviewRuleForm() {
+  Object.assign(reviewRuleForm, {
+    id: '',
+    courseId: '',
+    classId: '',
+    knowledgePointId: '',
+    intervalsText: '1,3,7,14,30',
+    correctStreak: 2,
+    reviewingIntervalDays: 3,
+    enabled: true,
+  });
+  reviewKnowledgeTree.value = [];
+}
+
+async function saveReviewRule() {
+  const intervalsDays = parseIntervalDays(reviewRuleForm.intervalsText);
+  if (!intervalsDays.length) {
+    ElMessage.warning('请至少填写一个复习间隔天数');
+    return;
+  }
+
+  reviewRuleSaving.value = true;
+  try {
+    const body = {
+      courseId: reviewRuleForm.courseId || null,
+      classId: reviewRuleForm.classId || null,
+      knowledgePointId: reviewRuleForm.knowledgePointId || null,
+      intervalsDays,
+      masteryRule: {
+        correctStreak: Number(reviewRuleForm.correctStreak || 2),
+        reviewingIntervalDays: Number(reviewRuleForm.reviewingIntervalDays || 3),
+      },
+      enabled: reviewRuleForm.enabled,
+    };
+    if (reviewRuleForm.id) {
+      await api(`/review-rules/${reviewRuleForm.id}`, { method: 'PATCH', body });
+      ElMessage.success('复习规则已更新');
+    } else {
+      await api('/review-rules', { method: 'POST', body });
+      ElMessage.success('复习规则已创建');
+    }
+    resetReviewRuleForm();
+    await loadReviewRules();
+  } catch (error) {
+    ElMessage.error(error.message || '保存复习规则失败');
+  } finally {
+    reviewRuleSaving.value = false;
+  }
+}
+
+async function deleteReviewRule(row) {
+  try {
+    await ElMessageBox.confirm(`确认删除复习规则“${reviewRuleScope(row)}”？`, '删除复习规则', {
+      type: 'warning',
+      confirmButtonText: '删除',
+      cancelButtonText: '取消',
+    });
+  } catch {
+    return;
+  }
+  try {
+    await api(`/review-rules/${row.id}`, { method: 'DELETE' });
+    ElMessage.success('复习规则已删除');
+    if (reviewRuleForm.id === row.id) resetReviewRuleForm();
+    await loadReviewRules();
+  } catch (error) {
+    ElMessage.error(error.message || '删除复习规则失败');
+  }
+}
+
+function reviewRuleScope(row) {
+  const parts = [
+    row.courseId ? courseName(row.courseId) : '全部课程',
+    row.classId ? className(row.classId) : '全部班级',
+    row.knowledgePointId ? knowledgeName(row.knowledgePointId) : '不限知识点',
+  ];
+  return parts.join(' / ');
+}
+
+function courseName(id) {
+  return courses.value.find((item) => item.id === id)?.name || shortId(id);
+}
+
+function className(id) {
+  return classes.value.find((item) => item.id === id)?.name || shortId(id);
+}
+
+function knowledgeName(id) {
+  return reviewKnowledgeMap.value.get(id) || shortId(id);
+}
+
+function parseIntervalDays(value) {
+  return [
+    ...new Set(
+      String(value || '')
+        .split(/[,，、\s]+/)
+        .map((item) => Number(item))
+        .filter((item) => Number.isInteger(item) && item > 0),
+    ),
+  ].sort((a, b) => a - b);
+}
+
+function convertKnowledgeTree(items) {
+  return items.map((item) => ({
+    label: `${item.sortOrder ? `${item.sortOrder}. ` : ''}${item.name}`,
+    value: item.id,
+    children: convertKnowledgeTree(item.children ?? []),
+  }));
+}
+
+function flattenKnowledgeTree(items) {
+  return items.flatMap((item) => [item, ...flattenKnowledgeTree(item.children ?? [])]);
+}
+
+function shortId(id) {
+  return id ? `${String(id).slice(0, 8)}...` : '-';
+}
+
 function percent(value) {
   return `${Math.round((value || 0) * 100)}%`;
 }
@@ -486,6 +893,14 @@ function sourceLabel(value) {
     practice: '练习',
     manual: '手动',
     ai_recommendation: '推荐',
+  };
+  return map[value] ?? value;
+}
+
+function hydroStatusLabel(value) {
+  const map = {
+    judge_pending: '待回写',
+    judge_done: '已回写',
   };
   return map[value] ?? value;
 }
@@ -527,7 +942,7 @@ onMounted(load);
 
 <style scoped>
 .statistics-page {
-  --statistics-panel-height: clamp(250px, 31vh, 360px);
+  --statistics-panel-height: clamp(250px, 30vh, 340px);
 }
 
 .statistics-head {
@@ -570,57 +985,34 @@ onMounted(load);
   grid-column: span 1;
 }
 
-.distribution-list {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  overflow: auto;
-  min-height: 0;
-}
-
-.distribution-row {
-  display: grid;
-  grid-template-columns: 74px minmax(80px, 1fr) 42px;
-  gap: 10px;
-  align-items: center;
-  font-size: 14px;
-}
-
-.distribution-label {
-  color: var(--el-text-color-secondary);
-  white-space: nowrap;
-}
-
-.distribution-track {
-  height: 8px;
-  overflow: hidden;
-  background: var(--el-fill-color-light);
-  border-radius: 999px;
-}
-
-.distribution-bar {
-  display: block;
-  height: 100%;
-  background: var(--el-color-primary);
-  border-radius: inherit;
-}
-
 .compact-table :deep(.el-table__cell) {
   padding: 7px 0;
 }
 
-.statistics-grid {
-  grid-template-columns: minmax(380px, 1.35fr) minmax(300px, 1fr) minmax(300px, 1fr);
-  align-items: stretch;
+.statistics-detail-panel {
   flex: 0 0 var(--statistics-panel-height);
-}
-
-.statistics-table-panel {
   min-height: 0;
   height: var(--statistics-panel-height);
 }
 
-.statistics-table-panel :deep(.el-table__empty-block) {
+.statistics-tabs {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.statistics-tabs :deep(.el-tabs__content) {
+  flex: 1;
+  min-height: 0;
+}
+
+.statistics-tabs :deep(.el-tab-pane) {
+  height: 100%;
+  min-height: 0;
+}
+
+.statistics-detail-panel :deep(.el-table__empty-block) {
   min-height: 140px;
 }
 
@@ -639,24 +1031,61 @@ onMounted(load);
   margin-bottom: 4px;
 }
 
+.review-rule-drawer :deep(.el-drawer__body) {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.review-rule-body {
+  height: 100%;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto auto minmax(260px, 1fr);
+  gap: 14px;
+}
+
+.review-rule-editor,
+.review-rule-list {
+  min-width: 0;
+}
+
+.review-rule-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 12px;
+}
+
+.review-rule-form .el-form-item:nth-last-child(-n + 2) {
+  grid-column: 1 / -1;
+}
+
+.review-mastery-grid {
+  width: 100%;
+  display: grid;
+  grid-template-columns: auto minmax(70px, 1fr) auto minmax(70px, 1fr);
+  gap: 8px;
+  align-items: center;
+}
+
+.review-rule-list {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.review-rule-list > .el-table {
+  flex: 1;
+  min-height: 0;
+}
+
 @media (max-width: 1500px) {
   .statistics-insight-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     flex-basis: 520px;
   }
 
-  .statistics-grid {
-    grid-template-columns: minmax(360px, 1.25fr) minmax(300px, 1fr);
-    flex-basis: auto;
-  }
-
-  .statistics-table-panel {
+  .statistics-detail-panel {
     height: 300px;
-  }
-
-  .statistics-table-panel-main {
-    grid-row: span 2;
-    height: 614px;
   }
 
   .high-wrong-panel {
@@ -674,19 +1103,20 @@ onMounted(load);
     height: 280px;
   }
 
-  .statistics-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .statistics-table-panel,
-  .statistics-table-panel-main {
+  .statistics-detail-panel {
     height: 300px;
-    grid-row: auto;
   }
 
   .statistics-toolbar :deep(.el-date-editor),
   .statistics-toolbar > .el-select {
     flex: 1 1 100%;
+  }
+}
+
+@media (max-width: 760px) {
+  .review-rule-form,
+  .review-mastery-grid {
+    grid-template-columns: 1fr;
   }
 }
 </style>

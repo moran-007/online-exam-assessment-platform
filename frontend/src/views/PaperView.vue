@@ -86,7 +86,7 @@
               v-model:current-page="paperPagination.page"
               v-model:page-size="paperPagination.pageSize"
               background
-              small
+              size="small"
               :pager-count="5"
               layout="sizes, prev, pager, next"
               :page-sizes="pageSizes"

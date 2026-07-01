@@ -616,6 +616,75 @@ export class ExamsService {
     };
   }
 
+  async remindAnnouncementUnread(id: string, content: string | undefined, user: RequestUser) {
+    const report = await this.announcementReads(id, user);
+    if (!report.announcement) {
+      throw new BadRequestException('该考试暂未设置公告');
+    }
+
+    const unreadItems = report.items.filter((item) => !item.read);
+    if (!unreadItems.length) {
+      return {
+        examId: id,
+        announcementId: report.announcement.id,
+        targetCount: 0,
+        createdCount: 0,
+        skippedCount: 0,
+        items: [],
+      };
+    }
+
+    const existing = await this.prisma.notification.findMany({
+      where: {
+        userId: { in: unreadItems.map((item) => item.userId) },
+        bizType: 'exam_announcement_unread',
+        bizId: report.announcement.id,
+        readAt: null,
+      },
+      select: { userId: true },
+    });
+    const existingUserIds = new Set(existing.map((item) => item.userId));
+    const targets = unreadItems.filter((item) => !existingUserIds.has(item.userId));
+
+    if (targets.length) {
+      await this.prisma.notification.createMany({
+        data: targets.map((item) => ({
+          userId: item.userId,
+          title: `考试公告待阅读：${report.examName}`,
+          content:
+            content?.trim() ||
+            `请尽快阅读「${report.examName}」考试公告。公告版本：第 ${report.announcement?.version ?? 1} 版。`,
+          type: 'warning',
+          bizType: 'exam_announcement_unread',
+          bizId: report.announcement?.id,
+        })),
+      });
+    }
+
+    await this.audit.log({
+      userId: user.id,
+      action: 'exam:announcement-unread-remind',
+      module: 'exam',
+      targetType: 'exam',
+      targetId: id,
+      afterData: {
+        announcementId: report.announcement.id,
+        targetCount: unreadItems.length,
+        createdCount: targets.length,
+        skippedCount: unreadItems.length - targets.length,
+      },
+    });
+
+    return {
+      examId: id,
+      announcementId: report.announcement.id,
+      targetCount: unreadItems.length,
+      createdCount: targets.length,
+      skippedCount: unreadItems.length - targets.length,
+      items: unreadItems,
+    };
+  }
+
   private normalizeShowAnswerMode(value: string) {
     return value.replace(/-/g, '_').toUpperCase() as never;
   }

@@ -232,12 +232,12 @@
         </el-table>
         <div class="table-footer">
           <span class="muted">共 {{ taskPagination.total }} 个导出任务</span>
-          <el-pagination
-            v-model:current-page="taskPagination.page"
-            v-model:page-size="taskPagination.pageSize"
-            background
-            small
-            layout="sizes, prev, pager, next"
+        <el-pagination
+          v-model:current-page="taskPagination.page"
+          v-model:page-size="taskPagination.pageSize"
+          background
+          size="small"
+          layout="sizes, prev, pager, next"
             :page-sizes="[20, 50, 100]"
             :total="taskPagination.total"
             @size-change="handleTaskSize"
@@ -274,7 +274,7 @@
           v-model:current-page="auditPagination.page"
           v-model:page-size="auditPagination.pageSize"
           background
-          small
+          size="small"
           layout="sizes, prev, pager, next"
           :page-sizes="[20, 50, 100]"
           :total="auditPagination.total"

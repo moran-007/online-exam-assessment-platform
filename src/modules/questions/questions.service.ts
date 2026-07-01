@@ -231,6 +231,7 @@ export class QuestionsService {
         course: true,
         options: { orderBy: { sortOrder: 'asc' } },
         answer: true,
+        programmingRef: true,
         knowledgePoints: { include: { knowledgePoint: true } },
         tags: { include: { tag: true } },
         versions: { orderBy: { version: 'desc' }, take: 10 },
@@ -245,6 +246,7 @@ export class QuestionsService {
       ...question,
       type: toApiEnum(question.type),
       status: toApiEnum(question.status),
+      programmingRef: question.programmingRef ? this.formatProgrammingRef(question.programmingRef) : null,
       knowledgePoints: question.knowledgePoints.map((relation) => relation.knowledgePoint),
       tags: question.tags.map((relation) => relation.tag),
     };
@@ -460,6 +462,7 @@ export class QuestionsService {
           },
         })
       : [];
+    const resourceStats = await this.resourceReferenceStats(resourceReferences);
 
     const [paperQuestionCount, paperCount, examCount, activeExamCount, paperInstanceCount, answerRecordCount, wrongQuestionCount, judgeSubmissionCount, versionCount] =
       await this.prisma.$transaction([
@@ -521,12 +524,15 @@ export class QuestionsService {
       },
       resources: resourceReferences.map((url) => {
         const asset = resourceAssets.find((item) => item.url === url || `/uploads/${item.objectKey}` === url || item.objectKey === url.replace(/^\/uploads\//, ''));
+        const stats = resourceStats.get(url) ?? { count: 0, locations: [] };
         return {
           url,
           kind: this.resourceKind(url, asset?.mimeType),
           fileName: asset?.fileName ?? url.split('/').pop() ?? url,
           fileSize: asset ? Number(asset.fileSize) : null,
           managed: Boolean(asset),
+          referenceCount: stats.count,
+          locations: stats.locations.slice(0, 8),
         };
       }),
       risks,
@@ -565,6 +571,7 @@ export class QuestionsService {
         },
       });
       await this.replaceRelations(tx, created.id, dto.knowledgePointIds, dto.tagIds);
+      await this.upsertProgrammingRef(tx, created.id, type, dto.programmingRef);
 
       const snapshot = await this.buildSnapshot(tx, created.id);
       await tx.questionVersion.create({
@@ -607,6 +614,7 @@ export class QuestionsService {
     const hasScoringRulePatch = dto.scoringRule !== undefined;
     const hasKnowledgePatch = dto.knowledgePointIds !== undefined;
     const hasTagPatch = dto.tagIds !== undefined;
+    const hasProgrammingRefPatch = dto.programmingRef !== undefined || type !== QuestionType.PROGRAMMING;
 
     if (hasOptionsPatch || dto.type) {
       const existingOptions = dto.options
@@ -688,6 +696,10 @@ export class QuestionsService {
 
       if (hasKnowledgePatch || hasTagPatch) {
         await this.replaceRelations(tx, id, dto.knowledgePointIds, dto.tagIds);
+      }
+
+      if (hasProgrammingRefPatch) {
+        await this.upsertProgrammingRef(tx, id, type, dto.programmingRef);
       }
 
       const snapshot = await this.buildSnapshot(tx, id);
@@ -858,6 +870,7 @@ export class QuestionsService {
         course: true,
         options: { orderBy: { sortOrder: 'asc' } },
         answer: true,
+        programmingRef: true,
         knowledgePoints: { include: { knowledgePoint: true } },
         tags: { include: { tag: true } },
       },
@@ -884,6 +897,9 @@ export class QuestionsService {
       })),
       answer: question.answer?.answerJson ?? null,
       scoringRule: question.answer?.scoringRuleJson ?? null,
+      programmingRef: question.programmingRef
+        ? this.formatProgrammingRef(question.programmingRef)
+        : null,
       knowledgePoints: question.knowledgePoints.map((relation) => ({
         id: relation.knowledgePoint.id,
         name: relation.knowledgePoint.name,
@@ -893,6 +909,139 @@ export class QuestionsService {
         name: relation.tag.name,
       })),
     };
+  }
+
+  private programmingLanguages(value: Prisma.JsonValue | null) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return [];
+    const languages = (value as Record<string, unknown>).languages;
+    return Array.isArray(languages) ? languages.map(String).filter(Boolean) : [];
+  }
+
+  private formatProgrammingRef(ref: {
+    judgeProvider: string;
+    externalProblemId: string;
+    externalProblemUrl: string | null;
+    languageConfigJson: Prisma.JsonValue | null;
+    timeLimit: number | null;
+    memoryLimit: number | null;
+    judgeConfigJson: Prisma.JsonValue | null;
+  }) {
+    const judgeConfig = this.toPlainRecord(ref.judgeConfigJson);
+    return {
+      judgeProvider: ref.judgeProvider,
+      externalProblemId: ref.externalProblemId,
+      externalProblemUrl: ref.externalProblemUrl,
+      platformBaseUrl: String(judgeConfig.platformBaseUrl ?? this.baseUrlFromProblemUrl(ref.externalProblemUrl)).trim(),
+      domainId: String(judgeConfig.domainId ?? this.domainIdFromProblemUrl(ref.externalProblemUrl) ?? 'system').trim(),
+      domainName: String(judgeConfig.domainName ?? judgeConfig.domainId ?? this.domainIdFromProblemUrl(ref.externalProblemUrl) ?? 'system').trim(),
+      accountId: judgeConfig.accountId ? String(judgeConfig.accountId) : null,
+      accountLabel: judgeConfig.accountLabel ? String(judgeConfig.accountLabel) : null,
+      languages: this.programmingLanguages(ref.languageConfigJson),
+      timeLimit: ref.timeLimit,
+      memoryLimit: ref.memoryLimit,
+      judgeConfig: ref.judgeConfigJson,
+    };
+  }
+
+  private async upsertProgrammingRef(
+    tx: Prisma.TransactionClient,
+    questionId: string,
+    type: QuestionType,
+    ref: CreateQuestionDto['programmingRef'] | undefined,
+  ) {
+    if (type !== QuestionType.PROGRAMMING) {
+      await tx.programmingProblemRef.deleteMany({ where: { questionId } });
+      return;
+    }
+
+    if (ref === undefined) return;
+    const externalProblemId = String(ref?.externalProblemId ?? '').trim();
+    if (!externalProblemId) {
+      await tx.programmingProblemRef.deleteMany({ where: { questionId } });
+      return;
+    }
+
+    const provider = String(ref?.judgeProvider || 'hydro').trim().toLowerCase();
+    const platformBaseUrl = this.normalizeHydroBaseUrl(ref?.platformBaseUrl || this.baseUrlFromProblemUrl(ref?.externalProblemUrl));
+    const domainId = String(ref?.domainId || this.domainIdFromProblemUrl(ref?.externalProblemUrl) || 'system').trim() || 'system';
+    const domainName = String(ref?.domainName || domainId).trim();
+    const externalProblemUrl = ref?.externalProblemUrl?.trim() || this.defaultHydroProblemUrl(externalProblemId, platformBaseUrl, domainId);
+    const languageConfig = {
+      languages: Array.isArray(ref?.languages)
+        ? ref.languages.map((item) => String(item).trim()).filter(Boolean)
+        : [],
+    };
+    const judgeConfig = {
+      ...(ref?.judgeConfig ?? {}),
+      platformBaseUrl,
+      domainId,
+      domainName,
+      accountId: ref?.accountId ?? this.toPlainRecord(ref?.judgeConfig).accountId ?? null,
+      accountLabel: ref?.accountLabel?.trim() || String(this.toPlainRecord(ref?.judgeConfig).accountLabel ?? ''),
+      submitPageUrl:
+        String(this.toPlainRecord(ref?.judgeConfig).submitPageUrl ?? '').trim() ||
+        `${externalProblemUrl.replace(/\/+$/, '')}/submit`,
+    };
+
+    await tx.programmingProblemRef.upsert({
+      where: { questionId },
+      update: {
+        judgeProvider: provider,
+        externalProblemId,
+        externalProblemUrl,
+        languageConfigJson: languageConfig as Prisma.InputJsonObject,
+        timeLimit: ref?.timeLimit,
+        memoryLimit: ref?.memoryLimit,
+        judgeConfigJson: judgeConfig as Prisma.InputJsonObject,
+      },
+      create: {
+        questionId,
+        judgeProvider: provider,
+        externalProblemId,
+        externalProblemUrl,
+        languageConfigJson: languageConfig as Prisma.InputJsonObject,
+        timeLimit: ref?.timeLimit,
+        memoryLimit: ref?.memoryLimit,
+        judgeConfigJson: judgeConfig as Prisma.InputJsonObject,
+      },
+    });
+  }
+
+  private defaultHydroProblemUrl(problemId: string, baseUrl = process.env.HYDRO_BASE_URL || 'http://moran007.top', domainId?: string) {
+    const normalizedBaseUrl = this.normalizeHydroBaseUrl(baseUrl);
+    const normalizedDomain = String(domainId || '').trim();
+    const domainPrefix = normalizedDomain && normalizedDomain !== 'system' ? `/d/${encodeURIComponent(normalizedDomain)}` : '';
+    return `${normalizedBaseUrl}${domainPrefix}/p/${encodeURIComponent(problemId)}`;
+  }
+
+  private normalizeHydroBaseUrl(value?: string | null) {
+    const raw = String(value || process.env.HYDRO_BASE_URL || 'http://moran007.top').trim();
+    const withScheme = /^https?:\/\//i.test(raw) ? raw : `http://${raw}`;
+    return withScheme.replace(/\/+$/, '');
+  }
+
+  private baseUrlFromProblemUrl(url?: string | null) {
+    const raw = String(url || '').trim();
+    if (!raw) return process.env.HYDRO_BASE_URL || 'http://moran007.top';
+    try {
+      const parsed = new URL(raw);
+      return `${parsed.protocol}//${parsed.host}`;
+    } catch {
+      return process.env.HYDRO_BASE_URL || 'http://moran007.top';
+    }
+  }
+
+  private domainIdFromProblemUrl(url?: string | null) {
+    const raw = String(url || '').trim();
+    if (!raw) return '';
+    try {
+      const parsed = new URL(raw);
+      const match = parsed.pathname.match(/\/d\/([^/]+)\/p\//);
+      return match?.[1] ? decodeURIComponent(match[1]) : 'system';
+    } catch {
+      const match = raw.match(/\/d\/([^/]+)\/p\//);
+      return match?.[1] ? decodeURIComponent(match[1]) : '';
+    }
   }
 
   private normalizeCheckQuestion(value: unknown): CreateQuestionDto {
@@ -1086,6 +1235,56 @@ export class QuestionsService {
 
     values.forEach(visit);
     return [...references];
+  }
+
+  private async resourceReferenceStats(urls: string[]) {
+    const targetUrls = new Set(urls.map((url) => this.cleanResourceUrl(url)).filter(Boolean));
+    const stats = new Map<string, { count: number; locations: string[] }>();
+    for (const url of targetUrls) stats.set(url, { count: 0, locations: [] });
+    if (!targetUrls.size) return stats;
+
+    const add = (location: string, ...values: unknown[]) => {
+      for (const url of this.extractResourceReferences(...values)) {
+        if (!targetUrls.has(url)) continue;
+        const current = stats.get(url) ?? { count: 0, locations: [] };
+        current.count += 1;
+        if (current.locations.length < 30) current.locations.push(location);
+        stats.set(url, current);
+      }
+    };
+
+    const [questions, questionVersions, paperQuestions, paperInstances] = await Promise.all([
+      this.prisma.question.findMany({
+        where: { deletedAt: null },
+        select: {
+          id: true,
+          title: true,
+          content: true,
+          analysis: true,
+          options: { select: { content: true } },
+          answer: { select: { answerJson: true, scoringRuleJson: true } },
+        },
+      }),
+      this.prisma.questionVersion.findMany({ select: { snapshotJson: true } }),
+      this.prisma.paperQuestion.findMany({ select: { questionSnapshotJson: true } }),
+      this.prisma.paperInstance.findMany({ select: { paperSnapshotJson: true } }),
+    ]);
+
+    for (const question of questions) {
+      add(
+        `题目：${question.title || question.id}`,
+        question.content,
+        question.analysis,
+        question.options.map((option) => option.content),
+        question.answer?.answerJson,
+        question.answer?.scoringRuleJson,
+      );
+    }
+    for (const version of questionVersions) add('题目版本快照', version.snapshotJson);
+    for (const paperQuestion of paperQuestions) add('试卷题目快照', paperQuestion.questionSnapshotJson);
+    for (const instance of paperInstances) add('考试试卷实例快照', instance.paperSnapshotJson);
+
+    return stats;
   }
 
   private cleanResourceUrl(value: unknown) {

@@ -15,10 +15,13 @@ import { ExamsModule } from './modules/exams/exams.module';
 import { ExportsModule } from './modules/exports/exports.module';
 import { GradingModule } from './modules/grading/grading.module';
 import { HealthModule } from './modules/health/health.module';
+import { HydroModule } from './modules/hydro/hydro.module';
 import { KnowledgePointsModule } from './modules/knowledge-points/knowledge-points.module';
+import { NotificationsModule } from './modules/notifications/notifications.module';
 import { PapersModule } from './modules/papers/papers.module';
 import { PrismaModule } from './modules/prisma/prisma.module';
 import { QuestionsModule } from './modules/questions/questions.module';
+import { ReviewRulesModule } from './modules/review-rules/review-rules.module';
 import { StatisticsModule } from './modules/statistics/statistics.module';
 import { StudentModule } from './modules/student/student.module';
 import { TagsModule } from './modules/tags/tags.module';
@@ -38,13 +41,16 @@ import { UsersModule } from './modules/users/users.module';
     UsersModule,
     AuthModule,
     HealthModule,
+    HydroModule,
     CoursesModule,
     DataScopeModule,
     ClassesModule,
     KnowledgePointsModule,
+    NotificationsModule,
     TagsModule,
     UploadsModule,
     QuestionsModule,
+    ReviewRulesModule,
     PapersModule,
     ExamsModule,
     GradingModule,

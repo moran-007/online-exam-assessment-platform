@@ -39,6 +39,16 @@ export class ExamsController {
     return this.examsService.announcementReads(id, user);
   }
 
+  @Post(':id/announcement-reads/remind')
+  @Permissions('exam:result:read')
+  remindAnnouncementUnread(
+    @Param('id') id: string,
+    @Body() body: { content?: string },
+    @CurrentUser() user: RequestUser,
+  ) {
+    return this.examsService.remindAnnouncementUnread(id, body?.content, user);
+  }
+
   @Get(':id')
   @Permissions('exam:read')
   detail(@Param('id') id: string, @CurrentUser() user: RequestUser) {

@@ -812,6 +812,26 @@ model WrongQuestionEvent {
   @@map("wrong_question_events")
 }
 
+model ReviewReminderRule {
+  id               String   @id @default(uuid()) @db.Uuid
+  courseId         String?  @map("course_id") @db.Uuid
+  classId          String?  @map("class_id") @db.Uuid
+  knowledgePointId String?  @map("knowledge_point_id") @db.Uuid
+  intervalsJson    Json     @map("intervals_json")
+  masteryRuleJson  Json?    @map("mastery_rule_json")
+  enabled          Boolean  @default(true)
+  createdBy        String?  @map("created_by") @db.Uuid
+  updatedBy        String?  @map("updated_by") @db.Uuid
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  @@index([courseId])
+  @@index([classId])
+  @@index([knowledgePointId])
+  @@index([enabled])
+  @@map("review_reminder_rules")
+}
+
 model PracticeSession {
   id         String    @id @default(uuid()) @db.Uuid
   studentId  String    @map("student_id") @db.Uuid
@@ -844,21 +864,32 @@ model ProgrammingProblemRef {
 
   question Question @relation(fields: [questionId], references: [id])
 
-  @@unique([judgeProvider, externalProblemId])
   @@index([judgeProvider])
+  @@index([judgeProvider, externalProblemId])
   @@map("programming_problem_refs")
 }
 
 model HydroAccount {
-  id             String   @id @default(uuid()) @db.Uuid
-  studentId      String   @unique @map("student_id") @db.Uuid
-  platformUserId String?  @map("platform_user_id") @db.Uuid
-  hydroUserId    String   @unique @map("hydro_user_id") @db.VarChar(128)
-  hydroUsername  String   @map("hydro_username") @db.VarChar(128)
-  bindStatus     String   @default("bound") @map("bind_status") @db.VarChar(32)
-  createdAt      DateTime @default(now()) @map("created_at")
-  updatedAt      DateTime @updatedAt @map("updated_at")
+  id               String    @id @default(uuid()) @db.Uuid
+  studentId        String    @map("student_id") @db.Uuid
+  platformUserId   String?   @map("platform_user_id") @db.Uuid
+  platformCode     String    @default("hydro") @map("platform_code") @db.VarChar(32)
+  platformName     String?   @map("platform_name") @db.VarChar(64)
+  platformBaseUrl  String    @default("http://moran007.top") @map("platform_base_url") @db.Text
+  hydroUserId      String    @map("hydro_user_id") @db.VarChar(128)
+  hydroUsername    String    @map("hydro_username") @db.VarChar(128)
+  loginUsername    String?   @map("login_username") @db.VarChar(128)
+  loginPassword    String?   @map("login_password") @db.Text
+  lastLoginStatus  String?   @map("last_login_status") @db.VarChar(32)
+  lastLoginMessage String?   @map("last_login_message") @db.Text
+  lastLoginAt      DateTime? @map("last_login_at")
+  bindStatus       String    @default("bound") @map("bind_status") @db.VarChar(32)
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
 
+  @@index([studentId])
+  @@index([studentId, platformCode])
+  @@index([platformCode, platformBaseUrl])
   @@index([hydroUsername])
   @@map("hydro_accounts")
 }

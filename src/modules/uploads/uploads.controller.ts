@@ -1,7 +1,9 @@
 import { BadRequestException, Body, Controller, Delete, Get, Param, Patch, Post, UploadedFile, UseInterceptors } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiBearerAuth, ApiConsumes, ApiTags } from '@nestjs/swagger';
+import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Permissions } from '../../common/decorators/permissions.decorator';
+import { RequestUser } from '../../common/interfaces/request-user.interface';
 import { UploadsService } from './uploads.service';
 
 @ApiTags('Upload')
@@ -14,6 +16,12 @@ export class UploadsController {
   @Permissions('question:create')
   questionAssetReport() {
     return this.uploadsService.questionAssetReport();
+  }
+
+  @Get('question-assets/:filename/references')
+  @Permissions('question:read')
+  questionAssetReferences(@Param('filename') filename: string) {
+    return this.uploadsService.questionAssetReferences(filename);
   }
 
   @Post('question-assets/cleanup-orphans')
@@ -30,12 +38,12 @@ export class UploadsController {
       limits: { fileSize: 30 * 1024 * 1024 },
     }),
   )
-  async uploadFile(@UploadedFile() file: any) {
+  async uploadFile(@UploadedFile() file: any, @CurrentUser() user: RequestUser) {
     if (!file) {
       throw new BadRequestException('请上传文件，单个文件不超过 30MB');
     }
 
-    return this.uploadsService.saveQuestionAsset(file);
+    return this.uploadsService.saveQuestionAsset(file, user.id);
   }
 
   @Post('files')
@@ -46,12 +54,12 @@ export class UploadsController {
       limits: { fileSize: 30 * 1024 * 1024 },
     }),
   )
-  async uploadLegacyFile(@UploadedFile() file: any) {
+  async uploadLegacyFile(@UploadedFile() file: any, @CurrentUser() user: RequestUser) {
     if (!file) {
       throw new BadRequestException('请上传文件，单个文件不超过 30MB');
     }
 
-    return this.uploadsService.saveQuestionAsset(file);
+    return this.uploadsService.saveQuestionAsset(file, user.id);
   }
 
   @Patch('question-assets/:filename')
@@ -89,11 +97,11 @@ export class UploadsController {
       },
     }),
   )
-  async uploadImage(@UploadedFile() file: any) {
+  async uploadImage(@UploadedFile() file: any, @CurrentUser() user: RequestUser) {
     if (!file) {
       throw new BadRequestException('请上传图片文件，单张不超过 8MB');
     }
 
-    return this.uploadsService.saveImage(file);
+    return this.uploadsService.saveImage(file, user.id);
   }
 }

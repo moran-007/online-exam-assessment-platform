@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { FileVisibility } from '@prisma/client';
 import { mkdir, readdir, rename, stat, unlink, writeFile } from 'node:fs/promises';
 import { basename, extname, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -41,16 +42,16 @@ const BLOCKED_EXTENSIONS = new Set([
 export class UploadsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async saveImage(file: { originalname?: string; mimetype?: string; buffer: Buffer }) {
+  async saveImage(file: { originalname?: string; mimetype?: string; buffer: Buffer }, userId?: string) {
     if (!file.mimetype?.startsWith('image/')) {
       throw new BadRequestException('请上传图片文件');
     }
 
-    return this.saveToFolder(file, 'question-assets');
+    return this.saveToFolder(file, 'question-assets', userId);
   }
 
-  async saveQuestionAsset(file: { originalname?: string; mimetype?: string; size?: number; buffer: Buffer }) {
-    return this.saveToFolder(file, 'question-assets');
+  async saveQuestionAsset(file: { originalname?: string; mimetype?: string; size?: number; buffer: Buffer }, userId?: string) {
+    return this.saveToFolder(file, 'question-assets', userId);
   }
 
   async renameQuestionAsset(filename: string, displayName: string) {
@@ -66,40 +67,89 @@ export class UploadsService {
       throw new NotFoundException('附件不存在或已被删除');
     }
 
+    await this.prisma.fileAsset.updateMany({
+      where: {
+        deletedAt: null,
+        OR: [
+          { objectKey: `question-assets/${safeCurrentName}` },
+          { url: `/uploads/question-assets/${safeCurrentName}` },
+        ],
+      },
+      data: {
+        objectKey: `question-assets/${nextFilename}`,
+        url: `/uploads/question-assets/${nextFilename}`,
+        fileName: nextFilename,
+        fileExt: extension,
+      },
+    });
+
     return this.fileResponse(nextFilename, 'question-assets', cleanDisplayName);
   }
 
   async removeQuestionAsset(filename: string) {
     const safeFilename = this.safeExistingFilename(filename);
+    const references = await this.questionAssetReferences(safeFilename);
+    if (references.referenceCount > 0) {
+      const locations = references.locations.slice(0, 3).join('；');
+      throw new BadRequestException(
+        `附件仍被 ${references.referenceCount} 处内容引用，暂不能删除。请先移除引用后再删除。${locations ? `引用位置：${locations}` : ''}`,
+      );
+    }
+
     try {
       await unlink(join(this.uploadDir('question-assets'), safeFilename));
     } catch {
       throw new NotFoundException('附件不存在或已被删除');
     }
+    await this.prisma.fileAsset.updateMany({
+      where: {
+        deletedAt: null,
+        OR: [
+          { objectKey: `question-assets/${safeFilename}` },
+          { url: `/uploads/question-assets/${safeFilename}` },
+        ],
+      },
+      data: { deletedAt: new Date() },
+    });
 
     return true;
   }
 
   async questionAssetReport() {
-    const [files, referencedUrls] = await Promise.all([this.listQuestionAssetFiles(), this.collectReferencedQuestionAssetUrls()]);
+    const [files, referencedMap] = await Promise.all([this.listQuestionAssetFiles(), this.collectReferencedQuestionAssetRefs()]);
     const items = files
       .map((file) => {
         const url = `/uploads/question-assets/${file.filename}`;
-        const referenced = referencedUrls.has(url) || referencedUrls.has(encodeURI(url));
+        const references = referencedMap.get(url) ?? { count: 0, locations: [] };
         return {
           ...file,
           url,
           kind: this.resourceKind(file.filename),
-          referenced,
+          referenced: references.count > 0,
+          referenceCount: references.count,
+          locations: references.locations.slice(0, 8),
         };
       })
-      .sort((a, b) => Number(a.referenced) - Number(b.referenced) || b.updatedAt.getTime() - a.updatedAt.getTime());
+      .sort((a, b) => a.referenceCount - b.referenceCount || b.updatedAt.getTime() - a.updatedAt.getTime());
 
     return {
       total: items.length,
       referencedCount: items.filter((item) => item.referenced).length,
+      referenceCount: items.reduce((sum, item) => sum + item.referenceCount, 0),
       orphanCount: items.filter((item) => !item.referenced).length,
       items,
+    };
+  }
+
+  async questionAssetReferences(filename: string) {
+    const safeFilename = this.safeExistingFilename(filename);
+    const url = `/uploads/question-assets/${safeFilename}`;
+    const references = (await this.collectReferencedQuestionAssetRefs()).get(url) ?? { count: 0, locations: [] };
+    return {
+      filename: safeFilename,
+      url,
+      referenceCount: references.count,
+      locations: references.locations,
     };
   }
 
@@ -111,6 +161,16 @@ export class UploadsService {
     for (const item of report.items.filter((asset) => !asset.referenced)) {
       try {
         await unlink(join(this.uploadDir('question-assets'), this.safeExistingFilename(item.filename)));
+        await this.prisma.fileAsset.updateMany({
+          where: {
+            deletedAt: null,
+            OR: [
+              { objectKey: `question-assets/${item.filename}` },
+              { url: item.url },
+            ],
+          },
+          data: { deletedAt: new Date() },
+        });
         deleted.push({ filename: item.filename, url: item.url });
       } catch (error) {
         failed.push({ filename: item.filename, message: error instanceof Error ? error.message : '删除失败' });
@@ -126,13 +186,26 @@ export class UploadsService {
     };
   }
 
-  private async saveToFolder(file: { originalname?: string; mimetype?: string; size?: number; buffer: Buffer }, folder: 'question-assets') {
+  private async saveToFolder(file: { originalname?: string; mimetype?: string; size?: number; buffer: Buffer }, folder: 'question-assets', userId?: string) {
     const extension = this.resolveExtension(file);
     const displayName = this.resolveDisplayName(file.originalname);
     const filename = `${new Date().toISOString().slice(0, 10)}-${displayName}-${randomUUID().slice(0, 8)}${extension}`;
     const dir = this.uploadDir(folder);
     await mkdir(dir, { recursive: true });
     await writeFile(join(dir, filename), file.buffer);
+    await this.prisma.fileAsset.create({
+      data: {
+        bucket: 'local',
+        objectKey: `${folder}/${filename}`,
+        fileName: filename,
+        fileExt: extension,
+        mimeType: file.mimetype,
+        fileSize: BigInt(file.size ?? file.buffer.length ?? 0),
+        url: `/uploads/${folder}/${filename}`,
+        visibility: FileVisibility.PRIVATE,
+        createdBy: userId,
+      },
+    });
 
     return this.fileResponse(filename, folder, displayName, file);
   }
@@ -235,11 +308,19 @@ export class UploadsService {
   }
 
   private async collectReferencedQuestionAssetUrls() {
-    const references = new Set<string>();
-    const addReferences = (...values: unknown[]) => {
+    return new Set((await this.collectReferencedQuestionAssetRefs()).keys());
+  }
+
+  private async collectReferencedQuestionAssetRefs() {
+    const references = new Map<string, { count: number; locations: string[] }>();
+    const addReferences = (location: string, ...values: unknown[]) => {
       for (const url of this.extractResourceReferences(...values)) {
         const normalized = this.normalizeQuestionAssetUrl(url);
-        if (normalized) references.add(normalized);
+        if (!normalized) continue;
+        const current = references.get(normalized) ?? { count: 0, locations: [] };
+        current.count += 1;
+        if (current.locations.length < 30) current.locations.push(location);
+        references.set(normalized, current);
       }
     };
 
@@ -247,6 +328,8 @@ export class UploadsService {
       this.prisma.question.findMany({
         where: { deletedAt: null },
         select: {
+          id: true,
+          title: true,
           content: true,
           analysis: true,
           options: { select: { content: true } },
@@ -260,6 +343,7 @@ export class UploadsService {
 
     for (const question of questions) {
       addReferences(
+        `题目：${question.title ?? question.id}`,
         question.content,
         question.analysis,
         question.options.map((option) => option.content),
@@ -267,9 +351,9 @@ export class UploadsService {
         question.answer?.scoringRuleJson,
       );
     }
-    for (const version of questionVersions) addReferences(version.snapshotJson);
-    for (const paperQuestion of paperQuestions) addReferences(paperQuestion.questionSnapshotJson);
-    for (const instance of paperInstances) addReferences(instance.paperSnapshotJson);
+    for (const version of questionVersions) addReferences('题目版本快照', version.snapshotJson);
+    for (const paperQuestion of paperQuestions) addReferences('试卷题目快照', paperQuestion.questionSnapshotJson);
+    for (const instance of paperInstances) addReferences('考试试卷实例快照', instance.paperSnapshotJson);
 
     return references;
   }
