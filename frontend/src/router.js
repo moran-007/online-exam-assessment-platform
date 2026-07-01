@@ -21,6 +21,7 @@ import ResultView from './views/ResultView.vue';
 import WrongQuestionView from './views/WrongQuestionView.vue';
 import PublicQuestionView from './views/PublicQuestionView.vue';
 import StudentProfileView from './views/StudentProfileView.vue';
+import ExternalAccountView from './views/ExternalAccountView.vue';
 
 const routes = [
   { path: '/login', component: LoginView, meta: { public: true } },
@@ -40,6 +41,7 @@ const routes = [
   { path: '/grading', component: GradingView, meta: { adminOnly: true, permissions: ['grading:read'] } },
   { path: '/exports', component: ExportView, meta: { adminOnly: true, permissions: ['exam:result:export'] } },
   { path: '/statistics', component: StatisticsView, meta: { adminOnly: true, permissions: ['statistics:read'] } },
+  { path: '/external-accounts', component: ExternalAccountView, meta: { adminOnly: true, permissions: ['class:read'] } },
   { path: '/student/exams', component: StudentExamView, meta: { studentOnly: true } },
   { path: '/student/exams/:examId', component: ExamTakingView, meta: { studentOnly: true } },
   { path: '/student/attempts/:attemptId/result', component: ResultView, meta: { studentOnly: true } },

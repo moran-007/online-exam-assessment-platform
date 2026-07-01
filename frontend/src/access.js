@@ -22,6 +22,7 @@ export const adminMenuItems = [
   { path: '/grading', label: '批改', icon: 'Checked', permissions: ['grading:read'] },
   { path: '/exports', label: '导出', icon: 'Download', permissions: ['exam:result:export'] },
   { path: '/statistics', label: '统计', icon: 'TrendCharts', permissions: ['statistics:read'] },
+  { path: '/external-accounts', label: '外部账号', icon: 'Link', permissions: ['class:read'] },
 ];
 
 export function isStudent(user) {

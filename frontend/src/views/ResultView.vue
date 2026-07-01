@@ -10,6 +10,7 @@
     <div class="metric-row">
       <div class="metric"><span>总分</span><strong>{{ displayScore(result.totalScore) }}</strong></div>
       <div class="metric"><span>客观题</span><strong>{{ displayScore(result.objectiveScore) }}</strong></div>
+      <div class="metric"><span>编程题</span><strong>{{ displayScore(result.judgeScore) }}</strong></div>
       <div class="metric"><span>状态</span><strong>{{ result.status }}</strong></div>
       <div class="metric"><span>用时</span><strong>{{ result.durationSeconds || 0 }}s</strong></div>
     </div>
@@ -115,6 +116,7 @@ const restrictionTitle = computed(() => {
 const result = reactive({
   totalScore: 0,
   objectiveScore: 0,
+  judgeScore: 0,
   status: '',
   durationSeconds: 0,
   visibility: null,
@@ -185,6 +187,9 @@ function displayStudentAnswer(row) {
   }
   if (row.studentAnswer?.blanks?.length) {
     return row.studentAnswer.blanks.map((blank) => blank.value).join('，');
+  }
+  if (row.studentAnswer?.code) {
+    return `${row.studentAnswer.language || '代码'}，${String(row.studentAnswer.code).length} 字符`;
   }
   if (row.studentAnswer?.text) {
     return row.studentAnswer.text;

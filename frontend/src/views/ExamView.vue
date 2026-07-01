@@ -109,7 +109,7 @@
             v-model:current-page="examPagination.page"
             v-model:page-size="examPagination.pageSize"
             background
-            small
+            size="small"
             :pager-count="5"
             layout="sizes, prev, pager, next"
             :page-sizes="pageSizes"
@@ -287,7 +287,22 @@
             <span>已提交</span>
           </div>
         </div>
-        <el-table :data="announcementReadReport.items" height="460">
+        <div class="toolbar announcement-read-toolbar">
+          <el-checkbox v-model="announcementUnreadOnly">只看未读</el-checkbox>
+          <el-button
+            type="warning"
+            plain
+            :loading="announcementRemindLoading"
+            :disabled="!announcementUnreadItems.length || !announcementReadReport.announcement"
+            @click="sendAnnouncementReminder"
+          >
+            发送未读提醒
+          </el-button>
+          <el-button :disabled="!announcementUnreadItems.length" @click="exportAnnouncementUnreadCsv">
+            导出未读名单
+          </el-button>
+        </div>
+        <el-table :data="announcementReadItems" height="430">
           <el-table-column label="学生" min-width="160">
             <template #default="{ row }">{{ row.realName || row.username }}</template>
           </el-table-column>
@@ -343,6 +358,8 @@ const rankingVisible = ref(false);
 const announcementReadsVisible = ref(false);
 const announcementReadReport = ref(null);
 const announcementReadsLoading = ref(false);
+const announcementRemindLoading = ref(false);
+const announcementUnreadOnly = ref(false);
 const editingId = ref('');
 const editingOriginalStatus = ref('');
 const { showMediumColumns, showLowColumns } = useResponsiveColumns();
@@ -366,6 +383,10 @@ const statusOptions = [
 ];
 const canSaveCore = computed(() => !['running', 'ended'].includes(editingOriginalStatus.value));
 const selectedExamIds = computed(() => selectedExamRows.value.map((row) => row.id));
+const announcementUnreadItems = computed(() => (announcementReadReport.value?.items ?? []).filter((item) => !item.read));
+const announcementReadItems = computed(() =>
+  announcementUnreadOnly.value ? announcementUnreadItems.value : announcementReadReport.value?.items ?? [],
+);
 
 function baseForm() {
   const current = new Date();
@@ -694,12 +715,69 @@ async function openAnnouncementReads(row = selectedExam.value || exams.value[0])
   announcementReadsLoading.value = true;
   try {
     announcementReadReport.value = await api(`/exams/${row.id}/announcement-reads`);
+    announcementUnreadOnly.value = false;
     announcementReadsVisible.value = true;
   } catch (error) {
     ElMessage.error(error.message || '公告阅读统计加载失败');
   } finally {
     announcementReadsLoading.value = false;
   }
+}
+
+async function sendAnnouncementReminder() {
+  if (!announcementReadReport.value?.examId) return;
+  try {
+    await ElMessageBox.confirm(
+      `将给 ${announcementUnreadItems.value.length} 名未读学生生成站内提醒，是否继续？`,
+      '发送公告阅读提醒',
+      { type: 'warning', confirmButtonText: '发送提醒', cancelButtonText: '取消' },
+    );
+  } catch {
+    return;
+  }
+  announcementRemindLoading.value = true;
+  try {
+    const result = await api(`/exams/${announcementReadReport.value.examId}/announcement-reads/remind`, {
+      method: 'POST',
+      body: {},
+    });
+    ElMessage.success(`已生成 ${result.createdCount} 条提醒，跳过 ${result.skippedCount} 条已有提醒`);
+  } catch (error) {
+    ElMessage.error(error.message || '发送提醒失败');
+  } finally {
+    announcementRemindLoading.value = false;
+  }
+}
+
+function exportAnnouncementUnreadCsv() {
+  const rows = announcementUnreadItems.value;
+  if (!rows.length) {
+    ElMessage.warning('当前没有未读学生');
+    return;
+  }
+  const header = ['学生', '账号', '是否进入考试', '是否提交', '考试'];
+  const lines = [
+    header,
+    ...rows.map((row) => [
+      row.realName || row.username,
+      row.username,
+      row.entered ? '已进入' : '未进入',
+      row.submitted ? '已提交' : '未提交',
+      announcementReadReport.value?.examName || '',
+    ]),
+  ].map((line) => line.map(csvCell).join(','));
+  const blob = new Blob([`\uFEFF${lines.join('\n')}`], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `${announcementReadReport.value?.examName || '考试公告'}-未读名单.csv`;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+function csvCell(value) {
+  const text = String(value ?? '');
+  return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
 }
 
 function statusLabel(value) {

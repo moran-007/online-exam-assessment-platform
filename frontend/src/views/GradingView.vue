@@ -56,7 +56,7 @@
           v-model:current-page="pagination.page"
           v-model:page-size="pagination.pageSize"
           background
-          small
+          size="small"
           layout="sizes, prev, pager, next"
           :page-sizes="[20, 50, 100]"
           :total="pagination.total"

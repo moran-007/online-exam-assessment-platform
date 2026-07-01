@@ -78,13 +78,13 @@
       </el-table>
       <div class="table-footer">
         <span class="muted">共 {{ pagination.total }} 门课程</span>
-        <el-pagination
-          v-model:current-page="pagination.page"
-          v-model:page-size="pagination.pageSize"
-          background
-          small
-          :pager-count="5"
-          layout="sizes, prev, pager, next"
+          <el-pagination
+            v-model:current-page="pagination.page"
+            v-model:page-size="pagination.pageSize"
+            background
+            size="small"
+            :pager-count="5"
+            layout="sizes, prev, pager, next"
           :page-sizes="pageSizes"
           :total="pagination.total"
           @size-change="handleSizeChange"

@@ -300,7 +300,7 @@ body {
 .import-page .import-shared-panel {
   flex: 0 0 auto;
   padding: 10px 14px;
-  overflow: visible;
+  overflow: hidden;
 }
 
 .question-import-detail {
@@ -1268,7 +1268,7 @@ body {
 
 .import-shared-form {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: 4px 16px;
   align-items: center;
 }
@@ -1291,6 +1291,10 @@ body {
 .import-shared-form .inline-control,
 .import-shared-form .asset-toolbar {
   min-height: 32px;
+}
+
+.import-shared-form .asset-toolbar .el-button {
+  max-width: 150px;
 }
 
 .image-tool-field,
@@ -1495,6 +1499,27 @@ body {
   scroll-margin-top: 76px;
 }
 
+.programming-exam-question {
+  padding: 0;
+  overflow: hidden;
+}
+
+.programming-exam-question > .question-title,
+.programming-exam-question > .question-actions {
+  padding: 14px 16px;
+}
+
+.programming-exam-question > .question-title {
+  margin: 0;
+  border-bottom: 1px solid var(--border);
+  background: #f8fafc;
+}
+
+.programming-exam-question > .question-actions {
+  border-top: 1px solid var(--border);
+  background: #ffffff;
+}
+
 .exam-question-title {
   margin: 0 0 10px;
   font-size: 18px;
@@ -1530,6 +1555,95 @@ body {
 
 .answer-input {
   margin-top: 14px;
+}
+
+.programming-answer {
+  display: grid;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.programming-exam-split {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(360px, 0.92fr);
+  gap: 0;
+  align-items: start;
+  min-height: 520px;
+}
+
+.programming-practice-split {
+  min-height: 460px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.programming-practice-split .programming-code-panel {
+  position: static;
+}
+
+.programming-statement,
+.programming-code-panel {
+  min-width: 0;
+}
+
+.programming-statement {
+  padding: 18px 20px 22px;
+}
+
+.programming-code-panel {
+  border-left: 1px solid var(--border);
+  padding: 0 16px 16px;
+  position: sticky;
+  top: 0;
+  background: #fbfcfe;
+}
+
+.code-answer-input .el-textarea__inner,
+.code-answer-input textarea {
+  min-height: 460px;
+  font-family: "Cascadia Code", Consolas, "SFMono-Regular", monospace;
+  line-height: 1.6;
+}
+
+.programming-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  min-height: 48px;
+  padding: 10px 0 0;
+}
+
+.programming-language-label {
+  color: var(--muted);
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.code-submit-feedback {
+  margin-top: 2px;
+}
+
+.code-submit-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  margin-top: 2px;
+  font-size: 13px;
+}
+
+.code-submit-message {
+  margin-top: 4px;
+  line-height: 1.5;
+}
+
+.hydro-inline-field {
+  width: 100%;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 8px;
+  align-items: center;
 }
 
 .question-actions,
@@ -1735,6 +1849,24 @@ body {
   flex-wrap: wrap;
 }
 
+@media (max-width: 1100px) {
+  .programming-exam-split {
+    grid-template-columns: 1fr;
+    min-height: 0;
+  }
+
+  .programming-code-panel {
+    position: static;
+    border-left: 0;
+    padding-left: 0;
+  }
+
+  .code-answer-input .el-textarea__inner,
+  .code-answer-input textarea {
+    min-height: 320px;
+  }
+}
+
 @media (max-width: 900px) {
   .side {
     width: 72px !important;
@@ -1850,6 +1982,7 @@ body {
   .uploaded-asset-list,
   .exam-form-grid,
   .exam-preview-meta,
+  .hydro-inline-field,
   .snapshot-editor-grid {
     grid-template-columns: 1fr;
   }

@@ -108,6 +108,51 @@
                   <el-input-number v-model="singleForm.defaultScore" :min="0" :step="1" />
                 </el-form-item>
               </div>
+              <template v-if="singleForm.type === 'programming'">
+                <el-form-item label="Hydro题目">
+                  <div class="hydro-inline-field">
+                    <el-input v-model="singleForm.programmingRef.externalProblemId" placeholder="输入 Hydro 题号或题名，例如 P1000" />
+                    <el-button :icon="Refresh" :loading="singleHydroPulling" :disabled="!canPullSingleHydroProblem" @click="pullSingleHydroProblem">
+                      拉取
+                    </el-button>
+                    <el-button :icon="Link" :disabled="!singleHydroProblemUrl" @click="openSingleHydroProblem">打开</el-button>
+                  </div>
+                </el-form-item>
+                <el-form-item label="Hydro链接">
+                  <el-input v-model="singleForm.programmingRef.externalProblemUrl" placeholder="留空则按 Hydro 站点自动生成" />
+                </el-form-item>
+                <el-form-item label="Hydro站点">
+                  <el-input v-model="singleForm.programmingRef.platformBaseUrl" placeholder="例如 https://oj.example.com" />
+                </el-form-item>
+                <el-form-item label="Hydro域">
+                  <div class="hydro-inline-field">
+                    <el-input v-model="singleForm.programmingRef.domainId" placeholder="默认 system；其他域填写域 ID" />
+                    <el-input v-model="singleForm.programmingRef.domainName" placeholder="域名称/备注，可选" />
+                  </div>
+                </el-form-item>
+                <el-form-item label="录入账号">
+                  <div class="hydro-inline-field">
+                    <el-select
+                      v-model="singleForm.programmingRef.accountId"
+                      clearable
+                      filterable
+                      placeholder="选择用于拉取题目的外部账号"
+                      @change="handleSingleHydroAccountChange"
+                    >
+                      <el-option
+                        v-for="account in hydroAccountOptions"
+                        :key="account.id"
+                        :label="account.label"
+                        :value="account.id"
+                      />
+                    </el-select>
+                    <el-tag v-if="singleHydroBindingLabel" type="info">{{ singleHydroBindingLabel }}</el-tag>
+                  </div>
+                </el-form-item>
+                <el-form-item label="测评语言">
+                  <el-input v-model="singleForm.programmingRef.languagesText" placeholder="cc.cc17o2, py.py3, java" />
+                </el-form-item>
+              </template>
               <el-form-item label="题干">
                 <div style="width: 100%">
                   <div class="toolbar" style="margin-bottom: 8px">
@@ -520,9 +565,12 @@
             <div v-for="asset in assetReportPreview" :key="asset.url" class="asset-report-item">
               <span class="asset-report-name">{{ asset.displayName || asset.filename }}</span>
               <el-tag size="small" :type="asset.referenced ? 'success' : 'warning'">
-                {{ asset.referenced ? '已引用' : '孤立' }}
+                {{ asset.referenced ? `${asset.referenceCount || 0} 处引用` : '孤立' }}
               </el-tag>
               <small>{{ formatAssetKind(asset.kind) }} · {{ formatFileSize(asset.size) }}</small>
+              <small v-if="asset.locations?.length" class="asset-reference-locations">
+                {{ asset.locations.slice(0, 3).join('；') }}
+              </small>
             </div>
           </div>
           <el-empty v-else-if="assetReport" description="没有题目附件" />
@@ -536,8 +584,8 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { ElMessage, ElMessageBox } from 'element-plus';
-import { Back, Delete, DocumentAdd, DocumentCopy, Plus, Refresh, Upload, View } from '@element-plus/icons-vue';
-import { api } from '../api';
+import { Back, Delete, DocumentAdd, DocumentCopy, Link, Plus, Refresh, Upload, View } from '@element-plus/icons-vue';
+import { api, buildQuery } from '../api';
 import MarkdownRenderer from '../components/MarkdownRenderer.vue';
 
 const router = useRouter();
@@ -577,6 +625,7 @@ const blankCaseSensitive = ref(false);
 const blankSpaceSensitive = ref(false);
 const answerReference = ref('');
 const singleSaving = ref(false);
+const singleHydroPulling = ref(false);
 const singleDuplicateChecking = ref(false);
 const singleConflictResult = ref(null);
 let singleDuplicateTimer = null;
@@ -594,6 +643,7 @@ const uploadedAssets = ref([]);
 const uploadingAsset = ref(false);
 const assetDrawerVisible = ref(false);
 const assetInsertTarget = ref(null);
+const hydroAccounts = ref([]);
 const portableUploadRef = ref(null);
 const portableUploadKey = ref(0);
 const assetUploadRef = ref(null);
@@ -615,6 +665,44 @@ const importableBatchCount = computed(
 );
 const selectedBatchQuestion = computed(() => batchPreview.value[selectedPreviewIndex.value] ?? batchPreview.value[0]);
 const singlePreviewQuestion = computed(() => buildSinglePreview());
+const singleHydroProblemUrl = computed(() => {
+  const explicit = singleForm.programmingRef.externalProblemUrl?.trim();
+  const problemId = singleForm.programmingRef.externalProblemId?.trim();
+  if (explicit) return explicit;
+  const baseUrl = normalizeBaseUrl(singleForm.programmingRef.platformBaseUrl || 'https://oj.example.com');
+  const domainId = singleForm.programmingRef.domainId?.trim();
+  const domainPrefix = domainId && domainId !== 'system' ? `/d/${encodeURIComponent(domainId)}` : '';
+  return problemId ? `${baseUrl}${domainPrefix}/p/${encodeURIComponent(problemId)}` : '';
+});
+const hydroAccountOptions = computed(() =>
+  hydroAccounts.value.map((account) => ({
+    ...account,
+    label: `${account.loginUsername || account.hydroUsername} · ${account.platformBaseUrl} · ${account.ownerName || account.ownerUsername || account.studentName || '账号'}`,
+  })),
+);
+const selectedSingleHydroAccount = computed(() =>
+  hydroAccounts.value.find((account) => account.id === singleForm.programmingRef.accountId) ?? null,
+);
+const singleHydroBindingLabel = computed(() => {
+  const parts = [
+    singleForm.programmingRef.platformBaseUrl,
+    `域 ${formatHydroDomainLabel(singleForm.programmingRef)}`,
+    singleForm.programmingRef.accountLabel || selectedSingleHydroAccount.value?.loginUsername,
+  ].filter(Boolean);
+  return parts.join(' / ');
+});
+
+function formatHydroDomainLabel(ref) {
+  const domainId = String(ref?.domainId || '').trim();
+  const domainName = String(ref?.domainName || '').trim();
+  if (domainId && domainName && domainName !== domainId && domainName !== 'system') {
+    return `${domainId} / ${domainName}`;
+  }
+  return domainId || domainName || 'system';
+}
+const canPullSingleHydroProblem = computed(() =>
+  Boolean(singleForm.programmingRef.externalProblemId?.trim() || singleForm.programmingRef.externalProblemUrl?.trim()),
+);
 const singlePreviewError = computed(() => {
   try {
     validatePayload(singlePreviewQuestion.value, '当前题目');
@@ -650,12 +738,29 @@ function baseSingleForm() {
     difficulty: 1,
     defaultScore: 2,
     analysis: '',
+    programmingRef: emptyProgrammingRef(),
     options: [
       { optionKey: 'A', content: '', isCorrect: false, sortOrder: 1 },
       { optionKey: 'B', content: '', isCorrect: true, sortOrder: 2 },
       { optionKey: 'C', content: '', isCorrect: false, sortOrder: 3 },
       { optionKey: 'D', content: '', isCorrect: false, sortOrder: 4 },
     ],
+  };
+}
+
+function emptyProgrammingRef() {
+  return {
+    externalProblemId: '',
+    externalProblemUrl: '',
+    platformBaseUrl: 'https://oj.example.com',
+    domainId: 'system',
+    domainName: 'system',
+    accountId: '',
+    accountLabel: '',
+    languagesText: 'cc.cc17o2, py.py3',
+    timeLimit: null,
+    memoryLimit: null,
+    judgeConfig: null,
   };
 }
 
@@ -668,7 +773,27 @@ async function loadBaseData() {
   tags.value = tagPage.items;
   sharedCourseId.value = sharedCourseId.value || courses.value[0]?.id || '';
   await loadKnowledgeTree();
+  await loadHydroAccounts();
   refreshPreview();
+}
+
+async function loadHydroAccounts() {
+  try {
+    const data = await api('/hydro/accounts?pageSize=100&platformCode=hydro');
+    hydroAccounts.value = data.items ?? [];
+  } catch {
+    hydroAccounts.value = [];
+  }
+}
+
+function handleSingleHydroAccountChange(accountId) {
+  const account = hydroAccounts.value.find((item) => item.id === accountId);
+  if (!account) {
+    singleForm.programmingRef.accountLabel = '';
+    return;
+  }
+  singleForm.programmingRef.platformBaseUrl = account.platformBaseUrl || singleForm.programmingRef.platformBaseUrl;
+  singleForm.programmingRef.accountLabel = `${account.loginUsername || account.hydroUsername}@${shortHost(account.platformBaseUrl)}`;
 }
 
 async function handleSharedCourseChange() {
@@ -708,6 +833,10 @@ function buildSinglePreview() {
     answerText: getSingleAnswerText(),
     statusText: '待导入',
   };
+
+  if (singleForm.type === 'programming') {
+    payload.programmingRef = buildSingleProgrammingRefPayload();
+  }
 
   if (singleForm.type === 'fill_blank') {
     payload.answer = buildBlankAnswer(blankAnswers.value, payload.defaultScore);
@@ -1235,15 +1364,28 @@ function parseQuestionBlock(block, number, answerConfig) {
     标签: 'tags',
     知识点: 'knowledgePoints',
     答案: 'answer',
+    hydro题目: 'hydroProblem',
+    hydro题号: 'hydroProblem',
+    hydroproblem: 'hydroProblem',
+    hydroproblemid: 'hydroProblem',
+    hydroproblemname: 'hydroProblem',
+    externalproblemid: 'hydroProblem',
+    hydro链接: 'hydroUrl',
+    hydro地址: 'hydroUrl',
+    hydroproblemurl: 'hydroUrl',
+    externalproblemurl: 'hydroUrl',
+    hydro语言: 'hydroLanguages',
+    hydrolanguages: 'hydroLanguages',
   };
   const sectionMap = { 题干: 'content', 选项: 'options', 解析: 'analysis' };
   let currentSection = '';
 
   for (const line of block.split('\n')) {
     const trimmed = line.trim();
-    const fieldMatch = trimmed.match(/^(标题|题型|难度|分值|标签|知识点|答案)[:：]\s*(.*)$/);
+    const fieldMatch = trimmed.match(/^(标题|题型|难度|分值|标签|知识点|答案|Hydro\s*题目|Hydro\s*题号|hydroProblem|hydroProblemId|hydroProblemName|externalProblemId|Hydro\s*链接|Hydro\s*地址|hydroProblemUrl|externalProblemUrl|Hydro\s*语言|hydroLanguages)[:：]\s*(.*)$/i);
     if (!currentSection && fieldMatch) {
-      fields[fieldMap[fieldMatch[1]]] = fieldMatch[2].trim();
+      const fieldKey = fieldMatch[1].replace(/\s+/g, '').toLowerCase();
+      fields[fieldMap[fieldKey] ?? fieldMap[fieldMatch[1]]] = fieldMatch[2].trim();
       continue;
     }
 
@@ -1284,6 +1426,14 @@ function parseQuestionBlock(block, number, answerConfig) {
 
   if (isChoiceType(type)) {
     payload.options = parseOptions(sections.options.join('\n'), answerKeys, type);
+  }
+
+  if (type === 'programming') {
+    payload.programmingRef = buildProgrammingRefFromValues({
+      externalProblemId: fields.hydroProblem,
+      externalProblemUrl: fields.hydroUrl,
+      languagesText: fields.hydroLanguages,
+    });
   }
 
   if (type === 'fill_blank') {
@@ -1588,6 +1738,7 @@ function buildPortablePreviewRow(question, index) {
     options: question.options ?? [],
     answer: question.answer,
     scoringRule: question.scoringRule,
+    programmingRef: normalizeProgrammingRef(question.programmingRef),
     allowOptionShuffle: question.allowOptionShuffle,
     answerText: portableAnswerForImport(question),
     statusText: '待导入',
@@ -1846,6 +1997,13 @@ function normalizePortableQuestion(record) {
     answer,
   );
   const scoringRule = normalizePortableJson(source.scoringRuleJson ?? source.scoringRule ?? record?.scoringRuleJson ?? record?.scoringRule);
+  const programmingRef = normalizeProgrammingRef(
+    source.programmingRef ?? {
+      externalProblemId: source.hydroProblemId ?? source.hydroProblemName ?? source.hydroProblem ?? source.externalProblemId,
+      externalProblemUrl: source.hydroProblemUrl ?? source.hydroUrl ?? source.externalProblemUrl,
+      languages: source.hydroLanguages ?? source.languages,
+    },
+  );
 
   return {
     type: normalizeType(source.type || record?.type || 'single_choice'),
@@ -1859,6 +2017,7 @@ function normalizePortableQuestion(record) {
     options,
     answer,
     scoringRule,
+    programmingRef,
     allowOptionShuffle: normalizeBoolean(source.allowOptionShuffle ?? record?.allowOptionShuffle),
     courseId: source.courseId ?? record?.courseId,
     courseName: source.courseName ?? record?.courseName,
@@ -1956,6 +2115,11 @@ function portableQuestionBlock(question) {
   ];
   if (question.tagNames?.length) lines.push(`标签：${question.tagNames.join(',')}`);
   if (question.knowledgePointNames?.length) lines.push(`知识点：${question.knowledgePointNames.join(',')}`);
+  if (question.type === 'programming' && question.programmingRef?.externalProblemId) {
+    lines.push(`Hydro题目：${question.programmingRef.externalProblemId}`);
+    if (question.programmingRef.externalProblemUrl) lines.push(`Hydro链接：${question.programmingRef.externalProblemUrl}`);
+    if (question.programmingRef.languages?.length) lines.push(`Hydro语言：${question.programmingRef.languages.join(',')}`);
+  }
   lines.push('题干：', question.content);
   if (isChoiceType(question.type)) {
     lines.push('选项：');
@@ -2125,6 +2289,145 @@ function getSingleAnswerText() {
   }
   if (singleForm.type === 'fill_blank') return blankAnswers.value;
   return answerReference.value;
+}
+
+function buildSingleProgrammingRefPayload() {
+  return buildProgrammingRefFromValues({
+    externalProblemId: singleForm.programmingRef.externalProblemId,
+    externalProblemUrl: singleForm.programmingRef.externalProblemUrl,
+    platformBaseUrl: singleForm.programmingRef.platformBaseUrl,
+    domainId: singleForm.programmingRef.domainId,
+    domainName: singleForm.programmingRef.domainName,
+    accountId: singleForm.programmingRef.accountId,
+    accountLabel: singleForm.programmingRef.accountLabel,
+    languagesText: singleForm.programmingRef.languagesText,
+    timeLimit: singleForm.programmingRef.timeLimit,
+    memoryLimit: singleForm.programmingRef.memoryLimit,
+    judgeConfig: singleForm.programmingRef.judgeConfig,
+  });
+}
+
+function normalizeProgrammingRef(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const ref = buildProgrammingRefFromValues({
+    externalProblemId: value.externalProblemId ?? value.hydroProblemId ?? value.hydroProblemName ?? value.hydroProblem,
+    externalProblemUrl: value.externalProblemUrl ?? value.hydroProblemUrl ?? value.hydroUrl,
+    platformBaseUrl: value.platformBaseUrl,
+    domainId: value.domainId,
+    domainName: value.domainName,
+    accountId: value.accountId,
+    accountLabel: value.accountLabel,
+    languagesText: Array.isArray(value.languages) ? value.languages.join(',') : value.languages ?? value.hydroLanguages,
+    timeLimit: value.timeLimit,
+    memoryLimit: value.memoryLimit,
+    judgeConfig: value.judgeConfig,
+  });
+  return ref?.externalProblemId ? ref : null;
+}
+
+function buildProgrammingRefFromValues({
+  externalProblemId,
+  externalProblemUrl,
+  platformBaseUrl,
+  domainId,
+  domainName,
+  accountId,
+  accountLabel,
+  languagesText,
+  timeLimit,
+  memoryLimit,
+  judgeConfig,
+}) {
+  const problemId = String(externalProblemId ?? '').trim();
+  if (!problemId) return null;
+  const ref = {
+    externalProblemId: problemId,
+    externalProblemUrl: String(externalProblemUrl ?? '').trim() || undefined,
+    platformBaseUrl: String(platformBaseUrl ?? '').trim() || undefined,
+    domainId: String(domainId ?? '').trim() || undefined,
+    domainName: String(domainName ?? '').trim() || undefined,
+    accountId: accountId || undefined,
+    accountLabel: String(accountLabel ?? '').trim() || undefined,
+    languages: parseHydroLanguages(languagesText || 'cc.cc17o2, py.py3'),
+  };
+  if (timeLimit) ref.timeLimit = Number(timeLimit);
+  if (memoryLimit) ref.memoryLimit = Number(memoryLimit);
+  if (judgeConfig) ref.judgeConfig = judgeConfig;
+  return ref;
+}
+
+async function pullSingleHydroProblem() {
+  if (!canPullSingleHydroProblem.value) {
+    ElMessage.warning('请先填写 Hydro 题号或链接');
+    return;
+  }
+
+  singleHydroPulling.value = true;
+  try {
+    const pulled = await api(
+      `/hydro/problems/pull${buildQuery({
+        problemId: singleForm.programmingRef.externalProblemId.trim(),
+        problemUrl: singleForm.programmingRef.externalProblemUrl.trim(),
+        platformBaseUrl: singleForm.programmingRef.platformBaseUrl.trim(),
+        domainId: singleForm.programmingRef.domainId.trim(),
+        domainName: singleForm.programmingRef.domainName.trim(),
+        accountId: singleForm.programmingRef.accountId,
+      })}`,
+    );
+    applyPulledHydroProblem(singleForm, pulled);
+    refreshPreview();
+    scheduleSingleDuplicateCheck();
+    ElMessage.success('Hydro 题目已拉取');
+  } catch (error) {
+    ElMessage.error(error.message || 'Hydro 题目拉取失败');
+  } finally {
+    singleHydroPulling.value = false;
+  }
+}
+
+function applyPulledHydroProblem(target, pulled) {
+  const ref = pulled.programmingRef ?? pulled;
+  target.type = 'programming';
+  target.title = pulled.title || target.title;
+  target.content = pulled.content || target.content;
+  target.programmingRef.externalProblemId = ref.externalProblemId || pulled.externalProblemId || target.programmingRef.externalProblemId;
+  target.programmingRef.externalProblemUrl = ref.externalProblemUrl || pulled.externalProblemUrl || target.programmingRef.externalProblemUrl;
+  target.programmingRef.platformBaseUrl = ref.platformBaseUrl || ref.judgeConfig?.platformBaseUrl || target.programmingRef.platformBaseUrl;
+  const pulledDomainId = ref.domainId || ref.judgeConfig?.domainId || target.programmingRef.domainId || 'system';
+  target.programmingRef.domainId = pulledDomainId;
+  target.programmingRef.domainName = ref.domainName || ref.judgeConfig?.domainName || pulledDomainId;
+  target.programmingRef.accountId = ref.accountId || ref.judgeConfig?.accountId || target.programmingRef.accountId || '';
+  target.programmingRef.accountLabel = ref.accountLabel || ref.judgeConfig?.accountLabel || target.programmingRef.accountLabel || '';
+  target.programmingRef.languagesText = (ref.languages || pulled.languages || []).join(', ') || target.programmingRef.languagesText;
+  target.programmingRef.timeLimit = ref.timeLimit ?? pulled.timeLimit ?? null;
+  target.programmingRef.memoryLimit = ref.memoryLimit ?? pulled.memoryLimit ?? null;
+  target.programmingRef.judgeConfig = ref.judgeConfig ?? null;
+  resetSingleOptions();
+}
+
+function parseHydroLanguages(value) {
+  return String(value || '')
+    .split(/[,，、\s]+/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function openSingleHydroProblem() {
+  if (!singleHydroProblemUrl.value) return;
+  window.open(singleHydroProblemUrl.value, '_blank', 'noopener,noreferrer');
+}
+
+function normalizeBaseUrl(value) {
+  const raw = String(value || 'https://oj.example.com').trim() || 'https://oj.example.com';
+  return (/^https?:\/\//i.test(raw) ? raw : `http://${raw}`).replace(/\/+$/, '');
+}
+
+function shortHost(value) {
+  try {
+    return new URL(normalizeBaseUrl(value)).host;
+  } catch {
+    return String(value || '').replace(/^https?:\/\//i, '').replace(/\/+$/, '');
+  }
 }
 
 function isChoiceType(type) {
@@ -2363,5 +2666,9 @@ onMounted(async () => {
 .asset-report-item small {
   grid-column: 1 / -1;
   color: var(--el-text-color-secondary);
+}
+
+.asset-reference-locations {
+  overflow-wrap: anywhere;
 }
 </style>

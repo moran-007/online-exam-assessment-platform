@@ -61,6 +61,15 @@ type QuestionSnapshot = {
       score?: number;
     }>;
   } | null;
+  programmingRef?: {
+    judgeProvider: string;
+    externalProblemId: string;
+    externalProblemUrl?: string | null;
+    languages?: string[];
+    timeLimit?: number | null;
+    memoryLimit?: number | null;
+    judgeConfig?: Prisma.JsonValue | null;
+  } | null;
 };
 
 type PaperSnapshotQuestion = {
@@ -497,6 +506,9 @@ export class StudentService {
         questionId: answer.questionId,
         answer: answer.answerJson,
         status: toApiEnum(answer.status),
+        score: Number(answer.score),
+        isCorrect: answer.isCorrect,
+        autoResult: answer.autoResultJson ?? {},
         savedAt: answer.updatedAt,
       })),
       exam: {
@@ -515,7 +527,20 @@ export class StudentService {
   async saveAnswer(attemptId: string, dto: SaveAnswerDto, user: RequestUser) {
     const attempt = await this.findEditableAttempt(attemptId, user);
     const paperSnapshot = attempt.paperInstance.paperSnapshotJson as unknown as PaperSnapshot;
-    this.assertQuestionInPaper(paperSnapshot, dto.questionId);
+    const paperQuestion = this.assertQuestionInPaper(paperSnapshot, dto.questionId);
+    const existing = await this.prisma.answerRecord.findUnique({
+      where: {
+        attemptId_questionId: {
+          attemptId,
+          questionId: dto.questionId,
+        },
+      },
+    });
+    const preserveJudgeStatus =
+      paperQuestion.snapshot.type.toUpperCase() === QuestionType.PROGRAMMING &&
+      Boolean(existing) &&
+      (existing?.status === AnswerRecordStatus.JUDGE_PENDING || existing?.status === AnswerRecordStatus.JUDGE_DONE) &&
+      this.answerCode(existing?.answerJson) === this.answerCode(dto.answer);
 
     await this.prisma.answerRecord.upsert({
       where: {
@@ -526,7 +551,10 @@ export class StudentService {
       },
       update: {
         answerJson: dto.answer as Prisma.InputJsonObject,
-        status: AnswerRecordStatus.SAVED,
+        status: preserveJudgeStatus ? existing?.status : AnswerRecordStatus.SAVED,
+        score: preserveJudgeStatus ? existing?.score : undefined,
+        isCorrect: preserveJudgeStatus ? existing?.isCorrect : undefined,
+        autoResultJson: preserveJudgeStatus ? this.nullableJsonInput(existing?.autoResultJson) : undefined,
       },
       create: {
         attemptId,
@@ -596,15 +624,24 @@ export class StudentService {
       for (const paperQuestion of this.flattenPaperQuestions(paperSnapshot)) {
         const existing = answerMap.get(paperQuestion.questionId);
         const answerJson = (existing?.answerJson as Record<string, unknown>) ?? {};
-        const grading = this.gradeQuestion(paperQuestion, answerJson);
+        const grading =
+          paperQuestion.snapshot.type.toUpperCase() === QuestionType.PROGRAMMING &&
+          existing?.status === AnswerRecordStatus.JUDGE_DONE
+            ? {
+                score: Number(existing.score),
+                isCorrect: existing.isCorrect,
+                status: AnswerRecordStatus.JUDGE_DONE,
+                autoResult: existing.autoResultJson ?? {},
+              }
+            : this.gradeQuestion(paperQuestion, answerJson);
 
         if (grading.status === AnswerRecordStatus.AUTO_GRADED) {
           objectiveScore += grading.score;
         } else if (grading.status === AnswerRecordStatus.MANUAL_NEEDED) {
           hasManual = true;
           subjectiveScore += grading.score;
-        } else if (grading.status === AnswerRecordStatus.JUDGE_PENDING) {
-          hasJudge = true;
+        } else if (grading.status === AnswerRecordStatus.JUDGE_PENDING || grading.status === AnswerRecordStatus.JUDGE_DONE) {
+          hasJudge ||= grading.status === AnswerRecordStatus.JUDGE_PENDING;
           judgeScore += grading.score;
         }
 
@@ -827,7 +864,7 @@ export class StudentService {
       score: Number(item.score),
       masteryStatus: toApiEnum(item.masteryStatus),
       sourceType: toApiEnum(item.sourceType),
-      nextReviewAt: this.nextReviewAt(item.lastWrongAt, item.wrongCount, item.masteryStatus),
+      nextReviewAt: this.nextReviewAt(item.lastWrongAt, item.wrongCount, item.masteryStatus).nextReviewAt,
       recentEvents: item.events.map((event) => ({
         id: event.id,
         sourceType: toApiEnum(event.sourceType),
@@ -1066,7 +1103,7 @@ export class StudentService {
       mastered: dto.isCorrect,
       masteryStatus: toApiEnum(updated.masteryStatus),
       wrongCount: updated.wrongCount,
-      nextReviewAt: this.nextReviewAt(updated.lastWrongAt, updated.wrongCount, updated.masteryStatus),
+      nextReviewAt: this.nextReviewAt(updated.lastWrongAt, updated.wrongCount, updated.masteryStatus).nextReviewAt,
     };
   }
 
@@ -1098,10 +1135,21 @@ export class StudentService {
 
   async wrongQuestionInsights(user: RequestUser) {
     this.ensureStudent(user);
-    const [items, events] = await this.prisma.$transaction([
+    const classIds = await this.resolveStudentClassIds(user.id);
+    const [items, events, reviewRules] = await this.prisma.$transaction([
       this.prisma.wrongQuestion.findMany({
         where: { studentId: user.id, question: { deletedAt: null } },
-        include: { question: { select: { id: true, title: true, course: { select: { name: true } } } } },
+        include: {
+          question: {
+            select: {
+              id: true,
+              title: true,
+              courseId: true,
+              course: { select: { name: true } },
+              knowledgePoints: { select: { knowledgePointId: true } },
+            },
+          },
+        },
         orderBy: { lastWrongAt: 'desc' },
       }),
       this.prisma.wrongQuestionEvent.findMany({
@@ -1109,6 +1157,16 @@ export class StudentService {
         include: { question: { select: { id: true, title: true } } },
         orderBy: { happenedAt: 'asc' },
         take: 500,
+      }),
+      this.prisma.reviewReminderRule.findMany({
+        where: {
+          enabled: true,
+          OR: [
+            { classId: null },
+            { classId: { in: classIds } },
+          ],
+        },
+        orderBy: [{ updatedAt: 'desc' }],
       }),
     ]);
 
@@ -1131,7 +1189,8 @@ export class StudentService {
     const reminders = items
       .filter((item) => item.masteryStatus === MasteryStatus.UNMASTERED || item.masteryStatus === MasteryStatus.REVIEWING)
       .map((item) => {
-        const nextReviewAt = this.nextReviewAt(item.lastWrongAt, item.wrongCount, item.masteryStatus);
+        const rule = this.matchReviewRule(item.question, reviewRules, classIds);
+        const reviewPlan = this.nextReviewAt(item.lastWrongAt, item.wrongCount, item.masteryStatus, rule);
         return {
           questionId: item.questionId,
           title: item.question.title,
@@ -1140,8 +1199,10 @@ export class StudentService {
           wrongCount: item.wrongCount,
           masteryStatus: toApiEnum(item.masteryStatus),
           lastWrongAt: item.lastWrongAt,
-          nextReviewAt,
-          overdue: nextReviewAt <= new Date(),
+          nextReviewAt: reviewPlan.nextReviewAt,
+          reviewIntervalDays: reviewPlan.intervalDays,
+          reviewRuleId: rule?.id ?? null,
+          overdue: reviewPlan.nextReviewAt <= new Date(),
         };
       })
       .sort((a, b) => a.nextReviewAt.getTime() - b.nextReviewAt.getTime())
@@ -1526,9 +1587,21 @@ export class StudentService {
   }
 
   private assertQuestionInPaper(paperSnapshot: PaperSnapshot, questionId: string) {
-    if (!this.flattenPaperQuestions(paperSnapshot).some((question) => question.questionId === questionId)) {
+    const paperQuestion = this.flattenPaperQuestions(paperSnapshot).find((question) => question.questionId === questionId);
+    if (!paperQuestion) {
       throw new BadRequestException('题目不属于当前试卷实例');
     }
+    return paperQuestion;
+  }
+
+  private answerCode(answerJson: Prisma.JsonValue | Record<string, unknown> | undefined | null) {
+    if (!answerJson || typeof answerJson !== 'object' || Array.isArray(answerJson)) return '';
+    const answer = answerJson as Record<string, unknown>;
+    return String(answer.code ?? answer.text ?? '').trim();
+  }
+
+  private nullableJsonInput(value: Prisma.JsonValue | undefined) {
+    return value === null ? Prisma.JsonNull : value === undefined ? undefined : (value as Prisma.InputJsonValue);
   }
 
   private buildPaperSnapshot(paper: Prisma.PaperGetPayload<{
@@ -1592,6 +1665,14 @@ export class StudentService {
           title: paperQuestion.snapshot.title,
           content: paperQuestion.snapshot.content,
           score: paperQuestion.score,
+          programmingRef: paperQuestion.snapshot.programmingRef
+            ? {
+                ...paperQuestion.snapshot.programmingRef,
+                externalProblemUrl:
+                  paperQuestion.snapshot.programmingRef.externalProblemUrl ??
+                  null,
+              }
+            : null,
           options: (paperQuestion.snapshot.options ?? []).map((option) => ({
             optionId: option.id,
             label: option.optionKey,
@@ -1785,14 +1866,68 @@ export class StudentService {
     return result;
   }
 
-  private nextReviewAt(lastWrongAt: Date, wrongCount: number, status: MasteryStatus) {
+  private matchReviewRule(
+    question: { courseId: string; knowledgePoints: Array<{ knowledgePointId: string }> },
+    rules: Array<{
+      id: string;
+      courseId: string | null;
+      classId: string | null;
+      knowledgePointId: string | null;
+      intervalsJson: Prisma.JsonValue;
+      masteryRuleJson: Prisma.JsonValue | null;
+    }>,
+    classIds: string[],
+  ) {
+    const knowledgePointIds = new Set(question.knowledgePoints.map((item) => item.knowledgePointId));
+    return rules
+      .map((rule) => {
+        if (rule.courseId && rule.courseId !== question.courseId) return null;
+        if (rule.classId && !classIds.includes(rule.classId)) return null;
+        if (rule.knowledgePointId && !knowledgePointIds.has(rule.knowledgePointId)) return null;
+        const score = (rule.knowledgePointId ? 4 : 0) + (rule.classId ? 2 : 0) + (rule.courseId ? 1 : 0);
+        return { rule, score };
+      })
+      .filter((item): item is { rule: (typeof rules)[number]; score: number } => Boolean(item))
+      .sort((a, b) => b.score - a.score)[0]?.rule;
+  }
+
+  private nextReviewAt(
+    lastWrongAt: Date,
+    wrongCount: number,
+    status: MasteryStatus,
+    rule?: {
+      intervalsJson: Prisma.JsonValue;
+      masteryRuleJson: Prisma.JsonValue | null;
+    },
+  ) {
     if (status === MasteryStatus.MASTERED || status === MasteryStatus.IGNORED) {
-      return lastWrongAt;
+      return { nextReviewAt: lastWrongAt, intervalDays: 0 };
     }
-    const intervalDays = status === MasteryStatus.REVIEWING
-      ? 3
-      : Math.min(Math.max(wrongCount || 1, 1), 7);
-    return new Date(lastWrongAt.getTime() + intervalDays * 24 * 60 * 60 * 1000);
+    const intervals = this.reviewIntervals(rule?.intervalsJson);
+    const masteryRule = this.reviewMasteryRule(rule?.masteryRuleJson);
+    const index = Math.min(Math.max(wrongCount || 1, 1) - 1, intervals.length - 1);
+    const intervalDays = status === MasteryStatus.REVIEWING ? masteryRule.reviewingIntervalDays : intervals[index];
+    return {
+      nextReviewAt: new Date(lastWrongAt.getTime() + intervalDays * 24 * 60 * 60 * 1000),
+      intervalDays,
+    };
+  }
+
+  private reviewIntervals(value: Prisma.JsonValue | undefined) {
+    if (!Array.isArray(value)) return [1, 3, 7, 14, 30];
+    const intervals = value.map(Number).filter((item) => Number.isFinite(item) && item > 0);
+    return intervals.length ? intervals : [1, 3, 7, 14, 30];
+  }
+
+  private reviewMasteryRule(value: Prisma.JsonValue | null | undefined) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      return { reviewingIntervalDays: 3, correctStreak: 2 };
+    }
+    const source = value as Record<string, unknown>;
+    return {
+      reviewingIntervalDays: Number(source.reviewingIntervalDays) > 0 ? Math.round(Number(source.reviewingIntervalDays)) : 3,
+      correctStreak: Number(source.correctStreak) > 0 ? Math.round(Number(source.correctStreak)) : 2,
+    };
   }
 
   private pickRandom<T>(items: T[], count: number) {

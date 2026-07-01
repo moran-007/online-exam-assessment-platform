@@ -1,0 +1,161 @@
+import { Body, Controller, Delete, Get, Headers, Param, Patch, Post, Put, Query } from '@nestjs/common';
+import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import { Permissions } from '../../common/decorators/permissions.decorator';
+import { Public } from '../../common/decorators/public.decorator';
+import { RequestUser } from '../../common/interfaces/request-user.interface';
+import {
+  BindHydroAccountDto,
+  BindHydroProblemDto,
+  PullHydroProblemDto,
+  QueryHydroSummaryDto,
+  SubmitHydroCodeDto,
+  WriteBackHydroResultDto,
+} from './dto/hydro.dto';
+import { HydroService } from './hydro.service';
+
+@ApiTags('Hydro')
+@ApiBearerAuth()
+@Controller('hydro')
+export class HydroController {
+  constructor(private readonly hydroService: HydroService) {}
+
+  @Get('settings')
+  @Permissions('question:read')
+  settings() {
+    return this.hydroService.settings();
+  }
+
+  @Get('platforms')
+  platforms() {
+    return this.hydroService.platforms();
+  }
+
+  @Get('problems')
+  @Permissions('question:read')
+  listProblems(@Query() query: QueryHydroSummaryDto, @CurrentUser() user: RequestUser) {
+    return this.hydroService.listProblemBindings(query, user);
+  }
+
+  @Get('problems/pull')
+  @Permissions('question:create')
+  pullProblem(@Query() query: PullHydroProblemDto) {
+    return this.hydroService.pullProblem(query);
+  }
+
+  @Get('questions/:questionId/binding')
+  @Permissions('question:read')
+  problemBinding(@Param('questionId') questionId: string) {
+    return this.hydroService.problemBinding(questionId);
+  }
+
+  @Put('questions/:questionId/binding')
+  @Permissions('question:update')
+  bindProblem(
+    @Param('questionId') questionId: string,
+    @Body() dto: BindHydroProblemDto,
+    @CurrentUser() user: RequestUser,
+  ) {
+    return this.hydroService.bindProblem(questionId, dto, user);
+  }
+
+  @Delete('questions/:questionId/binding')
+  @Permissions('question:update')
+  removeProblemBinding(@Param('questionId') questionId: string, @CurrentUser() user: RequestUser) {
+    return this.hydroService.removeProblemBinding(questionId, user);
+  }
+
+  @Get('accounts')
+  @Permissions('class:read')
+  accounts(@Query() query: QueryHydroSummaryDto) {
+    return this.hydroService.accounts(query);
+  }
+
+  @Put('accounts/:studentId')
+  @Permissions('class:update')
+  bindStudentAccount(
+    @Param('studentId') studentId: string,
+    @Body() dto: BindHydroAccountDto,
+    @CurrentUser() user: RequestUser,
+  ) {
+    return this.hydroService.bindAccount({ ...dto, studentId }, user);
+  }
+
+  @Post('accounts/:accountId/test')
+  @Permissions('class:update')
+  testAccount(@Param('accountId') accountId: string) {
+    return this.hydroService.testAccount(accountId);
+  }
+
+  @Get('my/accounts')
+  myAccounts(@CurrentUser() user: RequestUser) {
+    return this.hydroService.myAccounts(user);
+  }
+
+  @Get('my/account')
+  myAccount(@CurrentUser() user: RequestUser) {
+    return this.hydroService.myAccount(user);
+  }
+
+  @Put('my/account')
+  bindMyAccount(@Body() dto: BindHydroAccountDto, @CurrentUser() user: RequestUser) {
+    return this.hydroService.bindMyAccount(dto, user);
+  }
+
+  @Post('my/accounts/:accountId/test')
+  testMyAccount(@Param('accountId') accountId: string, @CurrentUser() user: RequestUser) {
+    return this.hydroService.testMyAccount(accountId, user);
+  }
+
+  @Post('attempts/:attemptId/questions/:questionId/submit-code')
+  submitCode(
+    @Param('attemptId') attemptId: string,
+    @Param('questionId') questionId: string,
+    @Body() dto: SubmitHydroCodeDto,
+    @CurrentUser() user: RequestUser,
+  ) {
+    return this.hydroService.submitCode(attemptId, questionId, dto, user);
+  }
+
+  @Post('questions/:questionId/submit-code')
+  submitPracticeCode(
+    @Param('questionId') questionId: string,
+    @Body() dto: SubmitHydroCodeDto,
+    @CurrentUser() user: RequestUser,
+  ) {
+    return this.hydroService.submitPracticeCode(questionId, dto, user);
+  }
+
+  @Get('submissions/:submissionId')
+  submission(@Param('submissionId') submissionId: string, @CurrentUser() user: RequestUser) {
+    return this.hydroService.submissionDetail(submissionId, user);
+  }
+
+  @Patch('submissions/:submissionId/result')
+  @Permissions('grading:update')
+  writeBackSubmission(
+    @Param('submissionId') submissionId: string,
+    @Body() dto: WriteBackHydroResultDto,
+    @CurrentUser() user: RequestUser,
+  ) {
+    return this.hydroService.writeBackResult({ ...dto, submissionId }, user);
+  }
+
+  @Post('writeback')
+  @Permissions('grading:update')
+  writeBack(@Body() dto: WriteBackHydroResultDto, @CurrentUser() user: RequestUser) {
+    return this.hydroService.writeBackResult(dto, user);
+  }
+
+  @Public()
+  @Post('callback')
+  callback(@Body() dto: WriteBackHydroResultDto, @Headers('x-hydro-secret') headerSecret?: string) {
+    return this.hydroService.writeBackCallback(dto, headerSecret);
+  }
+
+  @Get('summary')
+  @Permissions('statistics:read')
+  summary(@Query() query: QueryHydroSummaryDto, @CurrentUser() user: RequestUser) {
+    return this.hydroService.summary(query, user);
+  }
+}

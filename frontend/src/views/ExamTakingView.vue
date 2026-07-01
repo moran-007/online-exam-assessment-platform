@@ -32,7 +32,7 @@
             v-for="entry in visibleEntries"
             :id="`question-${entry.question.questionId}`"
             :key="entry.question.questionId"
-            class="question-card exam-question"
+            :class="['question-card', 'exam-question', entry.question.type === 'programming' ? 'programming-exam-question' : '']"
           >
             <div class="question-title">
               <div>
@@ -48,59 +48,154 @@
               </div>
             </div>
 
-            <h2 class="exam-question-title">{{ entry.question.title || `第 ${entry.index + 1} 题` }}</h2>
-            <MarkdownRenderer :source="entry.question.content" />
+            <template v-if="entry.question.type === 'programming'">
+              <div class="programming-exam-split">
+                <div class="programming-statement">
+                  <h2 class="exam-question-title">{{ entry.question.title || `第 ${entry.index + 1} 题` }}</h2>
+                  <MarkdownRenderer :source="entry.question.content" />
+                </div>
+                <div class="programming-code-panel">
+                  <div class="programming-answer">
+                    <div class="programming-toolbar">
+                      <span class="programming-language-label">语言</span>
+                      <el-select v-model="answers[entry.question.questionId].language" style="width: 170px">
+                        <el-option
+                          v-for="language in languageOptionsFor(entry.question)"
+                          :key="language"
+                          :label="languageLabel(language)"
+                          :value="language"
+                        />
+                      </el-select>
+                      <el-tag v-if="entry.question.programmingRef?.externalProblemId" type="success">
+                        {{ entry.question.programmingRef.externalProblemId }}
+                      </el-tag>
+                      <el-button
+                        v-if="entry.question.programmingRef?.externalProblemUrl"
+                        :icon="Link"
+                        @click="openHydroProblem(entry.question)"
+                      >
+                        打开 Hydro
+                      </el-button>
+                      <el-button
+                        type="primary"
+                        :icon="Upload"
+                        :loading="Boolean(codeSubmitLoading[entry.question.questionId])"
+                        @click="submitCode(entry)"
+                      >
+                        提交代码
+                      </el-button>
+                      <el-button
+                        v-if="codeSubmitFeedback[entry.question.questionId]?.submissionId"
+                        :icon="Refresh"
+                        :loading="Boolean(codeSubmitLoading[entry.question.questionId])"
+                        @click="refreshSubmission(entry.question.questionId)"
+                      >
+                        刷新结果
+                      </el-button>
+                    </div>
+                    <el-alert
+                      v-if="codeSubmitFeedback[entry.question.questionId]"
+                      class="code-submit-feedback"
+                      :type="codeSubmitFeedback[entry.question.questionId].type"
+                      :closable="false"
+                      show-icon
+                    >
+                      <template #title>
+                        {{ codeSubmitFeedback[entry.question.questionId].title }}
+                      </template>
+                      <div class="code-submit-meta">
+                        <span v-if="codeSubmitFeedback[entry.question.questionId].status">
+                          状态：{{ codeSubmitFeedback[entry.question.questionId].status }}
+                        </span>
+                        <span v-if="codeSubmitFeedback[entry.question.questionId].language">
+                          语言：{{ languageLabel(codeSubmitFeedback[entry.question.questionId].language) }}
+                        </span>
+                        <span v-if="codeSubmitFeedback[entry.question.questionId].externalSubmissionId">
+                          Hydro提交：{{ codeSubmitFeedback[entry.question.questionId].externalSubmissionId }}
+                        </span>
+                        <span v-if="codeSubmitFeedback[entry.question.questionId].score !== null && codeSubmitFeedback[entry.question.questionId].score !== undefined">
+                          得分：{{ codeSubmitFeedback[entry.question.questionId].score }}
+                        </span>
+                        <el-link
+                          v-if="codeSubmitFeedback[entry.question.questionId].recordUrl"
+                          type="primary"
+                          :href="codeSubmitFeedback[entry.question.questionId].recordUrl"
+                          target="_blank"
+                        >
+                          查看 Hydro 记录
+                        </el-link>
+                      </div>
+                      <div v-if="codeSubmitFeedback[entry.question.questionId].message" class="code-submit-message">
+                        {{ codeSubmitFeedback[entry.question.questionId].message }}
+                      </div>
+                    </el-alert>
+                    <el-input
+                      v-model="answers[entry.question.questionId].code"
+                      class="answer-input code-answer-input"
+                      type="textarea"
+                      :rows="22"
+                      placeholder="在这里编写代码"
+                    />
+                  </div>
+                </div>
+              </div>
+            </template>
 
-            <el-radio-group
-              v-if="['single_choice', 'true_false'].includes(entry.question.type)"
-              v-model="answers[entry.question.questionId].selectedOptionIds[0]"
-              class="answer-options"
-            >
-              <el-radio
-                v-for="option in entry.question.options"
-                :key="option.optionId"
-                :label="option.optionId"
-                class="answer-option"
+            <template v-else>
+              <h2 class="exam-question-title">{{ entry.question.title || `第 ${entry.index + 1} 题` }}</h2>
+              <MarkdownRenderer :source="entry.question.content" />
+
+              <el-radio-group
+                v-if="['single_choice', 'true_false'].includes(entry.question.type)"
+                v-model="answers[entry.question.questionId].selectedOptionIds[0]"
+                class="answer-options"
               >
-                <span class="option-choice">
-                  <strong>{{ option.label }}.</strong>
-                  <MarkdownRenderer :source="option.content" />
-                </span>
-              </el-radio>
-            </el-radio-group>
+                <el-radio
+                  v-for="option in entry.question.options"
+                  :key="option.optionId"
+                  :label="option.optionId"
+                  class="answer-option"
+                >
+                  <span class="option-choice">
+                    <strong>{{ option.label }}.</strong>
+                    <MarkdownRenderer :source="option.content" />
+                  </span>
+                </el-radio>
+              </el-radio-group>
 
-            <el-checkbox-group
-              v-else-if="entry.question.type === 'multiple_choice'"
-              v-model="answers[entry.question.questionId].selectedOptionIds"
-              class="answer-options"
-            >
-              <el-checkbox
-                v-for="option in entry.question.options"
-                :key="option.optionId"
-                :label="option.optionId"
-                class="answer-option"
+              <el-checkbox-group
+                v-else-if="entry.question.type === 'multiple_choice'"
+                v-model="answers[entry.question.questionId].selectedOptionIds"
+                class="answer-options"
               >
-                <span class="option-choice">
-                  <strong>{{ option.label }}.</strong>
-                  <MarkdownRenderer :source="option.content" />
-                </span>
-              </el-checkbox>
-            </el-checkbox-group>
+                <el-checkbox
+                  v-for="option in entry.question.options"
+                  :key="option.optionId"
+                  :label="option.optionId"
+                  class="answer-option"
+                >
+                  <span class="option-choice">
+                    <strong>{{ option.label }}.</strong>
+                    <MarkdownRenderer :source="option.content" />
+                  </span>
+                </el-checkbox>
+              </el-checkbox-group>
 
-            <el-input
-              v-else-if="entry.question.type === 'fill_blank'"
-              v-model="answers[entry.question.questionId].blanks[0].value"
-              class="answer-input"
-              placeholder="填写答案"
-            />
-            <el-input
-              v-else
-              v-model="answers[entry.question.questionId].text"
-              class="answer-input"
-              type="textarea"
-              :rows="6"
-              placeholder="填写答案"
-            />
+              <el-input
+                v-else-if="entry.question.type === 'fill_blank'"
+                v-model="answers[entry.question.questionId].blanks[0].value"
+                class="answer-input"
+                placeholder="填写答案"
+              />
+              <el-input
+                v-else
+                v-model="answers[entry.question.questionId].text"
+                class="answer-input"
+                type="textarea"
+                :rows="6"
+                placeholder="填写答案"
+              />
+            </template>
 
             <div class="question-actions">
               <el-button :icon="Flag" :type="isFlagged(entry.question.questionId) ? 'warning' : 'default'" @click="toggleFlag(entry.question.questionId)">
@@ -169,7 +264,7 @@
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { ElMessage, ElMessageBox } from 'element-plus';
-import { ArrowLeft, ArrowRight, Check, Close, Delete, Flag, Grid, List, Upload } from '@element-plus/icons-vue';
+import { ArrowLeft, ArrowRight, Check, Close, Delete, Flag, Grid, Link, List, Refresh, Upload } from '@element-plus/icons-vue';
 import { api } from '../api';
 import MarkdownRenderer from '../components/MarkdownRenderer.vue';
 
@@ -183,6 +278,8 @@ const serverOffsetMs = ref(0);
 const clockNow = ref(Date.now());
 const answers = reactive({});
 const flagged = reactive({});
+const codeSubmitLoading = reactive({});
+const codeSubmitFeedback = reactive({});
 const viewMode = ref('single');
 const currentIndex = ref(0);
 const simulateStudentId = computed(() => String(route.query.simulateStudentId || ''));
@@ -255,13 +352,18 @@ function emptyAnswer() {
     selectedOptionIds: [],
     blanks: [{ index: 1, value: '' }],
     text: '',
+    code: '',
+    language: 'cc.cc17o2',
   };
 }
 
 function resetAnswers() {
   Object.keys(answers).forEach((key) => delete answers[key]);
   for (const entry of flatQuestions.value) {
-    answers[entry.question.questionId] = emptyAnswer();
+    answers[entry.question.questionId] = {
+      ...emptyAnswer(),
+      language: languageOptionsFor(entry.question)[0] || 'cc.cc17o2',
+    };
   }
 }
 
@@ -279,6 +381,24 @@ function applySavedAnswers(savedAnswers) {
         }))
       : [{ index: 1, value: '' }];
     answers[saved.questionId].text = typeof answer.text === 'string' ? answer.text : '';
+    answers[saved.questionId].code = typeof answer.code === 'string' ? answer.code : typeof answer.text === 'string' ? answer.text : '';
+    answers[saved.questionId].language = typeof answer.language === 'string' ? answer.language : 'cc.cc17o2';
+    if (['judge_pending', 'judge_done'].includes(saved.status) || saved.autoResult?.latestSubmissionId) {
+      codeSubmitFeedback[saved.questionId] = buildSubmissionFeedback(
+        {
+          submissionId: saved.autoResult?.latestSubmissionId || answer.hydro?.submissionId || '',
+          externalSubmissionId: saved.autoResult?.externalSubmissionId || answer.hydro?.externalSubmissionId || '',
+          status: saved.autoResult?.status || (saved.status === 'judge_done' ? 'accepted' : 'pending'),
+          score: saved.score,
+          language: answers[saved.questionId].language,
+          mode: answer.hydro?.mode || saved.autoResult?.mode || 'direct',
+          problemUrl: saved.autoResult?.problemUrl || answer.hydro?.problemUrl || '',
+          recordUrl: saved.autoResult?.recordUrl || saved.autoResult?.result?.recordUrl || '',
+          message: saved.autoResult?.message || (saved.status === 'judge_done' ? '判题结果已同步' : '等待 Hydro 判题结果'),
+        },
+        saved.autoResult?.status === 'accepted' ? 'success' : 'info',
+      );
+    }
   }
 }
 
@@ -287,6 +407,7 @@ function isAnswered(questionId) {
   if (!answer) return false;
   if (answer.selectedOptionIds?.filter(Boolean).length) return true;
   if (answer.blanks?.some((blank) => String(blank.value ?? '').trim())) return true;
+  if (String(answer.code ?? '').trim()) return true;
   if (String(answer.text ?? '').trim()) return true;
   return false;
 }
@@ -303,10 +424,122 @@ function payloadFor(questionId) {
   if (answer.blanks?.some((blank) => String(blank.value ?? '').trim())) {
     return { blanks: answer.blanks };
   }
+  if (String(answer.code ?? '').trim()) {
+    return {
+      text: answer.code,
+      code: answer.code,
+      language: answer.language || 'cc.cc17o2',
+    };
+  }
   if (String(answer.text ?? '').trim()) {
     return { text: answer.text };
   }
   return {};
+}
+
+function languageOptionsFor(question) {
+  const languages = question.programmingRef?.languages || [];
+  return languages.length ? languages : ['cc.cc17o2', 'py.py3', 'java'];
+}
+
+function languageLabel(language) {
+  const labels = {
+    'cc.cc17o2': 'C++17(O2)',
+    'cc.cc17': 'C++17',
+    'cc.cc14o2': 'C++14(O2)',
+    'cc.cc14': 'C++14',
+    'cc.cc11o2': 'C++11(O2)',
+    'cc.cc11': 'C++11',
+    'py.py3': 'Python 3',
+    'py.py2': 'Python 2',
+    'cc.cc20o2': 'C++20(O2)',
+    'cc.cc20': 'C++20',
+    cpp17: 'C++17',
+    python3: 'Python 3',
+    java: 'Java',
+    c: 'C',
+    cc: 'C++',
+    pas: 'Pascal',
+  };
+  return labels[language] ?? language;
+}
+
+function openHydroProblem(question) {
+  const url = question.programmingRef?.externalProblemUrl;
+  if (!url) {
+    ElMessage.warning('该题尚未配置 Hydro 链接');
+    return;
+  }
+  window.open(url, '_blank', 'noopener,noreferrer');
+}
+
+async function submitCode(entry) {
+  const question = entry.question;
+  const answer = answers[question.questionId];
+  if (!attemptId.value || !answer) return;
+  if (!String(answer.code ?? '').trim()) {
+    ElMessage.warning('请先填写代码');
+    return;
+  }
+
+  codeSubmitLoading[question.questionId] = true;
+  try {
+    const result = await api(`/hydro/attempts/${attemptId.value}/questions/${question.questionId}/submit-code`, {
+      method: 'POST',
+      body: {
+        language: answer.language || languageOptionsFor(question)[0],
+        code: answer.code,
+      },
+    });
+    codeSubmitFeedback[question.questionId] = buildSubmissionFeedback(result, 'success');
+    ElMessage.success(result.message || '代码已提交');
+  } catch (error) {
+    codeSubmitFeedback[question.questionId] = {
+      type: 'error',
+      title: '代码提交失败',
+      message: error.message || '代码提交失败',
+      status: '',
+      language: answer.language,
+      externalSubmissionId: '',
+      score: null,
+      submissionId: '',
+    };
+    ElMessage.error(error.message || '代码提交失败');
+  } finally {
+    codeSubmitLoading[question.questionId] = false;
+  }
+}
+
+async function refreshSubmission(questionId) {
+  const feedback = codeSubmitFeedback[questionId];
+  if (!feedback?.submissionId) return;
+  codeSubmitLoading[questionId] = true;
+  try {
+    const detail = await api(`/hydro/submissions/${feedback.submissionId}`);
+    codeSubmitFeedback[questionId] = buildSubmissionFeedback(detail, detail.status === 'accepted' ? 'success' : 'info');
+    ElMessage.success('判题结果已刷新');
+  } catch (error) {
+    ElMessage.error(error.message || '刷新失败');
+  } finally {
+    codeSubmitLoading[questionId] = false;
+  }
+}
+
+function buildSubmissionFeedback(result, fallbackType = 'info') {
+  const status = result.status || '';
+  const accepted = status === 'accepted';
+  return {
+    type: accepted ? 'success' : fallbackType,
+    title: result.mode === 'manual' ? '本地提交已记录' : accepted ? '判题通过' : '代码提交已记录',
+    message: result.message || '',
+    status,
+    language: result.language || '',
+    externalSubmissionId: result.externalSubmissionId || '',
+    score: result.score ?? null,
+    submissionId: result.submissionId || '',
+    problemUrl: result.problemUrl || '',
+    recordUrl: result.recordUrl || '',
+  };
 }
 
 function clearAnswer(questionId) {

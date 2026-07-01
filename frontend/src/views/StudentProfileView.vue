@@ -15,15 +15,106 @@
         <el-descriptions-item label="权限数量">{{ user?.permissions?.length || 0 }}</el-descriptions-item>
       </el-descriptions>
     </div>
+
+    <div v-if="user?.userType === 'STUDENT'" class="panel profile-panel hydro-account-panel">
+      <div class="paper-preview-head">
+        <div>
+          <h2>外部账号</h2>
+          <span class="muted">编程题提交时使用对应 OJ 账号和语言提交测评</span>
+        </div>
+        <el-tag :type="hydroAccounts.length ? 'success' : 'info'">
+          {{ hydroAccounts.length ? `已绑定 ${hydroAccounts.length} 个` : '未绑定' }}
+        </el-tag>
+      </div>
+
+      <el-form label-width="112px" class="hydro-account-form">
+        <el-form-item label="接入平台">
+          <el-select v-model="hydroForm.platformCode" style="width: 220px" @change="handlePlatformChange">
+            <el-option
+              v-for="platform in platforms"
+              :key="platform.code"
+              :label="`${platform.name}（${platform.baseUrl}）`"
+              :value="platform.code"
+            />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="OJ站点">
+          <el-input v-model="hydroForm.platformBaseUrl" placeholder="https://oj.example.com" />
+        </el-form-item>
+        <el-form-item label="登录账号">
+          <el-input v-model="hydroForm.loginUsername" placeholder="用于登录 Hydro 的账号" />
+        </el-form-item>
+        <el-form-item label="登录密码">
+          <el-input v-model="hydroForm.loginPassword" type="password" show-password placeholder="留空表示保持原密码" />
+        </el-form-item>
+        <el-form-item label="Hydro用户名">
+          <el-input v-model="hydroForm.hydroUsername" placeholder="例如 ceshi1" />
+        </el-form-item>
+        <el-form-item label="Hydro UID">
+          <el-input v-model="hydroForm.hydroUserId" placeholder="不知道 UID 时可与用户名相同" />
+        </el-form-item>
+        <el-form-item label="操作">
+          <div class="toolbar">
+            <el-button type="primary" :loading="hydroSaving" @click="saveHydroAccount">保存账号</el-button>
+            <el-button :disabled="!hydroForm.id" :loading="hydroTesting" @click="testHydroAccount">检测登录</el-button>
+            <el-button @click="resetHydroForm">新增账号</el-button>
+            <el-button :icon="Link" :disabled="!hydroForm.hydroUsername" @click="openHydroUser">打开 Hydro</el-button>
+          </div>
+        </el-form-item>
+      </el-form>
+
+      <el-table :data="hydroAccounts" class="hydro-account-table" size="small">
+        <el-table-column label="平台" min-width="120">
+          <template #default="{ row }">{{ row.platformName || row.platformCode }}</template>
+        </el-table-column>
+        <el-table-column prop="platformBaseUrl" label="站点" min-width="180" />
+        <el-table-column prop="loginUsername" label="登录账号" min-width="140" />
+        <el-table-column prop="hydroUsername" label="Hydro用户名" min-width="140" />
+        <el-table-column label="密码" width="90">
+          <template #default="{ row }">
+            <el-tag :type="row.hasPassword ? 'success' : 'warning'">{{ row.hasPassword ? '已保存' : '未保存' }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="检测" min-width="160">
+          <template #default="{ row }">
+            <el-tag :type="row.lastLoginStatus === 'success' ? 'success' : row.lastLoginStatus ? 'warning' : 'info'">
+              {{ row.lastLoginStatus === 'success' ? '通过' : row.lastLoginMessage || '未检测' }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="操作" width="180" fixed="right">
+          <template #default="{ row }">
+            <el-button link type="primary" @click="editHydroAccount(row)">编辑</el-button>
+            <el-button link type="primary" :loading="hydroTestingId === row.id" @click="testHydroAccount(row)">检测</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+    </div>
   </div>
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue';
-import { Refresh } from '@element-plus/icons-vue';
+import { computed, onMounted, reactive, ref } from 'vue';
+import { ElMessage } from 'element-plus';
+import { Link, Refresh } from '@element-plus/icons-vue';
 import { api, setSession } from '../api';
 
 const user = ref(null);
+const hydroAccounts = ref([]);
+const platforms = ref([]);
+const hydroSaving = ref(false);
+const hydroTesting = ref(false);
+const hydroTestingId = ref('');
+const hydroForm = reactive({
+  id: '',
+  platformCode: 'hydro',
+  platformBaseUrl: 'https://oj.example.com',
+  loginUsername: '',
+  loginPassword: '',
+  hydroUserId: '',
+  hydroUsername: '',
+  bindStatus: 'bound',
+});
 const roleName = computed(() => {
   const names = {
     SUPER_ADMIN: '超级管理员',
@@ -38,6 +129,124 @@ const roleName = computed(() => {
 async function load() {
   user.value = await api('/auth/me');
   setSession({ user: user.value });
+  if (user.value?.userType === 'STUDENT') {
+    await loadPlatforms();
+    await loadHydroAccounts();
+  }
+}
+
+async function loadPlatforms() {
+  platforms.value = await api('/hydro/platforms');
+  const platform = platforms.value[0];
+  if (platform && !hydroForm.platformBaseUrl) {
+    hydroForm.platformCode = platform.code;
+    hydroForm.platformBaseUrl = platform.baseUrl;
+  }
+}
+
+async function loadHydroAccounts() {
+  hydroAccounts.value = await api('/hydro/my/accounts');
+  if (hydroAccounts.value.length) {
+    editHydroAccount(hydroAccounts.value[0]);
+  } else {
+    resetHydroForm();
+  }
+}
+
+async function saveHydroAccount() {
+  const loginUsername = hydroForm.loginUsername.trim();
+  const hydroUsername = hydroForm.hydroUsername.trim();
+  const hydroUserId = hydroForm.hydroUserId.trim() || hydroUsername;
+  if (!loginUsername || !hydroUsername) {
+    ElMessage.warning('请填写登录账号和 Hydro 用户名');
+    return;
+  }
+  if (!hydroForm.id && !hydroForm.loginPassword.trim()) {
+    ElMessage.warning('新增外部账号需要填写登录密码');
+    return;
+  }
+
+  hydroSaving.value = true;
+  try {
+    const saved = await api('/hydro/my/account', {
+      method: 'PUT',
+      body: {
+        id: hydroForm.id || undefined,
+        platformCode: hydroForm.platformCode,
+        platformBaseUrl: hydroForm.platformBaseUrl,
+        loginUsername,
+        loginPassword: hydroForm.loginPassword.trim() || undefined,
+        hydroUsername,
+        hydroUserId,
+        bindStatus: hydroForm.bindStatus,
+      },
+    });
+    editHydroAccount(saved);
+    await loadHydroAccounts();
+    ElMessage.success('外部账号已保存');
+  } catch (error) {
+    ElMessage.error(error.message || '外部账号保存失败');
+  } finally {
+    hydroSaving.value = false;
+  }
+}
+
+async function testHydroAccount(row = null) {
+  const accountId = row?.id || hydroForm.id;
+  if (!accountId) {
+    ElMessage.warning('请先保存账号');
+    return;
+  }
+  hydroTesting.value = !row;
+  hydroTestingId.value = accountId;
+  try {
+    const result = await api(`/hydro/my/accounts/${accountId}/test`, { method: 'POST' });
+    await loadHydroAccounts();
+    ElMessage[result.success ? 'success' : 'warning'](result.message || '检测完成');
+  } catch (error) {
+    ElMessage.error(error.message || '检测失败');
+  } finally {
+    hydroTesting.value = false;
+    hydroTestingId.value = '';
+  }
+}
+
+function editHydroAccount(account) {
+  hydroForm.id = account.id || '';
+  hydroForm.platformCode = account.platformCode || 'hydro';
+  hydroForm.platformBaseUrl = account.platformBaseUrl || defaultPlatformBaseUrl();
+  hydroForm.loginUsername = account.loginUsername || '';
+  hydroForm.loginPassword = '';
+  hydroForm.hydroUsername = account.hydroUsername || account.loginUsername || user.value?.username || '';
+  hydroForm.hydroUserId = account.hydroUserId || hydroForm.hydroUsername;
+  hydroForm.bindStatus = account.bindStatus || 'bound';
+}
+
+function resetHydroForm() {
+  hydroForm.id = '';
+  hydroForm.platformCode = platforms.value[0]?.code || 'hydro';
+  hydroForm.platformBaseUrl = platforms.value[0]?.baseUrl || 'https://oj.example.com';
+  hydroForm.loginUsername = user.value?.username || '';
+  hydroForm.loginPassword = '';
+  hydroForm.hydroUsername = user.value?.username || '';
+  hydroForm.hydroUserId = hydroForm.hydroUsername;
+  hydroForm.bindStatus = 'bound';
+}
+
+function handlePlatformChange(code) {
+  const platform = platforms.value.find((item) => item.code === code);
+  if (platform) hydroForm.platformBaseUrl = platform.baseUrl;
+}
+
+function defaultPlatformBaseUrl() {
+  return platforms.value.find((item) => item.code === hydroForm.platformCode)?.baseUrl || 'https://oj.example.com';
+}
+
+function openHydroUser() {
+  if (!hydroForm.hydroUsername) return;
+  const userPath = hydroForm.hydroUserId.trim() || hydroForm.hydroUsername.trim();
+  const baseUrl = hydroForm.platformBaseUrl.replace(/\/+$/, '') || 'https://oj.example.com';
+  window.open(`${baseUrl}/user/${encodeURIComponent(userPath)}`, '_blank', 'noopener,noreferrer');
 }
 
 onMounted(load);
