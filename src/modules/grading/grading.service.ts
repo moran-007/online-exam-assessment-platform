@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { AnswerRecordStatus, AttemptStatus, Prisma, QuestionType } from '@prisma/client';
+import { AnswerRecordStatus, AttemptStatus, Prisma, QuestionType, ShowScoreMode } from '@prisma/client';
 import { toPagination } from '../../common/dto/pagination-query.dto';
 import { toApiEnum } from '../../common/utils/enum-normalizer';
 import { AuditService } from '../audit/audit.service';
@@ -7,6 +7,7 @@ import { RequestUser } from '../../common/interfaces/request-user.interface';
 import { DataScopeService } from '../data-scope/data-scope.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { GradeAnswerDto } from './dto/grade-answer.dto';
+import { PublishGradesDto } from './dto/grade-visibility.dto';
 import { QueryGradingDto } from './dto/query-grading.dto';
 
 type SnapshotQuestion = {
@@ -25,6 +26,12 @@ type SnapshotQuestion = {
 
 type PaperSnapshot = {
   sections: Array<{ questions: SnapshotQuestion[] }>;
+};
+
+type ObjectiveGradingResult = {
+  score: number;
+  isCorrect: boolean;
+  autoResult: Prisma.InputJsonObject;
 };
 
 @Injectable()
@@ -231,6 +238,200 @@ export class GradingService {
     return { id: answerRecordId };
   }
 
+  async finishAttempt(attemptId: string, user: RequestUser) {
+    const attempt = await this.prisma.examAttempt.findFirst({
+      where: { id: attemptId },
+      include: { answers: true },
+    });
+    if (!attempt) {
+      throw new NotFoundException('答题记录不存在');
+    }
+    await this.dataScope.assertExamAccessible(user, attempt.examId);
+
+    const pending = attempt.answers.filter(
+      (answer) =>
+        answer.status === AnswerRecordStatus.MANUAL_NEEDED ||
+        answer.status === AnswerRecordStatus.JUDGE_PENDING,
+    );
+    if (pending.length) {
+      throw new BadRequestException({
+        message: '仍有题目未完成批改或判题，不能完成整卷批改',
+        data: {
+          pendingCount: pending.length,
+          manualPendingCount: pending.filter((answer) => answer.status === AnswerRecordStatus.MANUAL_NEEDED).length,
+          judgePendingCount: pending.filter((answer) => answer.status === AnswerRecordStatus.JUDGE_PENDING).length,
+        },
+      });
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      await this.recalculateAttempt(tx, attemptId);
+      await tx.examAttempt.update({
+        where: { id: attemptId },
+        data: { status: AttemptStatus.GRADED },
+      });
+    });
+
+    await this.audit.log({
+      userId: user.id,
+      action: 'grading:finish-attempt',
+      module: 'grading',
+      targetType: 'attempt',
+      targetId: attemptId,
+    });
+
+    return this.attemptScore(attemptId);
+  }
+
+  async regradeAttempt(attemptId: string, user: RequestUser) {
+    const attempt = await this.prisma.examAttempt.findFirst({
+      where: { id: attemptId },
+      include: {
+        paperInstance: true,
+        answers: true,
+      },
+    });
+    if (!attempt) {
+      throw new NotFoundException('答题记录不存在');
+    }
+    await this.dataScope.assertExamAccessible(user, attempt.examId);
+
+    const paperSnapshot = attempt.paperInstance.paperSnapshotJson as unknown as PaperSnapshot;
+    const answerMap = new Map(attempt.answers.map((answer) => [answer.questionId, answer]));
+    let updatedCount = 0;
+
+    await this.prisma.$transaction(async (tx) => {
+      for (const paperQuestion of this.flattenSnapshot(paperSnapshot)) {
+        const existing = answerMap.get(paperQuestion.questionId);
+        const grading = this.gradeObjectiveQuestion(paperQuestion, existing?.answerJson);
+        if (!existing || !grading) continue;
+
+        await tx.answerRecord.update({
+          where: { id: existing.id },
+          data: {
+            score: grading.score,
+            isCorrect: grading.isCorrect,
+            status: AnswerRecordStatus.AUTO_GRADED,
+            autoResultJson: grading.autoResult,
+          },
+        });
+        updatedCount += 1;
+      }
+      await this.recalculateAttempt(tx, attemptId);
+    });
+
+    await this.audit.log({
+      userId: user.id,
+      action: 'grading:regrade-attempt',
+      module: 'grading',
+      targetType: 'attempt',
+      targetId: attemptId,
+      afterData: { updatedCount },
+    });
+
+    return {
+      ...(await this.attemptScore(attemptId)),
+      updatedCount,
+    };
+  }
+
+  async publishGrades(examId: string, dto: PublishGradesDto, user: RequestUser) {
+    await this.dataScope.assertExamAccessible(user, examId);
+    const mode = this.normalizeShowScoreMode(dto.mode ?? 'after_graded');
+    if (mode === ShowScoreMode.NEVER) {
+      throw new BadRequestException('发布成绩不能使用 never 模式，请使用撤回接口');
+    }
+
+    const attempts = await this.prisma.examAttempt.findMany({
+      where: {
+        examId,
+        id: dto.attemptIds?.length ? { in: [...new Set(dto.attemptIds)] } : undefined,
+        userId: dto.studentIds?.length ? { in: [...new Set(dto.studentIds)] } : undefined,
+        submittedAt: { not: null },
+        status: { not: AttemptStatus.CANCELLED },
+      },
+      include: { answers: true },
+    });
+    if (!attempts.length) {
+      throw new BadRequestException('没有可发布成绩的提交记录');
+    }
+
+    const blocked = attempts.filter((attempt) =>
+      attempt.answers.some(
+        (answer) =>
+          answer.status === AnswerRecordStatus.MANUAL_NEEDED ||
+          answer.status === AnswerRecordStatus.JUDGE_PENDING,
+      ),
+    );
+    if (blocked.length && !dto.skipPending) {
+      throw new BadRequestException({
+        message: '仍有试卷存在未批改或未判题答案，不能发布成绩',
+        data: {
+          pendingAttemptCount: blocked.length,
+          attemptIds: blocked.map((attempt) => attempt.id),
+        },
+      });
+    }
+
+    const publishable = attempts.filter((attempt) => !blocked.some((item) => item.id === attempt.id));
+    const publishableIds = publishable.map((attempt) => attempt.id);
+    await this.prisma.$transaction(async (tx) => {
+      if (publishableIds.length) {
+        await tx.examAttempt.updateMany({
+          where: { id: { in: publishableIds } },
+          data: { status: AttemptStatus.GRADED },
+        });
+      }
+      await tx.exam.update({
+        where: { id: examId },
+        data: { showScoreMode: mode },
+      });
+    });
+
+    await this.audit.log({
+      userId: user.id,
+      action: 'grading:publish-grades',
+      module: 'grading',
+      targetType: 'exam',
+      targetId: examId,
+      afterData: {
+        mode,
+        publishableCount: publishableIds.length,
+        skippedPendingCount: blocked.length,
+      },
+    });
+
+    return {
+      examId,
+      showScoreMode: toApiEnum(mode),
+      publishedAttemptCount: publishableIds.length,
+      skippedPendingCount: blocked.length,
+      skippedAttemptIds: blocked.map((attempt) => attempt.id),
+    };
+  }
+
+  async withdrawGrades(examId: string, user: RequestUser) {
+    await this.dataScope.assertExamAccessible(user, examId);
+    await this.prisma.exam.update({
+      where: { id: examId },
+      data: { showScoreMode: ShowScoreMode.NEVER },
+    });
+    await this.audit.log({
+      userId: user.id,
+      action: 'grading:withdraw-grades',
+      module: 'grading',
+      targetType: 'exam',
+      targetId: examId,
+      afterData: { showScoreMode: ShowScoreMode.NEVER },
+    });
+
+    return {
+      examId,
+      showScoreMode: toApiEnum(ShowScoreMode.NEVER),
+      withdrawn: true,
+    };
+  }
+
   private async recalculateAttempt(tx: Prisma.TransactionClient, attemptId: string) {
     const answers = await tx.answerRecord.findMany({ where: { attemptId } });
     let objectiveScore = 0;
@@ -279,6 +480,15 @@ export class GradingService {
     return AnswerRecordStatus[enumKey];
   }
 
+  private normalizeShowScoreMode(value: string) {
+    const enumKey = value.replace(/-/g, '_').toUpperCase() as keyof typeof ShowScoreMode;
+    const mode = ShowScoreMode[enumKey];
+    if (!mode) {
+      throw new BadRequestException('成绩显示模式不合法');
+    }
+    return mode;
+  }
+
   private isGradableStatus(status: AnswerRecordStatus) {
     return (
       status === AnswerRecordStatus.MANUAL_NEEDED ||
@@ -310,6 +520,106 @@ export class GradingService {
 
   private findSnapshotQuestion(snapshot: PaperSnapshot, questionId: string) {
     return this.flattenSnapshot(snapshot).find((question) => question.questionId === questionId);
+  }
+
+  private gradeObjectiveQuestion(
+    paperQuestion: SnapshotQuestion,
+    value: Prisma.JsonValue | undefined,
+  ): ObjectiveGradingResult | null {
+    const type = String(paperQuestion.snapshot.type).toUpperCase();
+    const answerJson =
+      value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+
+    if (
+      type === QuestionType.SINGLE_CHOICE ||
+      type === QuestionType.MULTIPLE_CHOICE ||
+      type === QuestionType.TRUE_FALSE
+    ) {
+      const selected = new Set((answerJson.selectedOptionIds as string[] | undefined) ?? []);
+      const correct = new Set(this.correctOptionIds(paperQuestion.snapshot.answer));
+      const isCorrect = selected.size === correct.size && [...selected].every((optionId) => correct.has(optionId));
+      return {
+        score: isCorrect ? paperQuestion.score : 0,
+        isCorrect,
+        autoResult: { selectedOptionIds: [...selected], correctOptionIds: [...correct] },
+      };
+    }
+
+    if (type === QuestionType.FILL_BLANK) {
+      const blanks = (answerJson.blanks as Array<{ index: number; value: string }> | undefined) ?? [];
+      const rules = this.blankRules(paperQuestion.snapshot.answer);
+      let score = 0;
+      let allCorrect = true;
+
+      for (const rule of rules) {
+        const submitted = blanks.find((blank) => blank.index === rule.index)?.value ?? '';
+        const normalizedSubmitted = this.normalizeBlank(submitted, rule);
+        const matched = rule.answers.map((answer) => this.normalizeBlank(answer, rule)).includes(normalizedSubmitted);
+        if (matched) {
+          score += rule.score ?? paperQuestion.score / Math.max(rules.length, 1);
+        } else {
+          allCorrect = false;
+        }
+      }
+
+      return {
+        score,
+        isCorrect: allCorrect,
+        autoResult: { blanks, rules },
+      };
+    }
+
+    return null;
+  }
+
+  private correctOptionIds(value: Prisma.JsonValue | null | undefined) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return [];
+    const correctOptionIds = (value as { correctOptionIds?: unknown }).correctOptionIds;
+    return Array.isArray(correctOptionIds) ? correctOptionIds.map(String) : [];
+  }
+
+  private blankRules(value: Prisma.JsonValue | null | undefined) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return [];
+    const blanks = (value as { blanks?: unknown }).blanks;
+    if (!Array.isArray(blanks)) return [];
+    return blanks
+      .map((blank) => (blank && typeof blank === 'object' && !Array.isArray(blank) ? (blank as Record<string, unknown>) : null))
+      .filter((blank): blank is Record<string, unknown> => Boolean(blank))
+      .map((blank, index) => ({
+        index: Number(blank.index) || index + 1,
+        answers: Array.isArray(blank.answers) ? blank.answers.map(String) : [],
+        ignoreCase: Boolean(blank.ignoreCase),
+        trimSpace: typeof blank.trimSpace === 'boolean' ? blank.trimSpace : true,
+        score: Number.isFinite(Number(blank.score)) ? Number(blank.score) : undefined,
+      }));
+  }
+
+  private normalizeBlank(value: string, rule: { ignoreCase?: boolean; trimSpace?: boolean }) {
+    let result = value;
+    if (rule.trimSpace ?? true) result = result.trim();
+    if (rule.ignoreCase) result = result.toLowerCase();
+    return result;
+  }
+
+  private async attemptScore(attemptId: string) {
+    const attempt = await this.prisma.examAttempt.findUnique({
+      where: { id: attemptId },
+      select: {
+        status: true,
+        objectiveScore: true,
+        subjectiveScore: true,
+        judgeScore: true,
+        totalScore: true,
+      },
+    });
+    return {
+      attemptId,
+      status: attempt ? toApiEnum(attempt.status) : '',
+      objectiveScore: Number(attempt?.objectiveScore ?? 0),
+      subjectiveScore: Number(attempt?.subjectiveScore ?? 0),
+      judgeScore: Number(attempt?.judgeScore ?? 0),
+      totalScore: Number(attempt?.totalScore ?? 0),
+    };
   }
 
   private async loadUserMap(userIds: string[]) {

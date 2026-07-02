@@ -150,6 +150,12 @@ export class CreateQuestionDto {
 
   @IsOptional()
   @IsArray()
+  @IsString({ each: true })
+  @MaxLength(128, { each: true })
+  tagNames?: string[];
+
+  @IsOptional()
+  @IsArray()
   @ValidateNested({ each: true })
   @Type(() => QuestionOptionDto)
   options?: QuestionOptionDto[];

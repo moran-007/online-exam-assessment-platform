@@ -73,6 +73,18 @@ export class ExamsController {
     return this.examsService.unpublish(id, user);
   }
 
+  @Post(':id/start')
+  @Permissions('exam:publish')
+  start(@Param('id') id: string, @CurrentUser() user: RequestUser) {
+    return this.examsService.start(id, user);
+  }
+
+  @Post(':id/end')
+  @Permissions('exam:publish')
+  end(@Param('id') id: string, @CurrentUser() user: RequestUser) {
+    return this.examsService.end(id, user);
+  }
+
   @Delete(':id')
   @Permissions('exam:create')
   remove(@Param('id') id: string, @CurrentUser() user: RequestUser) {

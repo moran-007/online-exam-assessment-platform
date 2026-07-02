@@ -91,11 +91,11 @@
             <el-form :model="singleForm" label-width="88px">
               <div class="single-meta-grid">
                 <el-form-item label="题型">
-                  <el-select v-model="singleForm.type" filterable style="width: 100%" @change="resetSingleOptions">
+                  <el-select v-model="singleForm.type" filterable style="width: 100%" @change="handleSingleTypeChange">
                     <el-option v-for="type in typeOptions" :key="type.value" :label="type.label" :value="type.value" />
                   </el-select>
                 </el-form-item>
-                <el-form-item label="标题">
+                <el-form-item label="标题" class="single-title-item">
                   <el-input v-model="singleForm.title" placeholder="请输入题目标题" />
                 </el-form-item>
                 <el-form-item label="难度">
@@ -111,18 +111,35 @@
               <template v-if="singleForm.type === 'programming'">
                 <el-form-item label="Hydro题目">
                   <div class="hydro-inline-field">
-                    <el-input v-model="singleForm.programmingRef.externalProblemId" placeholder="输入 Hydro 题号或题名，例如 P1000" />
+                    <el-input
+                      v-model="singleForm.programmingRef.externalProblemId"
+                      placeholder="输入题号或题目地址，例如 P1000 / https://tarjanoj.com/d/shiyan/p/B2002"
+                      @change="handleSingleHydroProblemInputChange"
+                      @blur="handleSingleHydroProblemInputChange"
+                    />
                     <el-button :icon="Refresh" :loading="singleHydroPulling" :disabled="!canPullSingleHydroProblem" @click="pullSingleHydroProblem">
                       拉取
                     </el-button>
                     <el-button :icon="Link" :disabled="!singleHydroProblemUrl" @click="openSingleHydroProblem">打开</el-button>
                   </div>
                 </el-form-item>
-                <el-form-item label="Hydro链接">
-                  <el-input v-model="singleForm.programmingRef.externalProblemUrl" placeholder="留空则按 Hydro 站点自动生成" />
-                </el-form-item>
-                <el-form-item label="Hydro站点">
-                  <el-input v-model="singleForm.programmingRef.platformBaseUrl" placeholder="例如 https://oj.example.com" />
+                <el-form-item label="站点">
+                  <el-select
+                    v-model="singleForm.programmingRef.platformBaseUrl"
+                    filterable
+                    allow-create
+                    default-first-option
+                    placeholder="选择平台站点"
+                    style="width: 100%"
+                    @change="handleSingleHydroSiteChange"
+                  >
+                    <el-option
+                      v-for="site in hydroSiteOptions"
+                      :key="site.key"
+                      :label="site.label"
+                      :value="site.value"
+                    />
+                  </el-select>
                 </el-form-item>
                 <el-form-item label="Hydro域">
                   <div class="hydro-inline-field">
@@ -136,7 +153,7 @@
                       v-model="singleForm.programmingRef.accountId"
                       clearable
                       filterable
-                      placeholder="选择用于拉取题目的外部账号"
+                      placeholder="同站点账号自动匹配，可手动切换"
                       @change="handleSingleHydroAccountChange"
                     >
                       <el-option
@@ -158,6 +175,14 @@
                   <div class="toolbar" style="margin-bottom: 8px">
                     <el-button size="small" :icon="DocumentAdd" @click="insertCodeBlock(singleForm, 'content')">
                       代码块
+                    </el-button>
+                    <el-button
+                      v-if="singleForm.type === 'fill_blank'"
+                      size="small"
+                      :icon="Plus"
+                      @click="insertSingleBlankMarker"
+                    >
+                      插入空位
                     </el-button>
                     <el-dropdown trigger="click" @command="insertFormatSnippet">
                       <el-button size="small">插入格式</el-button>
@@ -229,7 +254,26 @@
                 </el-form-item>
               </template>
               <el-form-item v-else-if="singleForm.type === 'fill_blank'" label="答案">
-                <el-input v-model="blankAnswers" placeholder="多个可接受答案用英文逗号分隔" />
+                <div class="fill-blank-answer-editor">
+                  <div class="toolbar">
+                    <el-button size="small" :icon="Plus" @click="addBlankAnswerRow">增加空位</el-button>
+                    <el-button size="small" :icon="DocumentAdd" @click="insertSingleBlankMarker">插入题干空位</el-button>
+                    <span class="muted">题干中的 ____ 是学生看到的填空横线，也用于自动识别空位数量。</span>
+                  </div>
+                  <div v-for="(blank, index) in blankAnswerRows" :key="index" class="blank-answer-row">
+                    <el-tag>第 {{ index + 1 }} 空</el-tag>
+                    <el-input v-model="blank.answerText" placeholder="正确答案；多个答案用逗号分隔" />
+                    <el-button
+                      size="small"
+                      plain
+                      :icon="Delete"
+                      :disabled="blankAnswerRows.length <= 1"
+                      @click="removeBlankAnswerRow(index)"
+                    >
+                      删除
+                    </el-button>
+                  </div>
+                </div>
               </el-form-item>
               <el-form-item v-else label="参考答案">
                 <el-input v-model="answerReference" type="textarea" :rows="3" resize="vertical" />
@@ -314,7 +358,7 @@
                   type="textarea"
                   :rows="8"
                   resize="vertical"
-                  placeholder="每行一个答案，例如：1. B 或 2. A,B；也支持 标题：答案"
+                  placeholder="每行一个答案，例如：1. B；填空题：3. 第1空：print；第2空：range；第3空：len"
                   @input="handleBatchTemplateInput"
                 />
               </el-form-item>
@@ -587,6 +631,14 @@ import { ElMessage, ElMessageBox } from 'element-plus';
 import { Back, Delete, DocumentAdd, DocumentCopy, Link, Plus, Refresh, Upload, View } from '@element-plus/icons-vue';
 import { api, buildQuery } from '../api';
 import MarkdownRenderer from '../components/MarkdownRenderer.vue';
+import {
+  DEFAULT_BLANK_ANSWER_TEXT,
+  buildFillBlankAnswer,
+  emptyFillBlankRows,
+  fillBlankAnswerTextFromRows,
+  fillBlankAnswerTextFromRules,
+  fillBlankRowsFromText,
+} from '../utils/fillBlankAnswers';
 
 const router = useRouter();
 const typeOptions = [
@@ -601,6 +653,7 @@ const typeOptions = [
   { label: 'Scratch 项目题', value: 'scratch_project' },
   { label: 'Arduino 项目题', value: 'arduino_project' },
 ];
+const LAST_SINGLE_TYPE_KEY = 'question-import-last-single-type';
 
 const formatSnippets = {
   'math-inline': '$a^2 + b^2 = c^2$',
@@ -621,7 +674,13 @@ const sharedKnowledgePointIds = ref([]);
 const sharedTagNames = ref([]);
 const publishAfterImport = ref(true);
 const singleForm = reactive(baseSingleForm());
-const blankAnswers = ref('print');
+const blankAnswerRows = ref(emptyFillBlankRows());
+const blankAnswerText = computed({
+  get: () => fillBlankAnswerTextFromRows(blankAnswerRows.value),
+  set: (value) => {
+    blankAnswerRows.value = fillBlankRowsFromText(value);
+  },
+});
 const blankCaseSensitive = ref(false);
 const blankSpaceSensitive = ref(false);
 const answerReference = ref('');
@@ -645,6 +704,7 @@ const uploadingAsset = ref(false);
 const assetDrawerVisible = ref(false);
 const assetInsertTarget = ref(null);
 const hydroAccounts = ref([]);
+const hydroPlatforms = ref([]);
 const portableUploadRef = ref(null);
 const portableUploadKey = ref(0);
 const assetUploadRef = ref(null);
@@ -667,7 +727,7 @@ const importableBatchCount = computed(
 const selectedBatchQuestion = computed(() => batchPreview.value[selectedPreviewIndex.value] ?? batchPreview.value[0]);
 const singlePreviewQuestion = computed(() => buildSinglePreview());
 const singleHydroProblemUrl = computed(() => {
-  const explicit = singleForm.programmingRef.externalProblemUrl?.trim();
+  const explicit = effectiveHydroProblemUrl(singleForm.programmingRef);
   const problemId = singleForm.programmingRef.externalProblemId?.trim();
   if (explicit) return explicit;
   const baseUrl = normalizeBaseUrl(singleForm.programmingRef.platformBaseUrl || 'https://oj.example.com');
@@ -676,11 +736,34 @@ const singleHydroProblemUrl = computed(() => {
   return problemId ? `${baseUrl}${domainPrefix}/p/${encodeURIComponent(problemId)}` : '';
 });
 const hydroAccountOptions = computed(() =>
-  hydroAccounts.value.map((account) => ({
+  matchingHydroAccountsForRef(singleForm.programmingRef).map((account) => ({
     ...account,
-    label: `${account.loginUsername || account.hydroUsername} · ${account.platformName || 'Hydro'} · ${shortHost(account.platformBaseUrl)} · ${account.ownerName || account.ownerUsername || account.studentName || '账号'}`,
+    label: `${account.loginUsername || account.hydroUsername || '外部账号'} · ${account.platformName || account.platformCode || 'Hydro'} · ${shortHost(account.platformBaseUrl)}`,
   })),
 );
+const hydroSiteOptions = computed(() => {
+  const map = new Map();
+  const pushSite = (site) => {
+    const value = normalizeBaseUrl(site.value || site.baseUrl || site.platformBaseUrl);
+    const host = canonicalHost(value);
+    if (!host || map.has(host)) return;
+    map.set(host, {
+      key: host,
+      value,
+      judgeProvider: site.judgeProvider || site.code || site.platformCode || 'hydro',
+      label: `${site.name || site.platformName || '外部平台'} (${shortHost(value)})`,
+    });
+  };
+  hydroPlatforms.value.forEach((platform) => pushSite(platform));
+  hydroAccounts.value.forEach((account) =>
+    pushSite({
+      value: account.platformBaseUrl,
+      platformCode: account.platformCode,
+      platformName: account.platformName,
+    }),
+  );
+  return [...map.values()];
+});
 const selectedSingleHydroAccount = computed(() =>
   hydroAccounts.value.find((account) => account.id === singleForm.programmingRef.accountId) ?? null,
 );
@@ -733,7 +816,7 @@ const correctChoiceKey = computed({
 
 function baseSingleForm() {
   return {
-    type: 'single_choice',
+    type: readRememberedSingleType() || 'single_choice',
     title: '',
     content: '',
     difficulty: 1,
@@ -749,6 +832,25 @@ function baseSingleForm() {
   };
 }
 
+function readRememberedSingleType() {
+  try {
+    const remembered = normalizeType(localStorage.getItem(LAST_SINGLE_TYPE_KEY));
+    return typeOptions.some((item) => item.value === remembered) ? remembered : '';
+  } catch {
+    return '';
+  }
+}
+
+function rememberSingleType(type) {
+  const normalized = normalizeType(type);
+  if (!typeOptions.some((item) => item.value === normalized)) return;
+  try {
+    localStorage.setItem(LAST_SINGLE_TYPE_KEY, normalized);
+  } catch {
+    // Ignore storage failures; the import flow should continue normally.
+  }
+}
+
 function emptyProgrammingRef() {
   return {
     externalProblemId: '',
@@ -756,6 +858,7 @@ function emptyProgrammingRef() {
     platformBaseUrl: 'https://oj.example.com',
     domainId: 'system',
     domainName: 'system',
+    judgeProvider: 'hydro',
     accountId: '',
     accountLabel: '',
     languagesText: 'cc.cc17o2, py.py3',
@@ -766,22 +869,26 @@ function emptyProgrammingRef() {
 }
 
 async function loadBaseData() {
-  const [coursePage, tagPage] = await Promise.all([
+  const [coursePage, tagPage, platformPage] = await Promise.all([
     api('/courses?pageSize=100'),
     api('/tags?pageSize=100&type=QUESTION'),
+    api('/hydro/platforms').catch(() => []),
   ]);
   courses.value = coursePage.items;
   tags.value = tagPage.items;
+  hydroPlatforms.value = Array.isArray(platformPage) ? platformPage : [];
   sharedCourseId.value = sharedCourseId.value || courses.value[0]?.id || '';
   await loadKnowledgeTree();
   await loadHydroAccounts();
+  syncSingleHydroAccountForSite();
   refreshPreview();
 }
 
 async function loadHydroAccounts() {
   try {
-    const data = await api('/hydro/accounts?pageSize=100&platformCode=hydro');
-    hydroAccounts.value = data.items ?? [];
+    const data = await api('/hydro/my/accounts');
+    hydroAccounts.value = data.items ?? data ?? [];
+    syncSingleHydroAccountForSite();
   } catch {
     hydroAccounts.value = [];
   }
@@ -794,8 +901,105 @@ function handleSingleHydroAccountChange(accountId) {
     return;
   }
   singleForm.programmingRef.platformBaseUrl = account.platformBaseUrl || singleForm.programmingRef.platformBaseUrl;
+  singleForm.programmingRef.judgeProvider = account.platformCode || singleForm.programmingRef.judgeProvider || 'hydro';
   singleForm.programmingRef.accountLabel = `${account.loginUsername || account.hydroUsername}@${shortHost(account.platformBaseUrl)}`;
 }
+
+function handleSingleHydroSiteChange(value) {
+  applyHydroSiteToRef(singleForm.programmingRef, value);
+  if (
+    singleForm.programmingRef.externalProblemUrl &&
+    value &&
+    !sameHydroBaseUrl(singleForm.programmingRef.externalProblemUrl, value)
+  ) {
+    singleForm.programmingRef.externalProblemUrl = '';
+  }
+  syncSingleHydroAccountForSite();
+}
+
+function handleSingleHydroProblemInputChange() {
+  normalizeHydroProblemInput(singleForm.programmingRef);
+  syncSingleHydroAccountForSite();
+  refreshPreview();
+}
+
+function normalizeHydroProblemInput(ref) {
+  const raw = String(ref.externalProblemId || '').trim();
+  if (!raw) {
+    ref.externalProblemUrl = '';
+    return;
+  }
+  const parsed = parseHydroProblemUrl(raw);
+  if (parsed) {
+    ref.externalProblemId = parsed.problemId || raw;
+    ref.externalProblemUrl = parsed.url;
+    applyHydroSiteToRef(ref, parsed.baseUrl);
+    if (parsed.domainId) {
+      ref.domainId = parsed.domainId;
+      ref.domainName = parsed.domainId;
+    }
+    return;
+  }
+
+  ref.externalProblemId = cleanHydroProblemId(raw);
+  const explicitProblemId = problemIdFromHydroUrl(ref.externalProblemUrl);
+  if (explicitProblemId && explicitProblemId !== ref.externalProblemId) {
+    ref.externalProblemUrl = '';
+  }
+}
+
+function applyHydroSiteToRef(ref, value) {
+  const normalized = normalizeBaseUrl(value || ref.platformBaseUrl);
+  const site = hydroSiteOptions.value.find((item) => sameHydroBaseUrl(item.value, normalized));
+  ref.platformBaseUrl = site?.value || normalized;
+  ref.judgeProvider = site?.judgeProvider || matchingHydroAccountForSite(ref.platformBaseUrl)?.platformCode || ref.judgeProvider || 'hydro';
+}
+
+function syncSingleHydroAccountForSite() {
+  const account = selectedSingleHydroAccount.value;
+  if (account && sameHydroBaseUrl(account.platformBaseUrl, singleForm.programmingRef.platformBaseUrl)) {
+    handleSingleHydroAccountChange(account.id);
+    return;
+  }
+  const nextAccount = matchingHydroAccountForSite(singleForm.programmingRef.platformBaseUrl);
+  singleForm.programmingRef.accountId = nextAccount?.id || '';
+  singleForm.programmingRef.accountLabel = nextAccount
+    ? `${nextAccount.loginUsername || nextAccount.hydroUsername}@${shortHost(nextAccount.platformBaseUrl)}`
+    : '';
+  if (nextAccount?.platformCode) {
+    singleForm.programmingRef.judgeProvider = nextAccount.platformCode;
+  }
+}
+
+function matchingHydroAccountForSite(baseUrl) {
+  return hydroAccounts.value.find((account) => account.bindStatus === 'bound' && sameHydroBaseUrl(account.platformBaseUrl, baseUrl))
+    || hydroAccounts.value.find((account) => sameHydroBaseUrl(account.platformBaseUrl, baseUrl))
+    || null;
+}
+
+watch(
+  () => singleForm.programmingRef.platformBaseUrl,
+  (value) => {
+    const account = selectedSingleHydroAccount.value;
+    if (account && value && !sameHydroBaseUrl(account.platformBaseUrl, value)) {
+      singleForm.programmingRef.accountId = '';
+      singleForm.programmingRef.accountLabel = '';
+    }
+  },
+);
+
+watch(
+  () => singleForm.programmingRef.externalProblemId,
+  (value) => {
+    const raw = String(value || '').trim();
+    if (!raw || parseHydroProblemUrl(raw)) return;
+    const currentProblemId = cleanHydroProblemId(raw);
+    const explicitProblemId = problemIdFromHydroUrl(singleForm.programmingRef.externalProblemUrl);
+    if (explicitProblemId && explicitProblemId !== currentProblemId) {
+      singleForm.programmingRef.externalProblemUrl = '';
+    }
+  },
+);
 
 async function handleSharedCourseChange() {
   sharedCourseTouched.value = true;
@@ -842,7 +1046,7 @@ function buildSinglePreview() {
   }
 
   if (singleForm.type === 'fill_blank') {
-    payload.answer = buildBlankAnswer(blankAnswers.value, payload.defaultScore);
+    payload.answer = buildFillBlankAnswer(blankAnswerText.value, payload.defaultScore, blankAnswerOptions());
   } else if (!isChoiceType(singleForm.type) && answerReference.value.trim()) {
     payload.answer = { reference: answerReference.value.trim() };
   }
@@ -873,6 +1077,7 @@ async function importSingle() {
     if (publishAfterImport.value) {
       await api(`/questions/${created.id}/publish`, { method: 'POST' });
     }
+    rememberSingleType(payload.type || singleForm.type);
     ElMessage.success(publishAfterImport.value ? '单题已导入并发布' : '单题已导入');
   } catch (error) {
     ElMessage.error(error.message);
@@ -950,6 +1155,13 @@ function resetSingleOptions() {
   singleForm.options = [];
 }
 
+function handleSingleTypeChange() {
+  resetSingleOptions();
+  if (singleForm.type === 'fill_blank' && !blankAnswerRows.value.length) {
+    blankAnswerRows.value = emptyFillBlankRows();
+  }
+}
+
 function addSingleOption() {
   singleForm.options.push({
     optionKey: optionKeyForIndex(singleForm.options.length),
@@ -974,40 +1186,69 @@ function renumberSingleOptions() {
   });
 }
 
+function addBlankAnswerRow() {
+  blankAnswerRows.value = [...blankAnswerRows.value, { answerText: '' }];
+}
+
+function removeBlankAnswerRow(index) {
+  if (blankAnswerRows.value.length <= 1) return;
+  blankAnswerRows.value = blankAnswerRows.value.filter((_, rowIndex) => rowIndex !== index);
+}
+
+function insertSingleBlankMarker() {
+  if (singleForm.type !== 'fill_blank') return;
+  if (!blankAnswerRows.value.length) addBlankAnswerRow();
+  const marker = '____';
+  const current = String(singleForm.content || '');
+  const needsSpace = current && !/[\s([{（【]$/.test(current);
+  singleForm.content = `${current}${needsSpace ? ' ' : ''}${marker}`;
+  if (countBlankMarkers(singleForm.content) > blankAnswerRows.value.length) {
+    addBlankAnswerRow();
+  }
+}
+
+function countBlankMarkers(content) {
+  const matches = String(content || '').match(/_{3,}|\(\s*\)|（\s*）|\[\s*\]/g);
+  return matches?.length || 0;
+}
+
 function resetSingleForm() {
   Object.assign(singleForm, baseSingleForm());
-  blankAnswers.value = 'print';
+  blankAnswerRows.value = emptyFillBlankRows();
   blankCaseSensitive.value = false;
   blankSpaceSensitive.value = false;
   answerReference.value = '';
+  resetSingleOptions();
   setImageInsertTarget(singleForm, 'content');
 }
 
 function loadSingleTemplate() {
   Object.assign(singleForm, {
-    type: 'single_choice',
-    title: '单题示例：Markdown 公式与代码',
+    type: 'fill_blank',
+    title: '单题示例：多空填空',
     content: [
-      '阅读代码，输出结果是什么？题干可包含数学公式 $a^2 + b^2 = c^2$、化学式 @chem{H2SO4}。',
+      '阅读代码并填写 3 个空。题干可包含数学公式 $a^2 + b^2 = c^2$、化学式 @chem{H2SO4}。',
       '',
       '$$',
       'S = \\pi\\,r^2',
       '$$',
       '',
       '```python',
-      'print(2 + 5)',
+      'for i in range(len(items)):',
+      '    print(items[i])',
       '```',
+      '',
+      '第 1 空：输出函数是 ____。',
+      '第 2 空：循环范围函数是 ____。',
+      '第 3 空：获取长度函数是 ____。',
     ].join('\n'),
     difficulty: 1,
-    defaultScore: 2,
-    analysis: '`2 + 5` 的结果是 `7`。化学方程式示例：@chem{2H2 + O2 -> 2H2O}。',
-    options: [
-      { optionKey: 'A', content: '`5`', isCorrect: false, sortOrder: 1 },
-      { optionKey: 'B', content: '`7`', isCorrect: true, sortOrder: 2 },
-      { optionKey: 'C', content: '`25`', isCorrect: false, sortOrder: 3 },
-      { optionKey: 'D', content: '`None`', isCorrect: false, sortOrder: 4 },
-    ],
+    defaultScore: 6,
+    analysis: '`print` 负责输出，`range` 生成循环序列，`len` 获取长度。化学方程式示例：@chem{2H2 + O2 -> 2H2O}。',
+    options: [],
   });
+  blankAnswerText.value = DEFAULT_BLANK_ANSWER_TEXT;
+  answerReference.value = '';
 }
 
 function refreshPreview() {
@@ -1503,7 +1744,7 @@ function parseQuestionBlock(block, number, answerConfig) {
   }
 
   if (type === 'fill_blank') {
-    payload.answer = buildBlankAnswer(answerText, payload.defaultScore);
+    payload.answer = buildFillBlankAnswer(answerText, payload.defaultScore, blankAnswerOptions());
   } else if (!isChoiceType(type) && answerText) {
     payload.answer = { reference: answerText };
   }
@@ -1621,8 +1862,19 @@ function loadBatchTemplate() {
     'E. set',
     '解析：',
     '`list`、`dict` 和 `set` 可以原地修改。',
+    '---',
+    '标题：批量示例：多空填空',
+    '题型：填空题',
+    '难度：1',
+    '分值：6',
+    '标签：Python,基础语法',
+    '知识点：循环,函数',
+    '题干：',
+    '补全代码相关概念：输出函数是 ____，循环范围函数是 ____，获取序列长度函数是 ____。',
+    '解析：',
+    '`print` 输出内容，`range` 生成循环范围，`len` 返回长度。',
   ].join('\n');
-  batchAnswerText.value = ['1. B', '2. A,B,E'].join('\n');
+  batchAnswerText.value = ['1. B', '2. A,B,E', '3. 第1空：print；第2空：range；第3空：len'].join('\n');
   refreshPreview();
 }
 
@@ -2219,10 +2471,7 @@ function portableAnswerForImport(question) {
   }
 
   if (question.type === 'fill_blank' && Array.isArray(question.answer?.blanks)) {
-    return question.answer.blanks
-      .flatMap((blank) => (Array.isArray(blank.answers) ? blank.answers : []))
-      .map(String)
-      .join(',');
+    return fillBlankAnswerTextFromRules(question.answer.blanks).replace(/\n/g, '；');
   }
 
   if (typeof question.answer?.reference === 'string') return question.answer.reference;
@@ -2358,14 +2607,16 @@ function getSingleAnswerText() {
   if (isChoiceType(singleForm.type)) {
     return singleForm.options.filter((option) => option.isCorrect).map((option) => option.optionKey).join(',');
   }
-  if (singleForm.type === 'fill_blank') return blankAnswers.value;
+  if (singleForm.type === 'fill_blank') return blankAnswerText.value;
   return answerReference.value;
 }
 
 function buildSingleProgrammingRefPayload() {
+  normalizeHydroProblemInput(singleForm.programmingRef);
   return buildProgrammingRefFromValues({
+    judgeProvider: singleForm.programmingRef.judgeProvider,
     externalProblemId: singleForm.programmingRef.externalProblemId,
-    externalProblemUrl: singleForm.programmingRef.externalProblemUrl,
+    externalProblemUrl: effectiveHydroProblemUrl(singleForm.programmingRef),
     platformBaseUrl: singleForm.programmingRef.platformBaseUrl,
     domainId: singleForm.programmingRef.domainId,
     domainName: singleForm.programmingRef.domainName,
@@ -2381,6 +2632,7 @@ function buildSingleProgrammingRefPayload() {
 function normalizeProgrammingRef(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   const ref = buildProgrammingRefFromValues({
+    judgeProvider: value.judgeProvider ?? value.platformCode ?? value.judgeConfig?.platformCode,
     externalProblemId: value.externalProblemId ?? value.hydroProblemId ?? value.hydroProblemName ?? value.hydroProblem,
     externalProblemUrl: value.externalProblemUrl ?? value.hydroProblemUrl ?? value.hydroUrl,
     platformBaseUrl: value.platformBaseUrl,
@@ -2397,6 +2649,7 @@ function normalizeProgrammingRef(value) {
 }
 
 function buildProgrammingRefFromValues({
+  judgeProvider,
   externalProblemId,
   externalProblemUrl,
   platformBaseUrl,
@@ -2411,38 +2664,53 @@ function buildProgrammingRefFromValues({
 }) {
   const problemId = String(externalProblemId ?? '').trim();
   if (!problemId) return null;
+  const inferredBaseUrl = String(platformBaseUrl ?? '').trim() || baseUrlFromProblemUrl(externalProblemUrl);
+  const inferredSite = inferredBaseUrl
+    ? hydroSiteOptions.value.find((site) => sameHydroBaseUrl(site.value, inferredBaseUrl))
+    : null;
+  const provider = String(judgeProvider ?? inferredSite?.judgeProvider ?? '').trim().toLowerCase() || undefined;
   const ref = {
+    judgeProvider: provider,
     externalProblemId: problemId,
     externalProblemUrl: String(externalProblemUrl ?? '').trim() || undefined,
-    platformBaseUrl: String(platformBaseUrl ?? '').trim() || undefined,
+    platformBaseUrl: inferredSite?.value || inferredBaseUrl || undefined,
     domainId: String(domainId ?? '').trim() || undefined,
     domainName: String(domainName ?? '').trim() || undefined,
     accountId: accountId || undefined,
     accountLabel: String(accountLabel ?? '').trim() || undefined,
     languages: parseHydroLanguages(languagesText || 'cc.cc17o2, py.py3'),
   };
+  if (!ref.judgeProvider) delete ref.judgeProvider;
   if (timeLimit) ref.timeLimit = Number(timeLimit);
   if (memoryLimit) ref.memoryLimit = Number(memoryLimit);
-  if (judgeConfig) ref.judgeConfig = judgeConfig;
+  if (judgeConfig) {
+    ref.judgeConfig = {
+      ...judgeConfig,
+      ...(provider ? { platformCode: provider } : {}),
+    };
+  }
   return ref;
 }
 
 async function pullSingleHydroProblem() {
+  normalizeHydroProblemInput(singleForm.programmingRef);
   if (!canPullSingleHydroProblem.value) {
     ElMessage.warning('请先填写 Hydro 题号或链接');
     return;
   }
 
+  const problemUrl = effectiveHydroProblemUrl(singleForm.programmingRef);
   singleHydroPulling.value = true;
   try {
     const pulled = await api(
       `/hydro/problems/pull${buildQuery({
         problemId: singleForm.programmingRef.externalProblemId.trim(),
-        problemUrl: singleForm.programmingRef.externalProblemUrl.trim(),
+        problemUrl,
         platformBaseUrl: singleForm.programmingRef.platformBaseUrl.trim(),
         domainId: singleForm.programmingRef.domainId.trim(),
         domainName: singleForm.programmingRef.domainName.trim(),
         accountId: singleForm.programmingRef.accountId,
+        judgeProvider: singleForm.programmingRef.judgeProvider,
       })}`,
     );
     applyPulledHydroProblem(singleForm, pulled);
@@ -2464,6 +2732,7 @@ function applyPulledHydroProblem(target, pulled) {
   target.programmingRef.externalProblemId = ref.externalProblemId || pulled.externalProblemId || target.programmingRef.externalProblemId;
   target.programmingRef.externalProblemUrl = ref.externalProblemUrl || pulled.externalProblemUrl || target.programmingRef.externalProblemUrl;
   target.programmingRef.platformBaseUrl = ref.platformBaseUrl || ref.judgeConfig?.platformBaseUrl || target.programmingRef.platformBaseUrl;
+  target.programmingRef.judgeProvider = ref.judgeProvider || ref.judgeConfig?.platformCode || target.programmingRef.judgeProvider || 'hydro';
   const pulledDomainId = ref.domainId || ref.judgeConfig?.domainId || target.programmingRef.domainId || 'system';
   target.programmingRef.domainId = pulledDomainId;
   target.programmingRef.domainName = ref.domainName || ref.judgeConfig?.domainName || pulledDomainId;
@@ -2488,6 +2757,51 @@ function openSingleHydroProblem() {
   window.open(singleHydroProblemUrl.value, '_blank', 'noopener,noreferrer');
 }
 
+function effectiveHydroProblemUrl(ref) {
+  const explicit = String(ref?.externalProblemUrl || '').trim();
+  if (!explicit) return '';
+  const explicitProblemId = problemIdFromHydroUrl(explicit);
+  const currentProblemId = cleanHydroProblemId(ref?.externalProblemId);
+  if (explicitProblemId && currentProblemId && explicitProblemId !== currentProblemId) return '';
+  return explicit;
+}
+
+function cleanHydroProblemId(value) {
+  return String(value || '').trim().replace(/^#/, '');
+}
+
+function parseHydroProblemUrl(value) {
+  const raw = String(value || '').trim();
+  if (!/^https?:\/\//i.test(raw)) return null;
+  try {
+    const parsed = new URL(raw);
+    const problemId = problemIdFromHydroUrl(raw);
+    if (!problemId) return null;
+    return {
+      url: raw,
+      problemId,
+      baseUrl: `${parsed.protocol}//${parsed.host}`,
+      domainId: domainIdFromHydroUrl(raw) || 'system',
+    };
+  } catch {
+    return null;
+  }
+}
+
+function problemIdFromHydroUrl(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  const match = raw.match(/\/p\/([^/?#]+)/);
+  return match?.[1] ? decodeURIComponent(match[1]).trim() : '';
+}
+
+function domainIdFromHydroUrl(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  const match = raw.match(/\/d\/([^/]+)\/p\//);
+  return match?.[1] ? decodeURIComponent(match[1]).trim() : 'system';
+}
+
 function normalizeBaseUrl(value) {
   const raw = String(value || 'https://oj.example.com').trim() || 'https://oj.example.com';
   return (/^https?:\/\//i.test(raw) ? raw : `http://${raw}`).replace(/\/+$/, '');
@@ -2499,6 +2813,36 @@ function shortHost(value) {
   } catch {
     return String(value || '').replace(/^https?:\/\//i, '').replace(/\/+$/, '');
   }
+}
+
+function canonicalHost(value) {
+  return shortHost(value).toLowerCase().replace(/^www\./, '');
+}
+
+function sameHydroBaseUrl(left, right) {
+  const leftHost = canonicalHost(left);
+  const rightHost = canonicalHost(right);
+  return Boolean(leftHost && rightHost && leftHost === rightHost);
+}
+
+function baseUrlFromProblemUrl(url) {
+  try {
+    const parsed = new URL(String(url || '').trim());
+    return `${parsed.protocol}//${parsed.host}`;
+  } catch {
+    return '';
+  }
+}
+
+function programmingRefBaseUrl(ref) {
+  const raw = ref?.platformBaseUrl || baseUrlFromProblemUrl(ref?.externalProblemUrl);
+  return raw ? normalizeBaseUrl(raw) : '';
+}
+
+function matchingHydroAccountsForRef(ref) {
+  const targetBaseUrl = programmingRefBaseUrl(ref);
+  if (!targetBaseUrl) return hydroAccounts.value;
+  return hydroAccounts.value.filter((account) => sameHydroBaseUrl(account.platformBaseUrl, targetBaseUrl));
 }
 
 function isChoiceType(type) {
@@ -2615,22 +2959,10 @@ function mergeIds(...groups) {
   return [...new Set(groups.flat().filter(Boolean))];
 }
 
-function buildBlankAnswer(value, score) {
-  const rawAnswers = String(value || '').split(/[,，|]/);
-  const answers = rawAnswers
-    .map((item) => (blankSpaceSensitive.value ? item : item.trim()))
-    .filter((item) => item.length);
-
+function blankAnswerOptions() {
   return {
-    blanks: [
-      {
-        index: 1,
-        answers,
-        ignoreCase: !blankCaseSensitive.value,
-        trimSpace: !blankSpaceSensitive.value,
-        score,
-      },
-    ],
+    ignoreCase: !blankCaseSensitive.value,
+    trimSpace: !blankSpaceSensitive.value,
   };
 }
 
@@ -2669,7 +3001,11 @@ onBeforeUnmount(() => {
 
 onMounted(async () => {
   await loadBaseData();
-  loadSingleTemplate();
+  if (readRememberedSingleType()) {
+    resetSingleOptions();
+  } else {
+    loadSingleTemplate();
+  }
   loadBatchTemplate();
   setImageInsertTarget(singleForm, 'content');
 });

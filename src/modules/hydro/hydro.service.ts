@@ -30,7 +30,10 @@ import {
   PullHydroProblemDto,
   QueryHydroSummaryDto,
   SaveHydroPlatformDto,
+  SaveHydroTaskDto,
+  SyncHydroTasksDto,
   SubmitHydroCodeDto,
+  UpdateHydroTaskDto,
   WriteBackHydroResultDto,
 } from './dto/hydro.dto';
 
@@ -113,6 +116,8 @@ type ExternalOjPlatformRow = {
   createdAt: Date;
   updatedAt: Date;
 };
+
+type HydroTaskRecord = Prisma.HydroTaskGetPayload<Record<string, never>>;
 
 @Injectable()
 export class HydroService implements OnModuleInit, OnModuleDestroy {
@@ -263,6 +268,7 @@ export class HydroService implements OnModuleInit, OnModuleDestroy {
       ? await this.prisma.hydroAccount.findFirst({ where: { id: query.accountId } })
       : null;
     if (query.accountId && !pullAccount) throw new NotFoundException('录入账号不存在');
+    const judgeProvider = this.normalizePlatformCode(query.judgeProvider || pullAccount?.platformCode);
     const pullSession = pullAccount ? await this.createHydroSession(pullAccount) : null;
     const baseUrl = this.normalizePlatformBaseUrl(
       query.platformBaseUrl || pullAccount?.platformBaseUrl || this.baseUrlFromProblemUrl(query.problemUrl),
@@ -284,8 +290,8 @@ export class HydroService implements OnModuleInit, OnModuleDestroy {
     const config = this.toRecord(pdoc.config);
     const contextProblemId = String(context.problemId ?? pdoc.pid ?? fallbackProblemId).trim();
     const externalProblemId = contextProblemId || fallbackProblemId;
-    const externalProblemUrl = this.normalizeProblemUrl(externalProblemId, fetched.url);
-    const rawLanguages = Array.isArray(config.langs) ? config.langs.map(String).filter(Boolean) : [];
+    const fetchedProblemUrl = this.normalizeProblemUrl(externalProblemId, fetched.url);
+    const rawLanguages = this.extractHydroLanguages(fetched.html, config);
     const languages = this.pickHydroLanguages(rawLanguages);
     const statementHtml = this.extractHydroStatementHtml(fetched.html, context);
     const content = this.htmlToMarkdown(statementHtml);
@@ -301,7 +307,12 @@ export class HydroService implements OnModuleInit, OnModuleDestroy {
     const domainId = String(query.domainId || context.domainId || pdoc.domainId || 'system').trim() || 'system';
     const domain = this.toRecord(context.domain);
     const domainName = String(query.domainName || domain.name || domain.displayName || domain._id || domainId).trim();
-    const platformBaseUrl = this.baseUrlFromProblemUrl(externalProblemUrl) || baseUrl;
+    const fetchedBaseUrl = this.baseUrlFromProblemUrl(fetchedProblemUrl) || baseUrl;
+    const platformBaseUrl =
+      pullAccount && this.isSamePlatformBaseUrl(pullAccount.platformBaseUrl, fetchedBaseUrl)
+        ? this.normalizePlatformBaseUrl(pullAccount.platformBaseUrl)
+        : fetchedBaseUrl;
+    const externalProblemUrl = this.normalizeProblemUrl(externalProblemId, undefined, platformBaseUrl, domainId);
     const accountLabel = pullAccount
       ? `${pullAccount.loginUsername || pullAccount.hydroUsername}@${this.shortHost(pullAccount.platformBaseUrl)}`
       : '';
@@ -316,7 +327,7 @@ export class HydroService implements OnModuleInit, OnModuleDestroy {
       timeLimit,
       memoryLimit,
       programmingRef: {
-        judgeProvider: 'hydro',
+        judgeProvider,
         externalProblemId,
         externalProblemUrl,
         platformBaseUrl,
@@ -328,6 +339,8 @@ export class HydroService implements OnModuleInit, OnModuleDestroy {
         timeLimit,
         memoryLimit,
         judgeConfig: {
+          platformCode: judgeProvider,
+          platformName: pullAccount?.platformName ?? undefined,
           platformBaseUrl,
           domainId,
           domainName,
@@ -392,6 +405,245 @@ export class HydroService implements OnModuleInit, OnModuleDestroy {
     };
   }
 
+  async tasks(query: QueryHydroSummaryDto, user: RequestUser) {
+    const { page, pageSize, skip, take } = toPagination(query);
+    const where = await this.hydroTaskWhere(query, user);
+    const [items, total] = await this.prisma.$transaction([
+      this.prisma.hydroTask.findMany({
+        where,
+        orderBy: { updatedAt: 'desc' },
+        skip,
+        take,
+      }),
+      this.prisma.hydroTask.count({ where }),
+    ]);
+    const [meta, metrics] = await Promise.all([
+      this.hydroTaskMeta(items),
+      this.hydroTaskMetrics(items.map((item) => item.id)),
+    ]);
+
+    return {
+      items: items.map((item) => this.formatHydroTask(item, meta, metrics.get(item.id))),
+      page,
+      pageSize,
+      total,
+    };
+  }
+
+  async createTask(dto: SaveHydroTaskDto, user: RequestUser) {
+    const exam = dto.examId ? await this.findAccessibleExam(dto.examId, user) : null;
+    const courseId = dto.courseId ?? exam?.courseId ?? null;
+    const classId = dto.classId ?? exam?.classId ?? null;
+    if (classId) {
+      await this.dataScope.assertClassWritable(user, classId);
+    }
+    if (courseId) {
+      await this.assertCourseExists(courseId);
+    }
+
+    const startTime = this.parseHydroTaskDate(dto.startTime, '开始时间');
+    const endTime = this.parseHydroTaskDate(dto.endTime, '结束时间');
+    this.assertHydroTaskTimeRange(startTime, endTime);
+    const task = await this.prisma.hydroTask.create({
+      data: {
+        title: this.requiredTaskText(dto.title, '任务标题'),
+        courseId,
+        classId,
+        examId: dto.examId ?? null,
+        hydroUrl: this.requiredTaskText(dto.hydroUrl, 'Hydro 地址'),
+        hydroProblemId: this.optionalTaskText(dto.hydroProblemId),
+        hydroContestId: this.optionalTaskText(dto.hydroContestId),
+        startTime,
+        endTime,
+        status: dto.status ?? 'draft',
+        createdBy: user.id,
+      },
+    });
+
+    await this.audit.log({
+      userId: user.id,
+      action: 'hydro:create-task',
+      module: 'hydro',
+      targetType: 'hydro_task',
+      targetId: task.id,
+      afterData: { title: task.title, examId: task.examId, hydroProblemId: task.hydroProblemId },
+    });
+
+    const [meta, metrics] = await Promise.all([
+      this.hydroTaskMeta([task]),
+      this.hydroTaskMetrics([task.id]),
+    ]);
+    return this.formatHydroTask(task, meta, metrics.get(task.id));
+  }
+
+  async updateTask(taskId: string, dto: UpdateHydroTaskDto, user: RequestUser) {
+    const task = await this.findHydroTask(taskId);
+    await this.assertHydroTaskAccessible(task, user);
+    const data: Prisma.HydroTaskUpdateInput = {};
+
+    if (dto.title !== undefined) data.title = this.requiredTaskText(dto.title, '任务标题');
+    if (dto.hydroUrl !== undefined) data.hydroUrl = this.requiredTaskText(dto.hydroUrl, 'Hydro 地址');
+    if (dto.hydroProblemId !== undefined) data.hydroProblemId = this.optionalTaskText(dto.hydroProblemId);
+    if (dto.hydroContestId !== undefined) data.hydroContestId = this.optionalTaskText(dto.hydroContestId);
+    if (dto.status !== undefined) data.status = dto.status;
+    if (dto.startTime !== undefined) data.startTime = this.parseHydroTaskDate(dto.startTime, '开始时间');
+    if (dto.endTime !== undefined) data.endTime = this.parseHydroTaskDate(dto.endTime, '结束时间');
+    if (dto.examId !== undefined) {
+      if (dto.examId) {
+        const exam = await this.findAccessibleExam(dto.examId, user);
+        data.examId = exam.id;
+        data.courseId = dto.courseId === undefined ? exam.courseId : data.courseId;
+        data.classId = dto.classId === undefined ? exam.classId : data.classId;
+      } else {
+        data.examId = null;
+      }
+    }
+    if (dto.classId !== undefined) {
+      const classId = this.optionalTaskText(dto.classId);
+      if (classId) {
+        await this.dataScope.assertClassWritable(user, classId);
+      }
+      data.classId = classId;
+    }
+    if (dto.courseId !== undefined) {
+      const courseId = this.optionalTaskText(dto.courseId);
+      if (courseId) {
+        await this.assertCourseExists(courseId);
+      }
+      data.courseId = courseId;
+    }
+
+    const nextStartTime = (data.startTime as Date | null | undefined) ?? task.startTime;
+    const nextEndTime = (data.endTime as Date | null | undefined) ?? task.endTime;
+    this.assertHydroTaskTimeRange(nextStartTime, nextEndTime);
+    const updated = await this.prisma.hydroTask.update({ where: { id: taskId }, data });
+
+    await this.audit.log({
+      userId: user.id,
+      action: 'hydro:update-task',
+      module: 'hydro',
+      targetType: 'hydro_task',
+      targetId: taskId,
+      beforeData: { title: task.title, status: task.status },
+      afterData: { title: updated.title, status: updated.status },
+    });
+
+    const [meta, metrics] = await Promise.all([
+      this.hydroTaskMeta([updated]),
+      this.hydroTaskMetrics([updated.id]),
+    ]);
+    return this.formatHydroTask(updated, meta, metrics.get(updated.id));
+  }
+
+  async syncTasks(dto: SyncHydroTasksDto, user: RequestUser) {
+    const where = await this.hydroTaskWhere(dto, user);
+    const taskIds = dto.taskIds?.filter(Boolean);
+    const tasks = await this.prisma.hydroTask.findMany({
+      where: taskIds?.length ? { AND: [where, { id: { in: [...new Set(taskIds)] } }] } : where,
+      orderBy: { updatedAt: 'desc' },
+      take: 50,
+    });
+    const items: Array<{
+      taskId: string;
+      title: string;
+      submissionCount: number;
+      syncedCount: number;
+      duplicateCleanedCount: number;
+      syncedAt: Date;
+    }> = [];
+    for (const task of tasks) {
+      items.push(await this.syncHydroTaskRecord(task, user));
+    }
+
+    return {
+      syncedTaskCount: items.length,
+      submissionCount: items.reduce((sum, item) => sum + item.submissionCount, 0),
+      resultCount: items.reduce((sum, item) => sum + item.syncedCount, 0),
+      items,
+    };
+  }
+
+  async taskResults(taskId: string, query: QueryHydroSummaryDto, user: RequestUser) {
+    const task = await this.findHydroTask(taskId);
+    await this.assertHydroTaskAccessible(task, user);
+    const { page, pageSize, skip, take } = toPagination(query);
+    const where: Prisma.HydroResultWhereInput = {
+      taskId,
+      studentId: query.studentId,
+      status: query.status,
+    };
+    const [items, total, allResults] = await this.prisma.$transaction([
+      this.prisma.hydroResult.findMany({
+        where,
+        orderBy: [{ lastSubmitAt: 'desc' }, { updatedAt: 'desc' }],
+        skip,
+        take,
+      }),
+      this.prisma.hydroResult.count({ where }),
+      this.prisma.hydroResult.findMany({ where: { taskId }, select: { status: true, score: true } }),
+    ]);
+    const users = await this.loadUserMap(items.map((item) => item.studentId));
+    const scores = allResults.map((item) => (item.score === null ? null : Number(item.score))).filter((score): score is number => score !== null);
+
+    return {
+      task: this.formatHydroTask(task, await this.hydroTaskMeta([task]), (await this.hydroTaskMetrics([task.id])).get(task.id)),
+      metrics: {
+        total: allResults.length,
+        submittedCount: allResults.filter((item) => item.status !== 'not_started').length,
+        judgedCount: allResults.filter((item) => ['accepted', 'judged', 'done'].includes(item.status)).length,
+        averageScore: this.average(scores),
+        maxScore: scores.length ? Math.max(...scores) : 0,
+      },
+      items: items.map((item) => {
+        const student = users.get(item.studentId);
+        return {
+          id: item.id,
+          taskId: item.taskId,
+          studentId: item.studentId,
+          studentName: student?.realName ?? student?.username ?? '学生',
+          username: student?.username ?? '',
+          hydroUserId: item.hydroUserId,
+          score: item.score === null ? null : Number(item.score),
+          status: item.status,
+          submitCount: item.submitCount,
+          lastSubmitAt: item.lastSubmitAt,
+          syncedAt: item.syncedAt,
+          rawResult: item.rawResult,
+        };
+      }),
+      page,
+      pageSize,
+      total,
+    };
+  }
+
+  async syncTaskResults(taskId: string, user: RequestUser) {
+    const task = await this.findHydroTask(taskId);
+    await this.assertHydroTaskAccessible(task, user);
+    return this.syncHydroTaskRecord(task, user);
+  }
+
+  async retryFailedTaskResults(taskId: string, user: RequestUser) {
+    const task = await this.findHydroTask(taskId);
+    await this.assertHydroTaskAccessible(task, user);
+    const failedResults = await this.prisma.hydroResult.findMany({
+      where: {
+        taskId,
+        status: { in: ['failed', 'error', 'pending', 'judging'] },
+      },
+    });
+    let retriedCount = 0;
+    for (const result of failedResults) {
+      const raw = this.toRecord(result.rawResult);
+      const latestSubmissionId = String(raw.latestSubmissionId ?? '');
+      if (!latestSubmissionId) continue;
+      const synced = await this.syncSubmission(latestSubmissionId).catch(() => null);
+      if (synced) retriedCount += 1;
+    }
+    const synced = await this.syncHydroTaskRecord(task, user);
+    return { ...synced, retriedCount };
+  }
+
   async problemBinding(questionId: string) {
     const question = await this.prisma.question.findFirst({
       where: { id: questionId, deletedAt: null },
@@ -423,6 +675,7 @@ export class HydroService implements OnModuleInit, OnModuleDestroy {
     };
     const judgeConfig = {
       ...(dto.judgeConfig ?? {}),
+      platformCode: provider,
       platformBaseUrl,
       domainId,
       domainName,
@@ -684,6 +937,9 @@ export class HydroService implements OnModuleInit, OnModuleDestroy {
     if (attempt.exam.endTime <= new Date()) {
       throw new BadRequestException('考试已结束，不能提交代码');
     }
+    if (this.attemptDeadline(attempt) <= new Date()) {
+      throw new BadRequestException('答题时长已用完，不能继续提交代码');
+    }
 
     const paperSnapshot = attempt.paperInstance.paperSnapshotJson as unknown as PaperSnapshot;
     const snapshotQuestion = this.findSnapshotQuestion(paperSnapshot, questionId);
@@ -701,7 +957,7 @@ export class HydroService implements OnModuleInit, OnModuleDestroy {
       );
     const language = this.normalizeHydroLanguage(dto.language, binding.languages);
     const submitDto = { ...dto, language };
-    const hydroAccount = await this.findAccountForBinding(user.id, binding);
+    const hydroAccount = await this.findAccountForBinding(user.id, binding, dto.accountId);
     if (!hydroAccount) {
       throw new BadRequestException('请先在个人信息中绑定当前 Hydro 站点账号，再提交编程题代码');
     }
@@ -728,6 +984,7 @@ export class HydroService implements OnModuleInit, OnModuleDestroy {
             recordUrl: submitResult.recordUrl ?? null,
             language,
             hydroAccountId: hydroAccount.id,
+            hydroAccountLabel: this.accountLabel(hydroAccount),
             raw: submitResult.raw ?? null,
             message: submitResult.message ?? null,
           } as Prisma.InputJsonObject,
@@ -818,7 +1075,9 @@ export class HydroService implements OnModuleInit, OnModuleDestroy {
   }
 
   async submitPracticeCode(questionId: string, dto: SubmitHydroCodeDto, user: RequestUser) {
-    this.ensureStudent(user);
+    if (!this.canManageOwnExternalAccounts(user)) {
+      throw new ForbiddenException('请使用学生或教师账号提交编程题测试');
+    }
     const question = await this.prisma.question.findFirst({
       where: { id: questionId, deletedAt: null, status: QuestionStatus.PUBLISHED, type: QuestionType.PROGRAMMING },
       include: { programmingRef: true },
@@ -828,7 +1087,7 @@ export class HydroService implements OnModuleInit, OnModuleDestroy {
 
     const binding = this.formatProblemRef(question.programmingRef);
     const language = this.normalizeHydroLanguage(dto.language, binding.languages);
-    const hydroAccount = await this.findAccountForBinding(user.id, binding);
+    const hydroAccount = await this.findAccountForBinding(user.id, binding, dto.accountId);
     if (!hydroAccount) {
       throw new BadRequestException('请先在个人信息中绑定当前 Hydro 站点账号，再提交编程题代码');
     }
@@ -1083,6 +1342,330 @@ export class HydroService implements OnModuleInit, OnModuleDestroy {
       page,
       pageSize,
       total,
+    };
+  }
+
+  private async hydroTaskWhere(
+    query: Pick<QueryHydroSummaryDto, 'courseId' | 'classId' | 'examId' | 'status' | 'keyword'>,
+    user: RequestUser,
+  ): Promise<Prisma.HydroTaskWhereInput> {
+    if (query.classId) {
+      await this.dataScope.assertClassWritable(user, query.classId);
+    }
+    if (query.examId) {
+      await this.dataScope.assertExamAccessible(user, query.examId);
+    }
+
+    const and: Prisma.HydroTaskWhereInput[] = [
+      { courseId: query.courseId },
+      { classId: query.classId },
+      { examId: query.examId },
+      { status: query.status },
+    ].filter((item) => Object.values(item).some((value) => value !== undefined));
+
+    if (query.keyword) {
+      and.push({
+        OR: [
+          { title: { contains: query.keyword, mode: 'insensitive' } },
+          { hydroProblemId: { contains: query.keyword, mode: 'insensitive' } },
+          { hydroContestId: { contains: query.keyword, mode: 'insensitive' } },
+        ],
+      });
+    }
+
+    const classIds = await this.dataScope.classIdsFor(user);
+    if (classIds !== null) {
+      and.push({
+        OR: [
+          { classId: { in: classIds } },
+          { classId: null, createdBy: user.id },
+        ],
+      });
+    }
+
+    return and.length ? { AND: and } : {};
+  }
+
+  private async hydroTaskMeta(tasks: HydroTaskRecord[]) {
+    const courseIds = [...new Set(tasks.map((item) => item.courseId).filter((id): id is string => Boolean(id)))];
+    const classIds = [...new Set(tasks.map((item) => item.classId).filter((id): id is string => Boolean(id)))];
+    const examIds = [...new Set(tasks.map((item) => item.examId).filter((id): id is string => Boolean(id)))];
+    const [courses, classes, exams] = await Promise.all([
+      courseIds.length
+        ? this.prisma.course.findMany({ where: { id: { in: courseIds } }, select: { id: true, name: true } })
+        : Promise.resolve([]),
+      classIds.length
+        ? this.prisma.classGroup.findMany({ where: { id: { in: classIds } }, select: { id: true, name: true } })
+        : Promise.resolve([]),
+      examIds.length
+        ? this.prisma.exam.findMany({ where: { id: { in: examIds } }, select: { id: true, name: true } })
+        : Promise.resolve([]),
+    ]);
+
+    return {
+      courseNames: new Map(courses.map((item) => [item.id, item.name] as const)),
+      classNames: new Map(classes.map((item) => [item.id, item.name] as const)),
+      examNames: new Map(exams.map((item) => [item.id, item.name] as const)),
+    };
+  }
+
+  private async hydroTaskMetrics(taskIds: string[]) {
+    if (!taskIds.length) {
+      return new Map<string, { resultCount: number; submittedCount: number; pendingCount: number; averageScore: number; maxScore: number }>();
+    }
+    const results = await this.prisma.hydroResult.findMany({
+      where: { taskId: { in: taskIds } },
+      select: { taskId: true, status: true, score: true },
+    });
+    const map = new Map<string, { resultCount: number; submittedCount: number; pendingCount: number; scores: number[] }>();
+    for (const taskId of taskIds) {
+      map.set(taskId, { resultCount: 0, submittedCount: 0, pendingCount: 0, scores: [] });
+    }
+    for (const result of results) {
+      const metrics = map.get(result.taskId) ?? { resultCount: 0, submittedCount: 0, pendingCount: 0, scores: [] };
+      metrics.resultCount += 1;
+      if (result.status !== 'not_started') metrics.submittedCount += 1;
+      if (['pending', 'judging'].includes(result.status)) metrics.pendingCount += 1;
+      if (result.score !== null) metrics.scores.push(Number(result.score));
+      map.set(result.taskId, metrics);
+    }
+
+    return new Map(
+      [...map.entries()].map(([taskId, item]) => [
+        taskId,
+        {
+          resultCount: item.resultCount,
+          submittedCount: item.submittedCount,
+          pendingCount: item.pendingCount,
+          averageScore: this.average(item.scores),
+          maxScore: item.scores.length ? Math.max(...item.scores) : 0,
+        },
+      ]),
+    );
+  }
+
+  private formatHydroTask(
+    task: HydroTaskRecord,
+    meta: Awaited<ReturnType<HydroService['hydroTaskMeta']>>,
+    metrics?: { resultCount: number; submittedCount: number; pendingCount: number; averageScore: number; maxScore: number },
+  ) {
+    return {
+      id: task.id,
+      title: task.title,
+      courseId: task.courseId,
+      courseName: task.courseId ? meta.courseNames.get(task.courseId) ?? '' : '',
+      classId: task.classId,
+      className: task.classId ? meta.classNames.get(task.classId) ?? '' : '',
+      examId: task.examId,
+      examName: task.examId ? meta.examNames.get(task.examId) ?? '' : '',
+      hydroUrl: task.hydroUrl,
+      hydroProblemId: task.hydroProblemId,
+      hydroContestId: task.hydroContestId,
+      startTime: task.startTime,
+      endTime: task.endTime,
+      status: task.status,
+      resultCount: metrics?.resultCount ?? 0,
+      submittedCount: metrics?.submittedCount ?? 0,
+      pendingCount: metrics?.pendingCount ?? 0,
+      averageScore: metrics?.averageScore ?? 0,
+      maxScore: metrics?.maxScore ?? 0,
+      createdBy: task.createdBy,
+      createdAt: task.createdAt,
+      updatedAt: task.updatedAt,
+    };
+  }
+
+  private async findAccessibleExam(examId: string, user: RequestUser) {
+    await this.dataScope.assertExamAccessible(user, examId);
+    const exam = await this.prisma.exam.findFirst({
+      where: { id: examId, deletedAt: null },
+      select: { id: true, name: true, courseId: true, classId: true },
+    });
+    if (!exam) throw new NotFoundException('考试不存在');
+    return exam;
+  }
+
+  private async assertCourseExists(courseId: string) {
+    const exists = await this.prisma.course.findFirst({
+      where: { id: courseId, deletedAt: null },
+      select: { id: true },
+    });
+    if (!exists) throw new NotFoundException('课程不存在');
+  }
+
+  private parseHydroTaskDate(value: string | null | undefined, label: string) {
+    if (value === undefined) return undefined;
+    if (value === null || value === '') return null;
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) {
+      throw new BadRequestException(`${label}格式不正确`);
+    }
+    return date;
+  }
+
+  private assertHydroTaskTimeRange(startTime?: Date | null, endTime?: Date | null) {
+    if (startTime && endTime && startTime >= endTime) {
+      throw new BadRequestException('Hydro 任务结束时间必须晚于开始时间');
+    }
+  }
+
+  private requiredTaskText(value: unknown, label: string) {
+    const text = String(value ?? '').trim();
+    if (!text) throw new BadRequestException(`请填写${label}`);
+    return text;
+  }
+
+  private optionalTaskText(value: unknown) {
+    const text = String(value ?? '').trim();
+    return text || null;
+  }
+
+  private async findHydroTask(taskId: string) {
+    const task = await this.prisma.hydroTask.findUnique({ where: { id: taskId } });
+    if (!task) throw new NotFoundException('Hydro 任务不存在');
+    return task;
+  }
+
+  private async assertHydroTaskAccessible(task: HydroTaskRecord, user: RequestUser) {
+    if (this.dataScope.isUnrestricted(user)) return;
+    if (task.examId) {
+      await this.dataScope.assertExamAccessible(user, task.examId);
+      return;
+    }
+    if (task.classId) {
+      await this.dataScope.assertClassWritable(user, task.classId);
+      return;
+    }
+    if (task.createdBy === user.id) return;
+    throw new ForbiddenException('无权限访问该 Hydro 任务');
+  }
+
+  private async syncHydroTaskRecord(task: HydroTaskRecord, user: RequestUser) {
+    if (!task.examId && !task.hydroProblemId) {
+      throw new BadRequestException('Hydro 任务至少需要绑定考试或 Hydro 题号后才能同步');
+    }
+    const submissions = await this.prisma.judgeSubmission.findMany({
+      where: {
+        attempt: task.examId ? { examId: task.examId } : undefined,
+        question: task.hydroProblemId
+          ? {
+              programmingRef: {
+                is: {
+                  externalProblemId: task.hydroProblemId,
+                },
+              },
+            }
+          : undefined,
+      },
+      include: {
+        question: { select: { id: true, title: true, programmingRef: true } },
+        attempt: { select: { id: true, examId: true, userId: true } },
+      },
+      orderBy: { submittedAt: 'desc' },
+    });
+
+    const latestByStudent = new Map<string, (typeof submissions)[number]>();
+    const submitCountByStudent = new Map<string, number>();
+    for (const submission of submissions) {
+      submitCountByStudent.set(submission.studentId, (submitCountByStudent.get(submission.studentId) ?? 0) + 1);
+      if (!latestByStudent.has(submission.studentId)) {
+        latestByStudent.set(submission.studentId, submission);
+      }
+    }
+
+    const studentIds = [...latestByStudent.keys()];
+    const accounts = studentIds.length
+      ? await this.prisma.hydroAccount.findMany({
+          where: { studentId: { in: studentIds }, bindStatus: 'bound' },
+          orderBy: { updatedAt: 'desc' },
+        })
+      : [];
+    const accountMap = new Map<string, (typeof accounts)[number]>();
+    for (const account of accounts) {
+      if (!accountMap.has(account.studentId)) accountMap.set(account.studentId, account);
+    }
+    const existingResults = studentIds.length
+      ? await this.prisma.hydroResult.findMany({
+          where: { taskId: task.id, studentId: { in: studentIds } },
+          orderBy: { updatedAt: 'desc' },
+        })
+      : [];
+    const existingByStudent = new Map<string, (typeof existingResults)[number]>();
+    const duplicateIds: string[] = [];
+    for (const result of existingResults) {
+      if (existingByStudent.has(result.studentId)) {
+        duplicateIds.push(result.id);
+      } else {
+        existingByStudent.set(result.studentId, result);
+      }
+    }
+
+    const syncedAt = new Date();
+    await this.prisma.$transaction(async (tx) => {
+      if (duplicateIds.length) {
+        await tx.hydroResult.deleteMany({ where: { id: { in: duplicateIds } } });
+      }
+      for (const [studentId, latest] of latestByStudent.entries()) {
+        const account = accountMap.get(studentId);
+        const data = {
+          hydroUserId: account?.hydroUserId ?? studentId,
+          score: latest.score === null ? null : Number(latest.score),
+          status: latest.status || 'pending',
+          submitCount: submitCountByStudent.get(studentId) ?? 1,
+          lastSubmitAt: latest.submittedAt,
+          rawResult: {
+            latestSubmissionId: latest.id,
+            externalSubmissionId: latest.externalSubmissionId,
+            questionId: latest.questionId,
+            questionTitle: latest.question.title,
+            provider: latest.provider,
+            language: latest.language,
+            judgedAt: latest.judgedAt?.toISOString() ?? null,
+            result: latest.resultJson ?? null,
+          } as Prisma.InputJsonObject,
+          syncedAt,
+        };
+        const existing = existingByStudent.get(studentId);
+        if (existing) {
+          await tx.hydroResult.update({
+            where: { id: existing.id },
+            data,
+          });
+        } else {
+          await tx.hydroResult.create({
+            data: {
+              taskId: task.id,
+              studentId,
+              ...data,
+            },
+          });
+        }
+      }
+      if (task.status === 'draft' && latestByStudent.size) {
+        await tx.hydroTask.update({ where: { id: task.id }, data: { status: 'active' } });
+      }
+    });
+
+    await this.audit.log({
+      userId: user.id,
+      action: 'hydro:sync-task-results',
+      module: 'hydro',
+      targetType: 'hydro_task',
+      targetId: task.id,
+      afterData: {
+        submissionCount: submissions.length,
+        syncedCount: latestByStudent.size,
+        hydroProblemId: task.hydroProblemId,
+      },
+    });
+
+    return {
+      taskId: task.id,
+      title: task.title,
+      submissionCount: submissions.length,
+      syncedCount: latestByStudent.size,
+      duplicateCleanedCount: duplicateIds.length,
+      syncedAt,
     };
   }
 
@@ -1439,11 +2022,56 @@ export class HydroService implements OnModuleInit, OnModuleDestroy {
   }
 
   private pickHydroLanguages(rawLanguages: string[]) {
-    const available = rawLanguages.map((item) => item.trim()).filter(Boolean);
+    const available = [...new Set(rawLanguages.map((item) => item.trim()).filter(Boolean))];
     if (!available.length) return this.defaultHydroLanguages();
-    const preferred = ['cc.cc17o2', 'cc.cc17', 'py.py3', 'java', 'c', 'cc.cc14', 'cc.cc11', 'pas'];
+    const preferred = [
+      'cc.cc20o2',
+      'cc.cc20',
+      'cc.cc17o2',
+      'cc.cc17',
+      'cc.cc14o2',
+      'cc.cc14',
+      'cc.cc11o2',
+      'cc.cc11',
+      'py.py3',
+      'java',
+      'c',
+      'cc',
+      'pas',
+    ];
     const picked = preferred.filter((item) => available.includes(item));
-    return picked.length ? picked : available.slice(0, 8);
+    if (!picked.length) return available.slice(0, 8);
+    return [...picked, ...available.filter((item) => !picked.includes(item))].slice(0, 8);
+  }
+
+  private extractHydroLanguages(html: string, config: Record<string, unknown>) {
+    const values = new Set<string>();
+    const configLanguages = Array.isArray(config.langs) ? config.langs : [];
+    for (const language of configLanguages) {
+      const value = String(language || '').trim();
+      if (value) values.add(value);
+    }
+
+    const selectPattern = /<select\b[^>]*(?:name|id)=["'][^"']*(?:lang|language)[^"']*["'][^>]*>([\s\S]*?)<\/select>/gi;
+    let selectMatch: RegExpExecArray | null;
+    while ((selectMatch = selectPattern.exec(html))) {
+      const selectHtml = selectMatch[1] || '';
+      const optionPattern = /<option\b[^>]*value=["']([^"']+)["'][^>]*>/gi;
+      let optionMatch: RegExpExecArray | null;
+      while ((optionMatch = optionPattern.exec(selectHtml))) {
+        const value = this.decodeHtml(optionMatch[1]).trim();
+        if (this.isHydroLanguageId(value)) values.add(value);
+      }
+    }
+
+    return [...values];
+  }
+
+  private isHydroLanguageId(value: string) {
+    const normalized = String(value || '').trim();
+    if (!normalized || normalized.length > 40 || /[/?#\s]/.test(normalized)) return false;
+    if (['c', 'cc', 'java', 'pas', 'go', 'rust', 'rs'].includes(normalized)) return true;
+    return /^(?:cc|c|py|java|js|ts|go|rust|rs|pas)[._-][a-z0-9._-]+$/i.test(normalized);
   }
 
   private defaultHydroLanguages() {
@@ -1482,21 +2110,75 @@ export class HydroService implements OnModuleInit, OnModuleDestroy {
     return fallback || normalized;
   }
 
-  private async findAccountForBinding(userId: string, binding: HydroProblemBinding) {
+  private async findAccountForBinding(userId: string, binding: HydroProblemBinding, selectedAccountId?: string) {
     const platformCode = this.normalizePlatformCode(binding.judgeProvider);
     const judgeConfig = this.toRecord(binding.judgeConfig);
     const platformBaseUrl = this.normalizePlatformBaseUrl(
       binding.platformBaseUrl || String(judgeConfig.platformBaseUrl ?? '') || this.baseUrlFromProblemUrl(binding.externalProblemUrl),
     );
-    return this.prisma.hydroAccount.findFirst({
+    const assertMatchedAccount = (account: HydroAccount) => {
+      if (!this.isSamePlatformBaseUrl(account.platformBaseUrl, platformBaseUrl)) {
+        throw new BadRequestException(
+          `所选账号属于 ${this.shortHost(account.platformBaseUrl)}，当前题目来源 ${this.shortHost(platformBaseUrl)}，请切换同站点账号`,
+        );
+      }
+      return account;
+    };
+
+    if (selectedAccountId) {
+      const selected = await this.prisma.hydroAccount.findFirst({
+        where: {
+          id: selectedAccountId,
+          studentId: userId,
+          bindStatus: 'bound',
+        },
+      });
+      if (!selected) {
+        throw new BadRequestException('所选外部账号不存在或尚未绑定');
+      }
+      return assertMatchedAccount(selected);
+    }
+
+    if (binding.accountId) {
+      const preferred = await this.prisma.hydroAccount.findFirst({
+        where: {
+          id: binding.accountId,
+          studentId: userId,
+          bindStatus: 'bound',
+        },
+      });
+      if (preferred && this.isSamePlatformBaseUrl(preferred.platformBaseUrl, platformBaseUrl)) {
+        return preferred;
+      }
+    }
+
+    const candidates = await this.prisma.hydroAccount.findMany({
       where: {
         studentId: userId,
-        platformCode,
-        platformBaseUrl,
         bindStatus: 'bound',
       },
       orderBy: { updatedAt: 'desc' },
     });
+    const sameSiteAccounts = candidates.filter((account) => this.isSamePlatformBaseUrl(account.platformBaseUrl, platformBaseUrl));
+    return sameSiteAccounts.find((account) => this.normalizePlatformCode(account.platformCode) === platformCode) ?? sameSiteAccounts[0] ?? null;
+  }
+
+  private isSamePlatformBaseUrl(left?: string | null, right?: string | null) {
+    const normalizedLeft = this.normalizePlatformBaseUrl(left);
+    const normalizedRight = this.normalizePlatformBaseUrl(right);
+    try {
+      return this.canonicalHost(normalizedLeft) === this.canonicalHost(normalizedRight);
+    } catch {
+      return normalizedLeft === normalizedRight;
+    }
+  }
+
+  private canonicalHost(value?: string | null) {
+    try {
+      return new URL(this.normalizePlatformBaseUrl(value)).host.toLowerCase().replace(/^www\./, '');
+    } catch {
+      return String(value || '').replace(/^https?:\/\//i, '').replace(/\/+$/, '').toLowerCase().replace(/^www\./, '');
+    }
   }
 
   private normalizePlatformCode(value?: string) {
@@ -1668,18 +2350,22 @@ export class HydroService implements OnModuleInit, OnModuleDestroy {
     }
 
     const judgeConfig = this.toRecord(binding.judgeConfig);
-    const baseUrl = this.normalizePlatformBaseUrl(
+    const bindingBaseUrl = this.normalizePlatformBaseUrl(
       binding.platformBaseUrl ||
         String(judgeConfig.platformBaseUrl ?? '') ||
         account.platformBaseUrl ||
         this.baseUrlFromProblemUrl(binding.externalProblemUrl),
     );
-    const problemUrl = binding.externalProblemUrl || this.normalizeProblemUrl(binding.externalProblemId, undefined, baseUrl);
+    if (!this.isSamePlatformBaseUrl(account.platformBaseUrl, bindingBaseUrl)) {
+      throw new BadRequestException(
+        `提交账号属于 ${this.shortHost(account.platformBaseUrl)}，当前题目来源 ${this.shortHost(bindingBaseUrl)}，不能跨站点提交`,
+      );
+    }
+    const baseUrl = this.normalizePlatformBaseUrl(account.platformBaseUrl);
+    const domainId = String(binding.domainId || judgeConfig.domainId || '').trim();
+    const problemUrl = this.normalizeProblemUrl(binding.externalProblemId, undefined, baseUrl, domainId);
     const session = await this.createHydroSession(account, baseUrl);
-    const submitUrl =
-      String(judgeConfig.submitPageUrl ?? '').trim() ||
-      this.submitPageUrlFromProblemUrl(problemUrl) ||
-      `${baseUrl}/p/${encodeURIComponent(binding.externalProblemId)}/submit`;
+    const submitUrl = this.submitPageUrlFromProblemUrl(problemUrl) || `${baseUrl}/p/${encodeURIComponent(binding.externalProblemId)}/submit`;
 
     const form = new FormData();
     form.set('lang', dto.language);
@@ -2088,6 +2774,10 @@ export class HydroService implements OnModuleInit, OnModuleDestroy {
     };
   }
 
+  private accountLabel(account: Pick<HydroAccount, 'loginUsername' | 'hydroUsername' | 'platformBaseUrl'>) {
+    return `${account.loginUsername || account.hydroUsername}@${this.shortHost(account.platformBaseUrl)}`;
+  }
+
   private normalizeProblemUrl(problemId: string, explicitUrl?: string, baseUrl = this.hydroBaseUrl(), domainId?: string) {
     if (explicitUrl?.trim()) return explicitUrl.trim();
     const normalizedBaseUrl = this.normalizePlatformBaseUrl(baseUrl);
@@ -2159,6 +2849,11 @@ export class HydroService implements OnModuleInit, OnModuleDestroy {
     if (['memory_limit_exceeded', 'memory_limit_exceed', 'mle'].includes(value) || /内存超限|memory limit/i.test(status)) return 'memory_limit_exceeded';
     if (['system_error', 'se', 'failed', 'error', 'unknown'].includes(value) || /系统错误|system/i.test(status)) return 'system_error';
     return value || 'unknown';
+  }
+
+  private attemptDeadline(attempt: { startedAt: Date; exam: { durationMinutes: number; endTime: Date } }) {
+    const durationDeadline = new Date(attempt.startedAt.getTime() + attempt.exam.durationMinutes * 60 * 1000);
+    return durationDeadline < attempt.exam.endTime ? durationDeadline : attempt.exam.endTime;
   }
 
   private normalizeAnswerStatus(status: string) {
@@ -2337,7 +3032,13 @@ export class HydroService implements OnModuleInit, OnModuleDestroy {
   }
 
   private canManageOwnExternalAccounts(user: RequestUser) {
-    const ownAccountTypes: UserType[] = [UserType.ADMIN, UserType.TEACHER, UserType.ASSISTANT, UserType.STUDENT];
+    const ownAccountTypes: UserType[] = [
+      UserType.SUPER_ADMIN,
+      UserType.ADMIN,
+      UserType.TEACHER,
+      UserType.ASSISTANT,
+      UserType.STUDENT,
+    ];
     return ownAccountTypes.includes(user.userType as UserType);
   }
 

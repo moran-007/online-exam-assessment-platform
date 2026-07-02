@@ -78,7 +78,7 @@ const examTransitions = {
   draft: ['scheduled', 'running', 'archived'],
   scheduled: ['draft', 'running', 'ended', 'archived'],
   running: ['ended'],
-  ended: ['archived'],
+  ended: ['running', 'archived'],
   archived: ['draft'],
 };
 

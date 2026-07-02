@@ -146,7 +146,125 @@ export class SaveHydroPlatformDto {
   sortOrder?: number;
 }
 
+export class SaveHydroTaskDto {
+  @IsString()
+  @MaxLength(128)
+  title: string;
+
+  @IsOptional()
+  @IsUUID()
+  courseId?: string;
+
+  @IsOptional()
+  @IsUUID()
+  classId?: string;
+
+  @IsOptional()
+  @IsUUID()
+  examId?: string;
+
+  @IsString()
+  @MaxLength(512)
+  hydroUrl: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(128)
+  hydroProblemId?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(128)
+  hydroContestId?: string;
+
+  @IsOptional()
+  @IsString()
+  startTime?: string;
+
+  @IsOptional()
+  @IsString()
+  endTime?: string;
+
+  @IsOptional()
+  @IsIn(['draft', 'active', 'closed', 'archived', 'failed'])
+  status?: string;
+}
+
+export class UpdateHydroTaskDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(128)
+  title?: string;
+
+  @IsOptional()
+  @IsUUID()
+  courseId?: string | null;
+
+  @IsOptional()
+  @IsUUID()
+  classId?: string | null;
+
+  @IsOptional()
+  @IsUUID()
+  examId?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(512)
+  hydroUrl?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(128)
+  hydroProblemId?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(128)
+  hydroContestId?: string | null;
+
+  @IsOptional()
+  @IsString()
+  startTime?: string | null;
+
+  @IsOptional()
+  @IsString()
+  endTime?: string | null;
+
+  @IsOptional()
+  @IsIn(['draft', 'active', 'closed', 'archived', 'failed'])
+  status?: string;
+}
+
+export class SyncHydroTasksDto {
+  @IsOptional()
+  @IsArray()
+  @IsUUID(undefined, { each: true })
+  taskIds?: string[];
+
+  @IsOptional()
+  @IsUUID()
+  courseId?: string;
+
+  @IsOptional()
+  @IsUUID()
+  classId?: string;
+
+  @IsOptional()
+  @IsUUID()
+  examId?: string;
+
+  @IsOptional()
+  @IsString()
+  status?: string;
+}
+
 export class PullHydroProblemDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(32)
+  judgeProvider?: string;
+
   @IsOptional()
   @IsString()
   @MaxLength(256)
@@ -184,6 +302,10 @@ export class SubmitHydroCodeDto {
 
   @IsString()
   code: string;
+
+  @IsOptional()
+  @IsUUID()
+  accountId?: string;
 }
 
 export class WriteBackHydroResultDto {

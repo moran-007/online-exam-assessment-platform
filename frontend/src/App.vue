@@ -1,12 +1,17 @@
 <template>
   <router-view v-if="isBareRoute" />
-  <el-container v-else class="app-shell">
-    <el-aside width="224px" class="side">
+  <el-container v-else class="app-shell" :class="{ 'side-collapsed': sideCollapsed }">
+    <el-aside :width="sideCollapsed ? '72px' : '224px'" class="side">
       <div class="brand">
-        <el-icon><Reading /></el-icon>
-        <span>智能测评</span>
+        <div class="brand-mark">
+          <el-icon><Reading /></el-icon>
+          <span v-show="!sideCollapsed">智能测评</span>
+        </div>
+        <el-tooltip :content="sideCollapsed ? '展开侧边栏' : '收起侧边栏'" placement="right">
+          <el-button class="side-toggle" text :icon="sideCollapsed ? Expand : Fold" @click="toggleSide" />
+        </el-tooltip>
       </div>
-      <el-menu :default-active="$route.path" router class="side-menu">
+      <el-menu :default-active="$route.path" router class="side-menu" :collapse="sideCollapsed" :collapse-transition="false">
         <el-menu-item v-for="item in visibleMenuItems" :key="item.path" :index="item.path">
           <el-icon><component :is="item.icon" /></el-icon><span>{{ item.label }}</span>
         </el-menu-item>
@@ -58,7 +63,7 @@
 <script setup>
 import { computed, onMounted, onUnmounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { Bell, SwitchButton } from '@element-plus/icons-vue';
+import { Bell, Expand, Fold, Reading, SwitchButton } from '@element-plus/icons-vue';
 import { menuForUser } from './access';
 import { api, clearSession, getCurrentUser, onSessionChange } from './api';
 
@@ -69,6 +74,7 @@ const notificationVisible = ref(false);
 const notifications = ref([]);
 const notificationUnread = ref(0);
 const notificationsLoading = ref(false);
+const sideCollapsed = ref(localStorage.getItem('smart-assessment-side-collapsed') === 'true');
 const isBareRoute = computed(() => route.path === '/login' || /^\/student\/exams\/[^/]+/.test(route.path));
 const visibleMenuItems = computed(() => menuForUser(user.value));
 const roleName = computed(() => {
@@ -103,6 +109,11 @@ function logout() {
 
 function login() {
   router.push('/login');
+}
+
+function toggleSide() {
+  sideCollapsed.value = !sideCollapsed.value;
+  localStorage.setItem('smart-assessment-side-collapsed', String(sideCollapsed.value));
 }
 
 async function loadNotificationCount() {

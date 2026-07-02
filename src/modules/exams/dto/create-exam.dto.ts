@@ -22,10 +22,11 @@ export class CreateExamDto {
   @IsString()
   endTime: string;
 
+  @IsOptional()
   @Type(() => Number)
   @IsInt()
   @Min(1)
-  durationMinutes: number;
+  durationMinutes?: number;
 
   @IsOptional()
   @Type(() => Number)

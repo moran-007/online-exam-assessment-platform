@@ -5,7 +5,7 @@
     :style="editorStyle"
   >
     <div class="code-answer-editor__toolbar">
-      <span class="code-answer-editor__meta">{{ normalizedLanguageLabel }}</span>
+      <span class="code-answer-editor__meta">{{ displayLanguageLabel }}</span>
       <div class="code-answer-editor__font-tools" aria-label="代码字号">
         <button type="button" title="减小字号" :disabled="fontSize <= minFontSize" @click="changeFontSize(-1)">A-</button>
         <span>{{ fontSize }}px</span>
@@ -51,6 +51,10 @@ const props = defineProps({
     type: String,
     default: '',
   },
+  languageLabel: {
+    type: String,
+    default: '',
+  },
   rows: {
     type: Number,
     default: 18,
@@ -85,7 +89,8 @@ let pendingCaretOffset = null;
 
 const canEdit = computed(() => !props.disabled && !props.readonly);
 const highlightLanguage = computed(() => normalizeHighlightLanguage(props.language));
-const normalizedLanguageLabel = computed(() => highlightLanguage.value || 'text');
+const normalizedLanguageLabel = computed(() => (highlightLanguage.value || 'text').toUpperCase());
+const displayLanguageLabel = computed(() => props.languageLabel || normalizedLanguageLabel.value);
 const editorMinHeight = computed(() => {
   const rows = Math.max(6, Number(props.rows) || 18);
   return `${Math.round(rows * fontSize.value * 1.6 + 24)}px`;
@@ -294,7 +299,6 @@ function escapeHtml(value) {
   color: var(--muted);
   font-size: 12px;
   font-weight: 700;
-  text-transform: uppercase;
 }
 
 .code-answer-editor__font-tools {

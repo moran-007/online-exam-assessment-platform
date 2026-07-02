@@ -90,7 +90,7 @@
                 </div>
               </template>
             </el-table-column>
-            <el-table-column prop="examUsageCount" label="考试占用" width="128">
+            <el-table-column prop="examUsageCount" label="进行中占用" width="128">
               <template #default="{ row }">
                 <el-tag :type="examUsageType(row)" effect="plain">
                   {{ examUsageLabel(row) }}
@@ -1188,7 +1188,7 @@ function examUsageCount(row) {
 
 function examUsageLabel(row) {
   const count = examUsageCount(row);
-  return count > 0 ? `已占用 ${count} 场` : '未占用';
+  return count > 0 ? `占用 ${count} 场` : '未占用';
 }
 
 function examUsageType(row) {

@@ -21,7 +21,7 @@ import {
   WrongQuestionSourceType,
 } from '@prisma/client';
 import { toPagination } from '../../common/dto/pagination-query.dto';
-import { toApiEnum } from '../../common/utils/enum-normalizer';
+import { normalizeQuestionType, toApiEnum } from '../../common/utils/enum-normalizer';
 import { RequestUser } from '../../common/interfaces/request-user.interface';
 import { AuditService } from '../audit/audit.service';
 import { PrismaService } from '../prisma/prisma.service';
@@ -111,6 +111,8 @@ type ResultVisibility = {
 
 @Injectable()
 export class StudentService {
+  private readonly endedAttemptSaveGraceMs = 2 * 60_000;
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
@@ -150,8 +152,7 @@ export class StudentService {
 
     return exams
       .map((exam) => {
-        const runtimeStatus =
-          exam.endTime <= now ? 'ended' : exam.startTime <= now ? 'running' : 'scheduled';
+        const runtimeStatus = this.studentRuntimeExamStatus(exam, now);
         const attempts = exam.attempts.map((attempt, index) => ({
           attemptId: attempt.id,
           attemptNo: index + 1,
@@ -389,6 +390,7 @@ export class StudentService {
               include: { questions: { orderBy: { sortOrder: 'asc' } } },
             },
             questions: { where: { sectionId: null }, orderBy: { sortOrder: 'asc' } },
+            rules: true,
           },
         },
       },
@@ -430,7 +432,7 @@ export class StudentService {
 
       const paperSnapshot = existingInstance
         ? (existingInstance.paperSnapshotJson as unknown as PaperSnapshot)
-        : this.buildPaperSnapshot(exam.paper);
+        : await this.buildPaperSnapshot(tx, exam.paper);
 
       const paperInstance =
         existingInstance ??
@@ -528,12 +530,50 @@ export class StudentService {
 
   async saveAnswer(attemptId: string, dto: SaveAnswerDto, user: RequestUser) {
     const attempt = await this.findEditableAttempt(attemptId, user);
+    await this.saveAnswerRecord(attempt, dto);
+
+    return {
+      saved: true,
+      savedAt: new Date().toISOString(),
+    };
+  }
+
+  async saveAnswers(attemptId: string, dto: SaveAnswersDto, user: RequestUser) {
+    return this.saveAnswersForStudent(attemptId, dto, user);
+  }
+
+  private async saveAnswersForStudent(attemptId: string, dto: SaveAnswersDto, user: RequestUser) {
+    const finalizeEndedAttempt = Boolean(dto.finalizeEndedAttempt);
+    const attempt = await this.findSavableAttempt(attemptId, user, { finalizeEndedAttempt });
+
+    for (const answer of dto.answers) {
+      await this.saveAnswerRecord(attempt, answer);
+    }
+
+    const shouldFinalize = finalizeEndedAttempt && this.shouldFinalizeAfterSave(attempt);
+    if (shouldFinalize) {
+      await this.recalculateSavedAttempt(attemptId, user, new Date());
+    }
+
+    return {
+      saved: true,
+      finalized: shouldFinalize,
+      savedAt: new Date().toISOString(),
+    };
+  }
+
+  private async saveAnswerRecord(
+    attempt: Prisma.ExamAttemptGetPayload<{
+      include: { exam: true; paperInstance: true };
+    }>,
+    dto: SaveAnswerDto,
+  ) {
     const paperSnapshot = attempt.paperInstance.paperSnapshotJson as unknown as PaperSnapshot;
     const paperQuestion = this.assertQuestionInPaper(paperSnapshot, dto.questionId);
     const existing = await this.prisma.answerRecord.findUnique({
       where: {
         attemptId_questionId: {
-          attemptId,
+          attemptId: attempt.id,
           questionId: dto.questionId,
         },
       },
@@ -547,7 +587,7 @@ export class StudentService {
     await this.prisma.answerRecord.upsert({
       where: {
         attemptId_questionId: {
-          attemptId,
+          attemptId: attempt.id,
           questionId: dto.questionId,
         },
       },
@@ -559,32 +599,12 @@ export class StudentService {
         autoResultJson: preserveJudgeStatus ? this.nullableJsonInput(existing?.autoResultJson) : undefined,
       },
       create: {
-        attemptId,
+        attemptId: attempt.id,
         questionId: dto.questionId,
         answerJson: dto.answer as Prisma.InputJsonObject,
         status: AnswerRecordStatus.SAVED,
       },
     });
-
-    return {
-      saved: true,
-      savedAt: new Date().toISOString(),
-    };
-  }
-
-  async saveAnswers(attemptId: string, dto: SaveAnswersDto, user: RequestUser) {
-    return this.saveAnswersForStudent(attemptId, dto, user);
-  }
-
-  private async saveAnswersForStudent(attemptId: string, dto: SaveAnswersDto, user: RequestUser) {
-    for (const answer of dto.answers) {
-      await this.saveAnswer(attemptId, answer, user);
-    }
-
-    return {
-      saved: true,
-      savedAt: new Date().toISOString(),
-    };
   }
 
   async submit(attemptId: string, user: RequestUser) {
@@ -614,6 +634,8 @@ export class StudentService {
       return this.result(attemptId, user);
     }
 
+    const submittedAt = new Date();
+    const timedOut = this.attemptDeadline(attempt) <= submittedAt;
     const paperSnapshot = attempt.paperInstance.paperSnapshotJson as unknown as PaperSnapshot;
     const answerMap = new Map(attempt.answers.map((answer) => [answer.questionId, answer]));
     let objectiveScore = 0;
@@ -723,13 +745,13 @@ export class StudentService {
       await tx.examAttempt.update({
         where: { id: attemptId },
         data: {
-          status: hasManual || hasJudge ? AttemptStatus.GRADING : AttemptStatus.GRADED,
-          submittedAt: new Date(),
+          status: timedOut ? AttemptStatus.TIMEOUT_SUBMITTED : hasManual || hasJudge ? AttemptStatus.GRADING : AttemptStatus.GRADED,
+          submittedAt,
           objectiveScore,
           subjectiveScore,
           judgeScore,
           totalScore,
-          durationSeconds: Math.floor((Date.now() - attempt.startedAt.getTime()) / 1000),
+          durationSeconds: this.attemptDurationSeconds(attempt, submittedAt),
         },
       });
     });
@@ -1395,12 +1417,20 @@ export class StudentService {
   }
 
   private studentPracticePaperWhere(query?: Pick<QueryStudentPaperDto, 'courseId' | 'keyword'>): Prisma.PaperWhereInput {
+    const now = new Date();
     return {
       deletedAt: null,
       status: PaperStatus.PUBLISHED,
       type: { not: PaperType.PRACTICE },
       courseId: query?.courseId,
-      exams: { none: { deletedAt: null } },
+      exams: {
+        none: {
+          deletedAt: null,
+          status: { in: [ExamStatus.SCHEDULED, ExamStatus.RUNNING] },
+          startTime: { lte: now },
+          endTime: { gt: now },
+        },
+      },
       OR: query?.keyword
         ? [
             { name: { contains: query.keyword, mode: 'insensitive' } },
@@ -1411,6 +1441,7 @@ export class StudentService {
   }
 
   private studentPracticePaperPreviewWhere(userId: string, paperId: string): Prisma.PaperWhereInput {
+    const now = new Date();
     return {
       id: paperId,
       deletedAt: null,
@@ -1422,10 +1453,53 @@ export class StudentService {
         {
           status: PaperStatus.PUBLISHED,
           type: { not: PaperType.PRACTICE },
-          exams: { none: { deletedAt: null } },
+          exams: {
+            none: {
+              deletedAt: null,
+              status: { in: [ExamStatus.SCHEDULED, ExamStatus.RUNNING] },
+              startTime: { lte: now },
+              endTime: { gt: now },
+            },
+          },
         },
       ],
     };
+  }
+
+  private async findSavableAttempt(
+    attemptId: string,
+    user: RequestUser,
+    options: { finalizeEndedAttempt?: boolean } = {},
+  ) {
+    this.ensureStudent(user);
+    const attempt = await this.prisma.examAttempt.findFirst({
+      where: { id: attemptId, userId: user.id },
+      include: { exam: true, paperInstance: true },
+    });
+
+    if (!attempt) {
+      throw new NotFoundException('答题记录不存在');
+    }
+
+    if (attempt.status === AttemptStatus.IN_PROGRESS) {
+      const now = new Date();
+      const deadline = this.attemptDeadline(attempt);
+      if (attempt.exam.endTime <= now || deadline <= now) {
+        if (options.finalizeEndedAttempt && this.canFinalizeEndedAttemptSave(attempt, now)) {
+          return attempt;
+        }
+        throw new BadRequestException(
+          attempt.exam.endTime <= now ? '考试已结束，不能保存答案' : '答题时长已用完，不能继续保存答案，请提交试卷',
+        );
+      }
+      return attempt;
+    }
+
+    if (options.finalizeEndedAttempt && this.canFinalizeEndedAttemptSave(attempt)) {
+      return attempt;
+    }
+
+    throw new BadRequestException('答案已提交，不能修改');
   }
 
   private async findEditableAttempt(attemptId: string, user: RequestUser) {
@@ -1447,7 +1521,156 @@ export class StudentService {
       throw new BadRequestException('考试已结束，不能保存答案');
     }
 
+    if (this.attemptDeadline(attempt) <= new Date()) {
+      throw new BadRequestException('答题时长已用完，不能继续保存答案，请提交试卷');
+    }
+
     return attempt;
+  }
+
+  private canFinalizeEndedAttemptSave(
+    attempt: {
+      status: AttemptStatus;
+      submittedAt: Date | null;
+      startedAt: Date;
+      exam: { status: ExamStatus; endTime: Date; durationMinutes: number };
+    },
+    now = new Date(),
+  ) {
+    const salvageableStatuses = new Set<AttemptStatus>([
+      AttemptStatus.IN_PROGRESS,
+      AttemptStatus.SUBMITTED,
+      AttemptStatus.GRADING,
+      AttemptStatus.GRADED,
+      AttemptStatus.TIMEOUT_SUBMITTED,
+    ]);
+    if (!salvageableStatuses.has(attempt.status)) {
+      return false;
+    }
+
+    const deadline = this.attemptDeadline(attempt);
+    if (deadline > now) return false;
+    return now.getTime() - deadline.getTime() <= this.endedAttemptSaveGraceMs;
+  }
+
+  private shouldFinalizeAfterSave(attempt: {
+    status: AttemptStatus;
+    submittedAt: Date | null;
+    startedAt: Date;
+    exam: { status: ExamStatus; endTime: Date; durationMinutes: number };
+  }) {
+    return this.canFinalizeEndedAttemptSave(attempt);
+  }
+
+  private async recalculateSavedAttempt(attemptId: string, user: RequestUser, finalizedAt: Date) {
+    const attempt = await this.prisma.examAttempt.findFirst({
+      where: { id: attemptId, userId: user.id },
+      include: {
+        exam: true,
+        paperInstance: true,
+        answers: true,
+      },
+    });
+
+    if (!attempt) {
+      throw new NotFoundException('答题记录不存在');
+    }
+
+    const paperSnapshot = attempt.paperInstance.paperSnapshotJson as unknown as PaperSnapshot;
+    const answerMap = new Map(attempt.answers.map((answer) => [answer.questionId, answer]));
+    let objectiveScore = 0;
+    let subjectiveScore = 0;
+    let judgeScore = 0;
+    let hasManual = false;
+    let hasJudge = false;
+
+    await this.prisma.$transaction(async (tx) => {
+      for (const paperQuestion of this.flattenPaperQuestions(paperSnapshot)) {
+        const existing = answerMap.get(paperQuestion.questionId);
+        const answerJson = (existing?.answerJson as Record<string, unknown>) ?? {};
+        const grading =
+          paperQuestion.snapshot.type.toUpperCase() === QuestionType.PROGRAMMING &&
+          existing?.status === AnswerRecordStatus.JUDGE_DONE
+            ? {
+                score: Number(existing.score),
+                isCorrect: existing.isCorrect,
+                status: AnswerRecordStatus.JUDGE_DONE,
+                autoResult: existing.autoResultJson ?? {},
+              }
+            : this.gradeQuestion(paperQuestion, answerJson);
+
+        if (grading.status === AnswerRecordStatus.AUTO_GRADED) {
+          objectiveScore += grading.score;
+        } else if (grading.status === AnswerRecordStatus.MANUAL_NEEDED) {
+          hasManual = true;
+          subjectiveScore += grading.score;
+        } else if (grading.status === AnswerRecordStatus.JUDGE_PENDING || grading.status === AnswerRecordStatus.JUDGE_DONE) {
+          hasJudge ||= grading.status === AnswerRecordStatus.JUDGE_PENDING;
+          judgeScore += grading.score;
+        }
+
+        await tx.answerRecord.upsert({
+          where: {
+            attemptId_questionId: {
+              attemptId,
+              questionId: paperQuestion.questionId,
+            },
+          },
+          update: {
+            answerJson: answerJson as Prisma.InputJsonObject,
+            isCorrect: grading.isCorrect,
+            score: grading.score,
+            status: grading.status,
+            autoResultJson: grading.autoResult as Prisma.InputJsonObject,
+          },
+          create: {
+            attemptId,
+            questionId: paperQuestion.questionId,
+            answerJson: answerJson as Prisma.InputJsonObject,
+            isCorrect: grading.isCorrect,
+            score: grading.score,
+            status: grading.status,
+            autoResultJson: grading.autoResult as Prisma.InputJsonObject,
+          },
+        });
+      }
+
+      await tx.examAttempt.update({
+        where: { id: attemptId },
+        data: {
+          status: hasManual || hasJudge ? AttemptStatus.GRADING : AttemptStatus.GRADED,
+          submittedAt: attempt.submittedAt ?? finalizedAt,
+          objectiveScore,
+          subjectiveScore,
+          judgeScore,
+          totalScore: objectiveScore + subjectiveScore + judgeScore,
+          durationSeconds: this.attemptDurationSeconds(attempt, attempt.submittedAt ?? finalizedAt),
+        },
+      });
+    });
+
+    await this.audit.log({
+      userId: user.id,
+      action: 'student:finalize-saved-attempt',
+      module: 'student',
+      targetType: 'attempt',
+      targetId: attemptId,
+      afterData: { objectiveScore, subjectiveScore, judgeScore, salvaged: true },
+    });
+  }
+
+  private attemptDeadline(attempt: { startedAt: Date; exam: { durationMinutes: number; endTime: Date } }) {
+    const durationDeadline = new Date(attempt.startedAt.getTime() + attempt.exam.durationMinutes * 60_000);
+    return durationDeadline < attempt.exam.endTime ? durationDeadline : attempt.exam.endTime;
+  }
+
+  private attemptDurationSeconds(
+    attempt: { startedAt: Date; exam: { durationMinutes: number; endTime: Date } },
+    now = new Date(),
+  ) {
+    const deadline = this.attemptDeadline(attempt);
+    const effectiveEnd = now < deadline ? now : deadline;
+    return Math.max(0, Math.floor((effectiveEnd.getTime() - attempt.startedAt.getTime()) / 1000));
   }
 
   private ensureStudent(user: RequestUser) {
@@ -1649,18 +1872,26 @@ export class StudentService {
 
   private assertExamCanEnter(exam: { status: ExamStatus; startTime: Date; endTime: Date }) {
     const now = new Date();
+    const runtimeStatus = this.studentRuntimeExamStatus(exam, now);
 
-    if (exam.status !== ExamStatus.SCHEDULED && exam.status !== ExamStatus.RUNNING) {
+    if (runtimeStatus === 'ended') {
+      throw new BadRequestException({ code: 40008, message: '考试已结束' });
+    }
+
+    if (runtimeStatus !== 'scheduled' && runtimeStatus !== 'running') {
       throw new BadRequestException('考试未发布或已结束');
     }
 
-    if (exam.startTime > now) {
+    if (runtimeStatus === 'scheduled' && exam.startTime > now) {
       throw new BadRequestException({ code: 40007, message: '考试未开始' });
     }
+  }
 
-    if (exam.endTime <= now) {
-      throw new BadRequestException({ code: 40008, message: '考试已结束' });
-    }
+  private studentRuntimeExamStatus(exam: { status: ExamStatus; startTime: Date; endTime: Date }, now = new Date()) {
+    if (exam.status === ExamStatus.ENDED || exam.endTime <= now) return 'ended';
+    if (exam.status === ExamStatus.RUNNING || exam.startTime <= now) return 'running';
+    if (exam.status === ExamStatus.SCHEDULED) return 'scheduled';
+    return toApiEnum(exam.status);
   }
 
   private assertQuestionInPaper(paperSnapshot: PaperSnapshot, questionId: string) {
@@ -1681,10 +1912,28 @@ export class StudentService {
     return value === null ? Prisma.JsonNull : value === undefined ? undefined : (value as Prisma.InputJsonValue);
   }
 
-  private buildPaperSnapshot(paper: Prisma.PaperGetPayload<{
+  private async buildPaperSnapshot(
+    tx: Prisma.TransactionClient,
+    paper: Prisma.PaperGetPayload<{
     include: {
       sections: { include: { questions: true } };
       questions: true;
+      rules: true;
+    };
+  }>,
+  ): Promise<PaperSnapshot> {
+    if (paper.type === PaperType.RANDOM && paper.rules.length) {
+      return this.buildRandomPaperSnapshot(tx, paper);
+    }
+
+    return this.buildFixedPaperSnapshot(paper);
+  }
+
+  private buildFixedPaperSnapshot(paper: Prisma.PaperGetPayload<{
+    include: {
+      sections: { include: { questions: true } };
+      questions: true;
+      rules: true;
     };
   }>): PaperSnapshot {
     const sections: PaperSnapshotSection[] = paper.sections.map((section) => {
@@ -1729,6 +1978,127 @@ export class StudentService {
       durationMinutes: paper.durationMinutes,
       sections,
     };
+  }
+
+  private async buildRandomPaperSnapshot(
+    tx: Prisma.TransactionClient,
+    paper: Prisma.PaperGetPayload<{
+      include: {
+        sections: { include: { questions: true } };
+        questions: true;
+        rules: true;
+      };
+    }>,
+  ): Promise<PaperSnapshot> {
+    const ruleConfig = this.paperRuleConfig(paper.rules[0]?.ruleJson);
+    const sections: PaperSnapshotSection[] = [];
+    const selectedIds = new Set<string>();
+    const shuffleOptions = ruleConfig.shuffleOptions ?? paper.shuffleOptions;
+
+    for (const [sectionIndex, rule] of ruleConfig.rules.entries()) {
+      const candidates = await this.findRandomRuleCandidates(tx, paper.courseId, rule, [...selectedIds]);
+      if (candidates.length < rule.count) {
+        throw new BadRequestException({
+          code: 40010,
+          message: `随机试卷题库数量不足：${rule.sectionTitle}`,
+          data: {
+            sectionTitle: rule.sectionTitle,
+            requiredCount: rule.count,
+            availableCount: candidates.length,
+          },
+        });
+      }
+
+      const chosen = this.pickRandom(candidates, rule.count);
+      const questions: PaperSnapshotQuestion[] = [];
+      for (const [index, question] of chosen.entries()) {
+        selectedIds.add(question.id);
+        const snapshot = await this.questionsService.buildSnapshot(tx, question.id);
+        questions.push({
+          paperQuestionId: `random-${sectionIndex + 1}-${index + 1}`,
+          questionId: question.id,
+          score: rule.scoreEach,
+          sortOrder: index + 1,
+          snapshot: this.prepareQuestionSnapshot(snapshot as Prisma.JsonValue, shuffleOptions),
+        });
+      }
+
+      sections.push({
+        id: `random-${sectionIndex + 1}`,
+        title: rule.sectionTitle,
+        sortOrder: sectionIndex + 1,
+        questions: ruleConfig.shuffleQuestions ? this.shuffle(questions) : questions,
+      });
+    }
+
+    return {
+      id: paper.id,
+      name: paper.name,
+      totalScore: sections
+        .flatMap((section) => section.questions)
+        .reduce((sum, question) => sum + question.score, 0),
+      durationMinutes: paper.durationMinutes,
+      sections,
+    };
+  }
+
+  private paperRuleConfig(value: Prisma.JsonValue | undefined) {
+    const source = value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+    const rawRules = Array.isArray(source.rules) ? source.rules : [];
+    const rules = rawRules.map((item, index) => {
+      const rule = item && typeof item === 'object' && !Array.isArray(item) ? (item as Record<string, unknown>) : {};
+      return {
+        sectionTitle: String(rule.sectionTitle || `随机分区 ${index + 1}`).trim(),
+        questionType: String(rule.questionType || 'single_choice').trim(),
+        knowledgePointIds: Array.isArray(rule.knowledgePointIds) ? rule.knowledgePointIds.map(String).filter(Boolean) : [],
+        tagIds: Array.isArray(rule.tagIds) ? rule.tagIds.map(String).filter(Boolean) : [],
+        difficultyRange: Array.isArray(rule.difficultyRange) ? rule.difficultyRange.map(Number) : undefined,
+        count: Math.max(1, Math.round(Number(rule.count) || 1)),
+        scoreEach: Math.max(0, Number(rule.scoreEach) || 0),
+      };
+    });
+
+    if (!rules.length) {
+      throw new BadRequestException('随机试卷缺少组卷规则，无法生成个人试卷');
+    }
+
+    return {
+      rules,
+      shuffleQuestions: Boolean(source.shuffleQuestions),
+      shuffleOptions: Boolean(source.shuffleOptions),
+    };
+  }
+
+  private async findRandomRuleCandidates(
+    tx: Prisma.TransactionClient,
+    courseId: string,
+    rule: {
+      questionType: string;
+      knowledgePointIds: string[];
+      tagIds: string[];
+      difficultyRange?: number[];
+    },
+    excludeIds: string[],
+  ) {
+    const [minDifficulty, maxDifficulty] = rule.difficultyRange ?? [1, 5];
+    return tx.question.findMany({
+      where: {
+        courseId,
+        deletedAt: null,
+        status: QuestionStatus.PUBLISHED,
+        type: normalizeQuestionType(rule.questionType),
+        id: { notIn: excludeIds },
+        difficulty: {
+          gte: Number.isFinite(minDifficulty) ? minDifficulty : 1,
+          lte: Number.isFinite(maxDifficulty) ? maxDifficulty : 5,
+        },
+        knowledgePoints: rule.knowledgePointIds.length
+          ? { some: { knowledgePointId: { in: rule.knowledgePointIds } } }
+          : undefined,
+        tags: rule.tagIds.length ? { some: { tagId: { in: rule.tagIds } } } : undefined,
+      },
+      select: { id: true },
+    });
   }
 
   private publicPaper(paperSnapshot: PaperSnapshot, paperInstanceId: string) {

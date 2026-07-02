@@ -26,6 +26,10 @@ export class SaveAnswersDto {
   @ValidateNested({ each: true })
   @Type(() => SaveAnswerDto)
   answers: SaveAnswerDto[];
+
+  @IsOptional()
+  @IsBoolean()
+  finalizeEndedAttempt?: boolean;
 }
 
 export class SubmitAttemptDto {

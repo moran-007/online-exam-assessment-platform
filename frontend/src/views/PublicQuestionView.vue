@@ -112,22 +112,29 @@
       </div>
     </div>
 
-    <el-dialog v-model="practiceVisible" title="题目作答" :width="isSplitPracticeQuestion(detail?.type) ? '1180px' : '780px'">
+    <el-dialog v-model="practiceVisible" title="题目作答" :width="practiceDialogWidth">
       <template v-if="detail">
         <div class="paper-preview-head">
           <div>
             <h2>{{ detail.title }}</h2>
             <span class="muted">{{ detail.courseName }} · {{ typeLabel(detail.type) }} · {{ detail.defaultScore }} 分</span>
           </div>
-          <el-tag type="success">公开</el-tag>
+          <div class="toolbar">
+            <el-radio-group v-model="answerLayout" size="small" class="answer-layout-toggle">
+              <el-radio-button label="side">左右</el-radio-button>
+              <el-radio-button label="stack">上下</el-radio-button>
+            </el-radio-group>
+            <el-tag type="success">公开</el-tag>
+          </div>
         </div>
 
-        <template v-if="isSplitPracticeQuestion(detail.type)">
-          <div class="programming-exam-split programming-practice-split">
-            <div class="programming-statement">
-              <MarkdownRenderer :source="detail.content" />
-            </div>
-            <div class="programming-code-panel">
+        <QuestionAnswerLayout :mode="answerLayout" framed>
+          <template #statement>
+            <MarkdownRenderer :source="detail.content" />
+          </template>
+
+          <template #answer>
+            <div class="question-answer-body">
               <div v-if="detail.type === 'programming'" class="programming-answer">
                 <div class="programming-toolbar">
                   <span class="programming-language-label">语言</span>
@@ -139,12 +146,30 @@
                       :value="language"
                     />
                   </el-select>
+                  <el-tag v-if="detail.programmingRef?.platformBaseUrl || detail.programmingRef?.externalProblemUrl" type="info">
+                    来源：{{ hydroSourceLabel(detail.programmingRef) }}
+                  </el-tag>
                   <el-tag v-if="detail.programmingRef?.domainId" type="info">
                     域：{{ detail.programmingRef.domainName || detail.programmingRef.domainId }}
                   </el-tag>
                   <el-tag v-if="detail.programmingRef?.externalProblemId" type="success">
                     {{ detail.programmingRef.externalProblemId }}
                   </el-tag>
+                  <span class="programming-language-label">账号</span>
+                  <el-select
+                    v-model="selectedHydroAccountId"
+                    :disabled="!matchedHydroAccounts.length"
+                    placeholder="选择提交账号"
+                    style="width: 230px"
+                  >
+                    <el-option
+                      v-for="account in matchedHydroAccounts"
+                      :key="account.id"
+                      :label="hydroAccountLabel(account)"
+                      :value="account.id"
+                    />
+                  </el-select>
+                  <el-tag v-if="!matchedHydroAccounts.length" type="warning">无同站点账号</el-tag>
                   <el-button :disabled="!detail.programmingRef?.externalProblemUrl" @click="openHydroProblem(detail)">打开 Hydro</el-button>
                 </div>
                 <el-alert
@@ -166,10 +191,11 @@
                 <CodeAnswerEditor
                   v-model="answer.code"
                   :language="answer.language"
+                  :language-label="languageLabel(answer.language)"
                   :rows="18"
                 />
               </div>
-              <div v-else class="programming-answer">
+              <div v-else-if="isSplitPracticeQuestion(detail.type)" class="programming-answer">
                 <div class="programming-toolbar">
                   <span class="programming-language-label">作答</span>
                   <el-tag>{{ typeLabel(detail.type) }}</el-tag>
@@ -182,43 +208,43 @@
                   placeholder="填写答案"
                 />
               </div>
+              <template v-else>
+                <div class="programming-toolbar">
+                  <span class="programming-language-label">作答</span>
+                  <el-tag>{{ typeLabel(detail.type) }}</el-tag>
+                </div>
+                <el-radio-group
+                  v-if="['single_choice', 'true_false'].includes(detail.type)"
+                  v-model="answer.selectedOptionIds[0]"
+                  class="answer-options"
+                >
+                  <el-radio v-for="option in detail.options" :key="option.optionId" :label="option.optionId" class="answer-option">
+                    <span class="option-choice">
+                      <strong>{{ option.label }}.</strong>
+                      <MarkdownRenderer :source="option.content" />
+                    </span>
+                  </el-radio>
+                </el-radio-group>
+
+                <el-checkbox-group v-else-if="detail.type === 'multiple_choice'" v-model="answer.selectedOptionIds" class="answer-options">
+                  <el-checkbox v-for="option in detail.options" :key="option.optionId" :label="option.optionId" class="answer-option">
+                    <span class="option-choice">
+                      <strong>{{ option.label }}.</strong>
+                      <MarkdownRenderer :source="option.content" />
+                    </span>
+                  </el-checkbox>
+                </el-checkbox-group>
+
+                <FillBlankAnswerInputs
+                  v-else-if="detail.type === 'fill_blank'"
+                  v-model="answer.blanks"
+                  :count="blankCountFor(detail)"
+                />
+                <el-input v-else v-model="answer.text" class="answer-input" type="textarea" :rows="5" placeholder="填写答案" />
+              </template>
             </div>
-          </div>
-        </template>
-
-        <template v-else>
-          <MarkdownRenderer :source="detail.content" />
-
-          <el-radio-group
-            v-if="['single_choice', 'true_false'].includes(detail.type)"
-            v-model="answer.selectedOptionIds[0]"
-            class="answer-options"
-          >
-            <el-radio v-for="option in detail.options" :key="option.optionId" :label="option.optionId" class="answer-option">
-              <span class="option-choice">
-                <strong>{{ option.label }}.</strong>
-                <MarkdownRenderer :source="option.content" />
-              </span>
-            </el-radio>
-          </el-radio-group>
-
-          <el-checkbox-group v-else-if="detail.type === 'multiple_choice'" v-model="answer.selectedOptionIds" class="answer-options">
-            <el-checkbox v-for="option in detail.options" :key="option.optionId" :label="option.optionId" class="answer-option">
-              <span class="option-choice">
-                <strong>{{ option.label }}.</strong>
-                <MarkdownRenderer :source="option.content" />
-              </span>
-            </el-checkbox>
-          </el-checkbox-group>
-
-          <FillBlankAnswerInputs
-            v-else-if="detail.type === 'fill_blank'"
-            v-model="answer.blanks"
-            :count="blankCountFor(detail)"
-          />
-          <el-input v-else v-model="answer.text" class="answer-input" type="textarea" :rows="5" placeholder="填写答案" />
-
-        </template>
+          </template>
+        </QuestionAnswerLayout>
 
         <el-alert
           v-if="detail.type !== 'programming' && result"
@@ -237,6 +263,7 @@
           type="primary"
           :icon="Check"
           :loading="programmingSubmitLoading"
+          :disabled="detail?.type === 'programming' && getToken() && !selectedHydroAccountId"
           @click="detail?.type === 'programming' ? submitProgrammingAnswer() : checkAnswer()"
         >
           {{ detail?.type === 'programming' ? '提交 Hydro 评测' : '提交作答' }}
@@ -256,6 +283,7 @@ import AnswerFeedback from '../components/AnswerFeedback.vue';
 import CodeAnswerEditor from '../components/CodeAnswerEditor.vue';
 import FillBlankAnswerInputs from '../components/FillBlankAnswerInputs.vue';
 import MarkdownRenderer from '../components/MarkdownRenderer.vue';
+import QuestionAnswerLayout from '../components/QuestionAnswerLayout.vue';
 import { useResponsiveColumns } from '../composables/useResponsiveColumns';
 
 const router = useRouter();
@@ -276,6 +304,9 @@ const result = ref(null);
 const programmingResult = ref(null);
 const programmingSubmitLoading = ref(false);
 const practiceVisible = ref(false);
+const answerLayout = ref('side');
+const hydroAccounts = ref([]);
+const selectedHydroAccountId = ref('');
 const answer = reactive(emptyAnswer());
 const user = ref(getCurrentUser());
 const filter = reactive({
@@ -291,6 +322,8 @@ const pagination = reactive({ page: 1, pageSize: 20, total: 0 });
 const pageSizes = [20, 50, 100];
 const canBatchAddWrong = computed(() => user.value?.userType === 'STUDENT');
 const selectedQuestionIds = computed(() => selectedRows.value.map((row) => row.id));
+const practiceDialogWidth = computed(() => (answerLayout.value === 'side' ? '1180px' : '860px'));
+const matchedHydroAccounts = computed(() => matchedHydroAccountsFor(detail.value));
 let unsubscribeSession = null;
 
 async function load() {
@@ -348,6 +381,7 @@ function handleCurrentChange(page) {
 async function selectQuestion(row) {
   detail.value = await api(`/questions/public/${row.id}`);
   clearAnswer();
+  await prepareHydroAccountSelection(detail.value);
   practiceVisible.value = true;
 }
 
@@ -429,6 +463,10 @@ async function submitProgrammingAnswer() {
     ElMessage.warning('请先填写代码');
     return;
   }
+  if (!selectedHydroAccountId.value) {
+    ElMessage.warning('请选择当前题目来源站点下的提交账号');
+    return;
+  }
   programmingSubmitLoading.value = true;
   try {
     const response = await api(`/hydro/questions/${detail.value.id}/submit-code`, {
@@ -436,6 +474,7 @@ async function submitProgrammingAnswer() {
       body: {
         language: answer.language || languageOptionsFor(detail.value)[0],
         code: answer.code,
+        accountId: selectedHydroAccountId.value,
       },
     });
     programmingResult.value = response;
@@ -479,6 +518,88 @@ function openHydroProblem(question) {
     return;
   }
   window.open(url, '_blank', 'noopener,noreferrer');
+}
+
+async function loadHydroAccounts() {
+  if (!getToken()) {
+    hydroAccounts.value = [];
+    return;
+  }
+  try {
+    const data = await api('/hydro/my/accounts');
+    hydroAccounts.value = data.items ?? data ?? [];
+  } catch {
+    hydroAccounts.value = [];
+  }
+}
+
+async function prepareHydroAccountSelection(question) {
+  selectedHydroAccountId.value = '';
+  if (question?.type !== 'programming') return;
+  await loadHydroAccounts();
+  selectedHydroAccountId.value = defaultHydroAccountId(question);
+}
+
+function defaultHydroAccountId(question) {
+  const matched = matchedHydroAccountsFor(question);
+  const boundAccountId = question?.programmingRef?.accountId;
+  return matched.find((account) => account.id === boundAccountId)?.id || matched[0]?.id || '';
+}
+
+function matchedHydroAccountsFor(question) {
+  const targetBaseUrl = programmingRefBaseUrl(question?.programmingRef);
+  if (!targetBaseUrl) return [];
+  return hydroAccounts.value.filter(
+    (account) => account.bindStatus === 'bound' && sameHydroBaseUrl(account.platformBaseUrl, targetBaseUrl),
+  );
+}
+
+function programmingRefBaseUrl(ref) {
+  const raw = ref?.platformBaseUrl || baseUrlFromProblemUrl(ref?.externalProblemUrl);
+  return raw ? normalizeBaseUrl(raw) : '';
+}
+
+function baseUrlFromProblemUrl(url) {
+  try {
+    const parsed = new URL(String(url || '').trim());
+    return `${parsed.protocol}//${parsed.host}`;
+  } catch {
+    return '';
+  }
+}
+
+function normalizeBaseUrl(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  return (/^https?:\/\//i.test(raw) ? raw : `http://${raw}`).replace(/\/+$/, '');
+}
+
+function shortHost(value) {
+  try {
+    return new URL(normalizeBaseUrl(value)).host;
+  } catch {
+    return String(value || '').replace(/^https?:\/\//i, '').replace(/\/+$/, '');
+  }
+}
+
+function sameHydroBaseUrl(left, right) {
+  const leftHost = canonicalHost(left);
+  const rightHost = canonicalHost(right);
+  return Boolean(leftHost && rightHost && leftHost === rightHost);
+}
+
+function canonicalHost(value) {
+  return shortHost(value).toLowerCase().replace(/^www\./, '');
+}
+
+function hydroAccountLabel(account) {
+  return `${account.loginUsername || account.hydroUsername || 'Hydro账号'} · ${shortHost(account.platformBaseUrl)}`;
+}
+
+function hydroSourceLabel(ref) {
+  const host = shortHost(programmingRefBaseUrl(ref));
+  const domain = ref?.domainName || ref?.domainId || 'system';
+  return [host, domain && domain !== 'system' ? domain : 'system'].filter(Boolean).join(' / ');
 }
 
 function isSplitPracticeQuestion(type) {
@@ -527,6 +648,8 @@ function countBlankMarkers(content) {
 onMounted(() => {
   unsubscribeSession = onSessionChange(() => {
     user.value = getCurrentUser();
+    hydroAccounts.value = [];
+    selectedHydroAccountId.value = '';
   });
   load();
 });
