@@ -162,27 +162,31 @@
           <template #answer>
             <div class="question-answer-body">
               <div v-if="practice.question.type === 'programming'" class="programming-answer">
-                <div class="programming-toolbar">
-                  <span class="programming-language-label">语言</span>
-                  <el-select v-model="answer.language" style="width: 170px">
-                    <el-option
-                      v-for="language in languageOptionsFor(practice.question)"
-                      :key="language"
-                      :label="languageLabel(language)"
-                      :value="language"
-                    />
-                  </el-select>
-                  <el-tag v-if="practice.question.programmingRef?.externalProblemId" type="success">
-                    {{ practice.question.programmingRef.externalProblemId }}
-                  </el-tag>
-                  <el-button
-                    :icon="Link"
-                    :disabled="!practice.question.programmingRef?.externalProblemUrl"
-                    @click="openHydroProblem(practice.question)"
-                  >
-                    打开 Hydro
-                  </el-button>
-                </div>
+                <ProgrammingToolbarShell :summary="languageLabel(answer.language)">
+                  <template #default="{ close }">
+                  <div class="programming-toolbar">
+                    <span class="programming-language-label">语言</span>
+                    <el-select v-model="answer.language" style="width: 170px" @change="close">
+                      <el-option
+                        v-for="language in languageOptionsFor(practice.question)"
+                        :key="language"
+                        :label="languageLabel(language)"
+                        :value="language"
+                      />
+                    </el-select>
+                    <el-tag v-if="practice.question.programmingRef?.externalProblemId" type="success">
+                      {{ practice.question.programmingRef.externalProblemId }}
+                    </el-tag>
+                    <el-button
+                      :icon="Link"
+                      :disabled="!practice.question.programmingRef?.externalProblemUrl"
+                      @click="close(); openHydroProblem(practice.question)"
+                    >
+                      打开 Hydro
+                    </el-button>
+                  </div>
+                  </template>
+                </ProgrammingToolbarShell>
                 <CodeAnswerEditor
                   v-model="answer.code"
                   :language="answer.language"
@@ -316,6 +320,7 @@ import AnswerFeedback from '../components/AnswerFeedback.vue';
 import CodeAnswerEditor from '../components/CodeAnswerEditor.vue';
 import FillBlankAnswerInputs from '../components/FillBlankAnswerInputs.vue';
 import MarkdownRenderer from '../components/MarkdownRenderer.vue';
+import ProgrammingToolbarShell from '../components/ProgrammingToolbarShell.vue';
 import QuestionAnswerLayout from '../components/QuestionAnswerLayout.vue';
 import { useResponsiveColumns } from '../composables/useResponsiveColumns';
 

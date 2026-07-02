@@ -12,11 +12,13 @@ import {
   AnswerRecordStatus,
   AttemptStatus,
   HydroAccount,
+  MasteryStatus,
   Prisma,
   QuestionStatus,
   QuestionType,
   UserStatus,
   UserType,
+  WrongQuestionSourceType,
 } from '@prisma/client';
 import { toPagination } from '../../common/dto/pagination-query.dto';
 import { toApiEnum } from '../../common/utils/enum-normalizer';
@@ -1080,7 +1082,7 @@ export class HydroService implements OnModuleInit, OnModuleDestroy {
     }
     const question = await this.prisma.question.findFirst({
       where: { id: questionId, deletedAt: null, status: QuestionStatus.PUBLISHED, type: QuestionType.PROGRAMMING },
-      include: { programmingRef: true },
+      include: { answer: true, programmingRef: true },
     });
     if (!question) throw new NotFoundException('编程题不存在或未发布');
     if (!question.programmingRef) throw new BadRequestException('该编程题尚未绑定 Hydro 题目');
@@ -1096,6 +1098,41 @@ export class HydroService implements OnModuleInit, OnModuleDestroy {
     }
 
     const submitResult = await this.submitToHydro(binding, { ...dto, language }, hydroAccount);
+    const maxScore = Number(question.defaultScore);
+    const practiceScore = submitResult.score === null || submitResult.score === undefined ? null : Math.min(Math.max(Number(submitResult.score), 0), maxScore);
+    const shouldRecordWrong =
+      user.userType === UserType.STUDENT &&
+      Number.isFinite(maxScore) &&
+      maxScore > 0 &&
+      practiceScore !== null &&
+      practiceScore < maxScore;
+
+    if (shouldRecordWrong) {
+      await this.prisma.$transaction(async (tx) => {
+        await this.upsertProgrammingWrongQuestion(tx, {
+          studentId: user.id,
+          questionId,
+          sourceType: WrongQuestionSourceType.PRACTICE,
+          sourceId: questionId,
+          score: practiceScore,
+          wrongAnswerJson: {
+            language,
+            code: dto.code,
+            externalSubmissionId: submitResult.externalSubmissionId ?? null,
+            status: submitResult.status ?? null,
+          } as Prisma.InputJsonObject,
+          correctAnswerJson: (question.answer?.answerJson ?? {}) as Prisma.InputJsonObject,
+          eventType: 'practice_wrong',
+          eventJson: {
+            externalSubmissionId: submitResult.externalSubmissionId ?? null,
+            status: submitResult.status ?? null,
+            maxScore,
+            message: submitResult.message ?? '',
+          } as Prisma.InputJsonObject,
+        });
+      });
+    }
+
     return {
       questionId,
       questionTitle: question.title,
@@ -1105,6 +1142,8 @@ export class HydroService implements OnModuleInit, OnModuleDestroy {
       problemUrl: submitResult.problemUrl,
       recordUrl: submitResult.recordUrl,
       score: submitResult.score ?? null,
+      maxScore,
+      wrongQuestionAdded: shouldRecordWrong,
       language,
       account: this.formatHydroAccount(hydroAccount),
       binding,
@@ -1700,6 +1739,7 @@ export class HydroService implements OnModuleInit, OnModuleDestroy {
           ? maxScore
           : 0
         : Math.min(Math.max(Number(dto.score), 0), maxScore);
+    const isFullScore = maxScore > 0 ? score >= maxScore : accepted;
     const judgedAt = dto.judgedAt ? new Date(dto.judgedAt) : new Date();
     const previousResult = this.toRecord(submission.resultJson);
     const hydroResult = this.toRecord(dto.result);
@@ -1746,7 +1786,7 @@ export class HydroService implements OnModuleInit, OnModuleDestroy {
         },
         update: {
           score,
-          isCorrect: accepted || (maxScore > 0 && score >= maxScore),
+          isCorrect: isFullScore,
           status: AnswerRecordStatus.JUDGE_DONE,
           autoResultJson,
           gradedAt: judgedAt,
@@ -1760,12 +1800,39 @@ export class HydroService implements OnModuleInit, OnModuleDestroy {
             latestSubmissionId: submission.id,
           } as Prisma.InputJsonObject,
           score,
-          isCorrect: accepted || (maxScore > 0 && score >= maxScore),
+          isCorrect: isFullScore,
           status: AnswerRecordStatus.JUDGE_DONE,
           autoResultJson,
           gradedAt: judgedAt,
         },
       });
+
+      if (maxScore > 0 && score < maxScore) {
+        await this.upsertProgrammingWrongQuestion(tx, {
+          studentId: submission.studentId,
+          questionId: submission.questionId,
+          sourceType: WrongQuestionSourceType.EXAM,
+          sourceId: submission.attempt.examId,
+          score,
+          wrongAnswerJson: {
+            language: submission.language,
+            code: submission.codeSnapshot,
+            latestSubmissionId: submission.id,
+            externalSubmissionId: submission.externalSubmissionId,
+            status: normalizedStatus,
+          } as Prisma.InputJsonObject,
+          correctAnswerJson: this.snapshotAnswerJson(snapshot),
+          eventType: 'exam_wrong',
+          eventJson: {
+            attemptId: submission.attemptId,
+            submissionId: submission.id,
+            externalSubmissionId: submission.externalSubmissionId,
+            status: normalizedStatus,
+            maxScore,
+            message: dto.message ?? '',
+          } as Prisma.InputJsonObject,
+        });
+      }
 
       await this.recalculateAttempt(tx, submission.attemptId);
     });
@@ -1780,6 +1847,70 @@ export class HydroService implements OnModuleInit, OnModuleDestroy {
       maxScore,
       judgedAt,
     };
+  }
+
+  private async upsertProgrammingWrongQuestion(
+    tx: Prisma.TransactionClient,
+    params: {
+      studentId: string;
+      questionId: string;
+      sourceType: WrongQuestionSourceType;
+      sourceId: string;
+      score: number;
+      wrongAnswerJson: Prisma.InputJsonObject;
+      correctAnswerJson: Prisma.InputJsonValue;
+      eventType: string;
+      eventJson: Prisma.InputJsonObject;
+    },
+  ) {
+    const wrongItem = await tx.wrongQuestion.upsert({
+      where: {
+        studentId_questionId: {
+          studentId: params.studentId,
+          questionId: params.questionId,
+        },
+      },
+      update: {
+        sourceType: params.sourceType,
+        sourceId: params.sourceId,
+        wrongAnswerJson: params.wrongAnswerJson,
+        correctAnswerJson: params.correctAnswerJson,
+        score: params.score,
+        masteryStatus: MasteryStatus.UNMASTERED,
+        wrongCount: { increment: 1 },
+        lastWrongAt: new Date(),
+      },
+      create: {
+        studentId: params.studentId,
+        questionId: params.questionId,
+        sourceType: params.sourceType,
+        sourceId: params.sourceId,
+        wrongAnswerJson: params.wrongAnswerJson,
+        correctAnswerJson: params.correctAnswerJson,
+        score: params.score,
+        masteryStatus: MasteryStatus.UNMASTERED,
+      },
+    });
+
+    await tx.wrongQuestionEvent.create({
+      data: {
+        wrongQuestionId: wrongItem.id,
+        studentId: params.studentId,
+        questionId: params.questionId,
+        sourceType: params.sourceType,
+        sourceId: params.sourceId,
+        eventType: params.eventType,
+        isCorrect: false,
+        score: params.score,
+        masteryStatus: MasteryStatus.UNMASTERED,
+        eventJson: params.eventJson,
+      },
+    });
+  }
+
+  private snapshotAnswerJson(snapshot?: SnapshotQuestion) {
+    const answer = (snapshot?.snapshot as { answer?: Prisma.JsonValue } | undefined)?.answer;
+    return (answer ?? {}) as Prisma.InputJsonValue;
   }
 
   private problemIdFromInput(value: string) {

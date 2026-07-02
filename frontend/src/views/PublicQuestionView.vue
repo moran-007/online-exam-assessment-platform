@@ -136,42 +136,50 @@
           <template #answer>
             <div class="question-answer-body">
               <div v-if="detail.type === 'programming'" class="programming-answer">
-                <div class="programming-toolbar">
-                  <span class="programming-language-label">语言</span>
-                  <el-select v-model="answer.language" style="width: 170px">
-                    <el-option
-                      v-for="language in languageOptionsFor(detail)"
-                      :key="language"
-                      :label="languageLabel(language)"
-                      :value="language"
-                    />
-                  </el-select>
-                  <el-tag v-if="detail.programmingRef?.platformBaseUrl || detail.programmingRef?.externalProblemUrl" type="info">
-                    来源：{{ hydroSourceLabel(detail.programmingRef) }}
-                  </el-tag>
-                  <el-tag v-if="detail.programmingRef?.domainId" type="info">
-                    域：{{ detail.programmingRef.domainName || detail.programmingRef.domainId }}
-                  </el-tag>
-                  <el-tag v-if="detail.programmingRef?.externalProblemId" type="success">
-                    {{ detail.programmingRef.externalProblemId }}
-                  </el-tag>
-                  <span class="programming-language-label">账号</span>
-                  <el-select
-                    v-model="selectedHydroAccountId"
-                    :disabled="!matchedHydroAccounts.length"
-                    placeholder="选择提交账号"
-                    style="width: 230px"
-                  >
-                    <el-option
-                      v-for="account in matchedHydroAccounts"
-                      :key="account.id"
-                      :label="hydroAccountLabel(account)"
-                      :value="account.id"
-                    />
-                  </el-select>
-                  <el-tag v-if="!matchedHydroAccounts.length" type="warning">无同站点账号</el-tag>
-                  <el-button :disabled="!detail.programmingRef?.externalProblemUrl" @click="openHydroProblem(detail)">打开 Hydro</el-button>
-                </div>
+                <ProgrammingToolbarShell :summary="languageLabel(answer.language)">
+                  <template #badge>
+                    <el-tag v-if="!matchedHydroAccounts.length" type="warning" size="small">无账号</el-tag>
+                  </template>
+                  <template #default="{ close }">
+                  <div class="programming-toolbar">
+                    <span class="programming-language-label">语言</span>
+                    <el-select v-model="answer.language" style="width: 170px" @change="close">
+                      <el-option
+                        v-for="language in languageOptionsFor(detail)"
+                        :key="language"
+                        :label="languageLabel(language)"
+                        :value="language"
+                      />
+                    </el-select>
+                    <el-tag v-if="detail.programmingRef?.platformBaseUrl || detail.programmingRef?.externalProblemUrl" type="info">
+                      来源：{{ hydroSourceLabel(detail.programmingRef) }}
+                    </el-tag>
+                    <el-tag v-if="detail.programmingRef?.domainId" type="info">
+                      域：{{ detail.programmingRef.domainName || detail.programmingRef.domainId }}
+                    </el-tag>
+                    <el-tag v-if="detail.programmingRef?.externalProblemId" type="success">
+                      {{ detail.programmingRef.externalProblemId }}
+                    </el-tag>
+                    <span class="programming-language-label">账号</span>
+                    <el-select
+                      v-model="selectedHydroAccountId"
+                      :disabled="!matchedHydroAccounts.length"
+                      placeholder="选择提交账号"
+                      style="width: 230px"
+                      @change="close"
+                    >
+                      <el-option
+                        v-for="account in matchedHydroAccounts"
+                        :key="account.id"
+                        :label="hydroAccountLabel(account)"
+                        :value="account.id"
+                      />
+                    </el-select>
+                    <el-tag v-if="!matchedHydroAccounts.length" type="warning">无同站点账号</el-tag>
+                    <el-button :disabled="!detail.programmingRef?.externalProblemUrl" @click="close(); openHydroProblem(detail)">打开 Hydro</el-button>
+                  </div>
+                  </template>
+                </ProgrammingToolbarShell>
                 <el-alert
                   v-if="programmingResult"
                   class="code-submit-feedback"
@@ -283,6 +291,7 @@ import AnswerFeedback from '../components/AnswerFeedback.vue';
 import CodeAnswerEditor from '../components/CodeAnswerEditor.vue';
 import FillBlankAnswerInputs from '../components/FillBlankAnswerInputs.vue';
 import MarkdownRenderer from '../components/MarkdownRenderer.vue';
+import ProgrammingToolbarShell from '../components/ProgrammingToolbarShell.vue';
 import QuestionAnswerLayout from '../components/QuestionAnswerLayout.vue';
 import { useResponsiveColumns } from '../composables/useResponsiveColumns';
 

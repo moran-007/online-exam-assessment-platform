@@ -479,44 +479,52 @@
           <template #answer>
             <div class="question-answer-body">
               <div v-if="practiceDetail.type === 'programming'" class="programming-answer">
-                <div class="programming-toolbar">
-                  <span class="programming-language-label">语言</span>
-                  <el-select v-model="practiceAnswer.language" style="width: 170px">
-                    <el-option
-                      v-for="language in languageOptionsFor(practiceDetail)"
-                      :key="language"
-                      :label="languageLabel(language)"
-                      :value="language"
-                    />
-                  </el-select>
-                  <el-tag v-if="practiceDetail.programmingRef?.platformBaseUrl || practiceDetail.programmingRef?.externalProblemUrl" type="info">
-                    来源：{{ hydroSourceLabel(practiceDetail.programmingRef) }}
-                  </el-tag>
-                  <el-tag v-if="practiceDetail.programmingRef?.domainId" type="info">
-                    域：{{ formatHydroDomainLabel(practiceDetail.programmingRef) }}
-                  </el-tag>
-                  <el-tag v-if="practiceDetail.programmingRef?.externalProblemId" type="success">
-                    {{ practiceDetail.programmingRef.externalProblemId }}
-                  </el-tag>
-                  <span class="programming-language-label">账号</span>
-                  <el-select
-                    v-model="practiceHydroAccountId"
-                    :disabled="!practiceMatchedHydroAccounts.length"
-                    placeholder="选择提交账号"
-                    style="width: 230px"
-                  >
-                    <el-option
-                      v-for="account in practiceMatchedHydroAccounts"
-                      :key="account.id"
-                      :label="hydroPracticeAccountLabel(account)"
-                      :value="account.id"
-                    />
-                  </el-select>
-                  <el-tag v-if="!practiceMatchedHydroAccounts.length" type="warning">无同站点账号</el-tag>
-                  <el-button :icon="Link" :disabled="!practiceDetail.programmingRef?.externalProblemUrl" @click="openHydroProblem(practiceDetail)">
-                    打开 Hydro
-                  </el-button>
-                </div>
+                <ProgrammingToolbarShell :summary="languageLabel(practiceAnswer.language)">
+                  <template #badge>
+                    <el-tag v-if="!practiceMatchedHydroAccounts.length" type="warning" size="small">无账号</el-tag>
+                  </template>
+                  <template #default="{ close }">
+                  <div class="programming-toolbar">
+                    <span class="programming-language-label">语言</span>
+                    <el-select v-model="practiceAnswer.language" style="width: 170px" @change="close">
+                      <el-option
+                        v-for="language in languageOptionsFor(practiceDetail)"
+                        :key="language"
+                        :label="languageLabel(language)"
+                        :value="language"
+                      />
+                    </el-select>
+                    <el-tag v-if="practiceDetail.programmingRef?.platformBaseUrl || practiceDetail.programmingRef?.externalProblemUrl" type="info">
+                      来源：{{ hydroSourceLabel(practiceDetail.programmingRef) }}
+                    </el-tag>
+                    <el-tag v-if="practiceDetail.programmingRef?.domainId" type="info">
+                      域：{{ formatHydroDomainLabel(practiceDetail.programmingRef) }}
+                    </el-tag>
+                    <el-tag v-if="practiceDetail.programmingRef?.externalProblemId" type="success">
+                      {{ practiceDetail.programmingRef.externalProblemId }}
+                    </el-tag>
+                    <span class="programming-language-label">账号</span>
+                    <el-select
+                      v-model="practiceHydroAccountId"
+                      :disabled="!practiceMatchedHydroAccounts.length"
+                      placeholder="选择提交账号"
+                      style="width: 230px"
+                      @change="close"
+                    >
+                      <el-option
+                        v-for="account in practiceMatchedHydroAccounts"
+                        :key="account.id"
+                        :label="hydroPracticeAccountLabel(account)"
+                        :value="account.id"
+                      />
+                    </el-select>
+                    <el-tag v-if="!practiceMatchedHydroAccounts.length" type="warning">无同站点账号</el-tag>
+                    <el-button :icon="Link" :disabled="!practiceDetail.programmingRef?.externalProblemUrl" @click="close(); openHydroProblem(practiceDetail)">
+                      打开 Hydro
+                    </el-button>
+                  </div>
+                  </template>
+                </ProgrammingToolbarShell>
                 <el-alert
                   v-if="practiceProgrammingResult"
                   class="code-submit-feedback"
@@ -686,6 +694,7 @@ import AnswerFeedback from '../components/AnswerFeedback.vue';
 import CodeAnswerEditor from '../components/CodeAnswerEditor.vue';
 import FillBlankAnswerInputs from '../components/FillBlankAnswerInputs.vue';
 import MarkdownRenderer from '../components/MarkdownRenderer.vue';
+import ProgrammingToolbarShell from '../components/ProgrammingToolbarShell.vue';
 import QuestionAnswerLayout from '../components/QuestionAnswerLayout.vue';
 import { useResponsiveColumns } from '../composables/useResponsiveColumns';
 import {
