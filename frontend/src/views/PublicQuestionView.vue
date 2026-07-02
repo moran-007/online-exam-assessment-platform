@@ -112,7 +112,7 @@
       </div>
     </div>
 
-    <el-dialog v-model="practiceVisible" title="题目作答" :width="detail?.type === 'programming' ? '1180px' : '780px'">
+    <el-dialog v-model="practiceVisible" title="题目作答" :width="isSplitPracticeQuestion(detail?.type) ? '1180px' : '780px'">
       <template v-if="detail">
         <div class="paper-preview-head">
           <div>
@@ -122,51 +122,66 @@
           <el-tag type="success">公开</el-tag>
         </div>
 
-        <template v-if="detail.type === 'programming'">
+        <template v-if="isSplitPracticeQuestion(detail.type)">
           <div class="programming-exam-split programming-practice-split">
             <div class="programming-statement">
               <MarkdownRenderer :source="detail.content" />
             </div>
             <div class="programming-code-panel">
-              <div class="programming-toolbar">
-                <span class="programming-language-label">语言</span>
-                <el-select v-model="answer.language" style="width: 170px">
-                  <el-option
-                    v-for="language in languageOptionsFor(detail)"
-                    :key="language"
-                    :label="languageLabel(language)"
-                    :value="language"
-                  />
-                </el-select>
-                <el-tag v-if="detail.programmingRef?.domainId" type="info">
-                  域：{{ detail.programmingRef.domainName || detail.programmingRef.domainId }}
-                </el-tag>
-                <el-tag v-if="detail.programmingRef?.externalProblemId" type="success">
-                  {{ detail.programmingRef.externalProblemId }}
-                </el-tag>
-                <el-button :disabled="!detail.programmingRef?.externalProblemUrl" @click="openHydroProblem(detail)">打开 Hydro</el-button>
-              </div>
-              <el-alert
-                v-if="programmingResult"
-                class="code-submit-feedback"
-                :type="programmingResult.status === 'accepted' ? 'success' : 'info'"
-                :closable="false"
-                show-icon
-              >
-                <template #title>{{ programmingResult.status === 'accepted' ? '判题通过' : 'Hydro 结果' }}</template>
-                <div class="code-submit-meta">
-                  <span>状态：{{ programmingResult.status }}</span>
-                  <span>语言：{{ languageLabel(programmingResult.language) }}</span>
-                  <span v-if="programmingResult.externalSubmissionId">Hydro提交：{{ programmingResult.externalSubmissionId }}</span>
-                  <span v-if="programmingResult.score !== null && programmingResult.score !== undefined">得分：{{ programmingResult.score }}</span>
+              <div v-if="detail.type === 'programming'" class="programming-answer">
+                <div class="programming-toolbar">
+                  <span class="programming-language-label">语言</span>
+                  <el-select v-model="answer.language" style="width: 170px">
+                    <el-option
+                      v-for="language in languageOptionsFor(detail)"
+                      :key="language"
+                      :label="languageLabel(language)"
+                      :value="language"
+                    />
+                  </el-select>
+                  <el-tag v-if="detail.programmingRef?.domainId" type="info">
+                    域：{{ detail.programmingRef.domainName || detail.programmingRef.domainId }}
+                  </el-tag>
+                  <el-tag v-if="detail.programmingRef?.externalProblemId" type="success">
+                    {{ detail.programmingRef.externalProblemId }}
+                  </el-tag>
+                  <el-button :disabled="!detail.programmingRef?.externalProblemUrl" @click="openHydroProblem(detail)">打开 Hydro</el-button>
                 </div>
-                <div v-if="programmingResult.message" class="code-submit-message">{{ programmingResult.message }}</div>
-              </el-alert>
-              <CodeAnswerEditor
-                v-model="answer.code"
-                :language="answer.language"
-                :rows="18"
-              />
+                <el-alert
+                  v-if="programmingResult"
+                  class="code-submit-feedback"
+                  :type="programmingResult.status === 'accepted' ? 'success' : 'info'"
+                  :closable="false"
+                  show-icon
+                >
+                  <template #title>{{ programmingResult.status === 'accepted' ? '判题通过' : 'Hydro 结果' }}</template>
+                  <div class="code-submit-meta">
+                    <span>状态：{{ programmingResult.status }}</span>
+                    <span>语言：{{ languageLabel(programmingResult.language) }}</span>
+                    <span v-if="programmingResult.externalSubmissionId">Hydro提交：{{ programmingResult.externalSubmissionId }}</span>
+                    <span v-if="programmingResult.score !== null && programmingResult.score !== undefined">得分：{{ programmingResult.score }}</span>
+                  </div>
+                  <div v-if="programmingResult.message" class="code-submit-message">{{ programmingResult.message }}</div>
+                </el-alert>
+                <CodeAnswerEditor
+                  v-model="answer.code"
+                  :language="answer.language"
+                  :rows="18"
+                />
+              </div>
+              <div v-else class="programming-answer">
+                <div class="programming-toolbar">
+                  <span class="programming-language-label">作答</span>
+                  <el-tag>{{ typeLabel(detail.type) }}</el-tag>
+                </div>
+                <el-input
+                  v-model="answer.text"
+                  class="answer-input subjective-answer-input"
+                  type="textarea"
+                  :rows="18"
+                  placeholder="填写答案"
+                />
+              </div>
             </div>
           </div>
         </template>
@@ -203,16 +218,17 @@
           />
           <el-input v-else v-model="answer.text" class="answer-input" type="textarea" :rows="5" placeholder="填写答案" />
 
-          <el-alert
-            v-if="result"
-            :title="`${result.message}，得分 ${result.score} / ${result.totalScore}`"
-            :type="result.isCorrect ? 'success' : result.isCorrect === false ? 'error' : 'warning'"
-            show-icon
-            :closable="false"
-            class="batch-alert"
-          />
-          <AnswerFeedback :result="result" />
         </template>
+
+        <el-alert
+          v-if="detail.type !== 'programming' && result"
+          :title="`${result.message}，得分 ${result.score} / ${result.totalScore}`"
+          :type="result.isCorrect ? 'success' : result.isCorrect === false ? 'error' : 'warning'"
+          show-icon
+          :closable="false"
+          class="batch-alert"
+        />
+        <AnswerFeedback v-if="detail.type !== 'programming'" :result="result" />
       </template>
       <template #footer>
         <el-button @click="practiceVisible = false">关闭</el-button>
@@ -252,6 +268,7 @@ const typeOptions = [
   { label: '简答题', value: 'short_answer' },
   { label: '编程题', value: 'programming' },
 ];
+const objectiveQuestionTypes = new Set(['single_choice', 'multiple_choice', 'true_false', 'fill_blank']);
 const items = ref([]);
 const selectedRows = ref([]);
 const detail = ref(null);
@@ -462,6 +479,10 @@ function openHydroProblem(question) {
     return;
   }
   window.open(url, '_blank', 'noopener,noreferrer');
+}
+
+function isSplitPracticeQuestion(type) {
+  return Boolean(type) && !objectiveQuestionTypes.has(type);
 }
 
 function typeLabel(value) {
