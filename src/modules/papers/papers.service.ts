@@ -44,6 +44,7 @@ export class PapersService {
 
   async list(query: QueryPaperDto) {
     const { page, pageSize, skip, take } = toPagination(query);
+    const now = new Date();
     const where: Prisma.PaperWhereInput = {
       deletedAt: null,
       courseId: query.courseId,
@@ -59,7 +60,14 @@ export class PapersService {
           _count: {
             select: {
               questions: true,
-              exams: { where: { deletedAt: null } },
+              exams: {
+                where: {
+                  deletedAt: null,
+                  status: { in: [ExamStatus.SCHEDULED, ExamStatus.RUNNING] },
+                  startTime: { lte: now },
+                  endTime: { gt: now },
+                },
+              },
             },
           },
         },
@@ -143,6 +151,9 @@ export class PapersService {
     for (const [index, record] of normalizedRecords.entries()) {
       const payload = await this.toImportedQuestionCreateDto(record, courseId);
       let questionId = dto.reuseExisting === false ? '' : await this.findDuplicateQuestionId(payload);
+      if (questionId && !(await this.canReuseImportedQuestion(questionId, payload))) {
+        questionId = '';
+      }
 
       if (questionId) {
         reusedCount += 1;
@@ -220,6 +231,7 @@ export class PapersService {
   }
 
   async detail(id: string) {
+    const now = new Date();
     const paper = await this.prisma.paper.findFirst({
       where: { id, deletedAt: null },
       include: {
@@ -235,7 +247,18 @@ export class PapersService {
           orderBy: { sortOrder: 'asc' },
         },
         rules: true,
-        _count: { select: { exams: { where: { deletedAt: null } } } },
+        _count: {
+          select: {
+            exams: {
+              where: {
+                deletedAt: null,
+                status: { in: [ExamStatus.SCHEDULED, ExamStatus.RUNNING] },
+                startTime: { lte: now },
+                endTime: { gt: now },
+              },
+            },
+          },
+        },
       },
     });
 
@@ -698,7 +721,7 @@ export class PapersService {
   }
 
   async generateByRule(id: string, dto: GeneratePaperRuleDto, userId: string) {
-    await this.findEditable(id);
+    const paper = await this.findEditable(id);
     const validation = await this.validateRules(dto);
 
     if (!validation.valid) {
@@ -760,7 +783,7 @@ export class PapersService {
       await tx.paper.update({
         where: { id },
         data: {
-          type: normalizePaperType('rule'),
+          type: paper.type === PaperType.RANDOM ? PaperType.RANDOM : normalizePaperType('rule'),
           shuffleQuestions: dto.shuffleQuestions,
           shuffleOptions: dto.shuffleOptions,
         },
@@ -969,10 +992,12 @@ export class PapersService {
       this.normalizeImportedOptions(source.optionsJson ?? source.options),
       answer,
     );
+    const type = this.normalizeImportedQuestionType(String(source.type || 'single_choice'));
+    const programmingRef = this.normalizeImportedProgrammingRef(source, type);
 
     return {
       ...source,
-      type: this.normalizeImportedQuestionType(String(source.type || 'single_choice')),
+      type,
       title: String(source.title || '未命名题目').trim(),
       content: String(source.contentMarkdown ?? source.content ?? '').trim(),
       difficulty: this.clampNumber(source.difficulty, 1, 5, 1),
@@ -985,6 +1010,7 @@ export class PapersService {
       tagNames: this.normalizeNameList(source.tagNames ?? source.tags),
       knowledgePointNames: this.normalizeNameList(source.knowledgePointNames ?? source.knowledgePoints),
       allowOptionShuffle: this.optionalBoolean(source.allowOptionShuffle),
+      programmingRef,
       sectionTitle: String(source.sectionTitle ?? source.section ?? '').trim(),
     };
   }
@@ -1007,6 +1033,7 @@ export class PapersService {
       options: (Array.isArray(record.options) ? record.options : []) as CreateQuestionDto['options'],
       answer: this.toJsonObject(record.answer),
       scoringRule: this.toJsonObject(record.scoringRule),
+      programmingRef: record.programmingRef as CreateQuestionDto['programmingRef'],
     };
   }
 
@@ -1015,6 +1042,16 @@ export class PapersService {
     return checked.items[0]?.matches.find(
       (match) => match.source === 'question_bank' && match.reason === 'duplicate' && match.id,
     )?.id;
+  }
+
+  private async canReuseImportedQuestion(questionId: string, payload: CreateQuestionDto) {
+    const importedRef = payload.type === 'programming' ? payload.programmingRef : null;
+    const importedExternalId = String(importedRef?.externalProblemId ?? '').trim();
+    if (!importedExternalId) return true;
+
+    const existingRef = await this.prisma.programmingProblemRef.findUnique({ where: { questionId } });
+    if (!existingRef) return false;
+    return existingRef.externalProblemId === importedExternalId;
   }
 
   private async resolveImportedSection(
@@ -1121,6 +1158,94 @@ export class PapersService {
     return this.toJsonObject(parsed);
   }
 
+  private normalizeImportedProgrammingRef(source: Record<string, unknown>, type: string): CreateQuestionDto['programmingRef'] | null {
+    if (type !== 'programming') return null;
+    const explicit = this.toJsonObject(
+      this.parseJsonish(source.programmingRef ?? source.hydroBinding ?? source.judgeBinding ?? source.hydro),
+    );
+    const explicitJudgeConfig = this.toJsonObject(this.parseJsonish(explicit.judgeConfig));
+    const sourceJudgeConfig = this.toJsonObject(this.parseJsonish(source.judgeConfigJson ?? source.judgeConfig));
+    const judgeConfig = { ...sourceJudgeConfig, ...explicitJudgeConfig };
+    const externalProblemUrl = this.firstText(
+      explicit.externalProblemUrl,
+      explicit.hydroProblemUrl,
+      explicit.hydroUrl,
+      source.externalProblemUrl,
+      source.hydroProblemUrl,
+      source.hydroUrl,
+      source.sourceUrl,
+    );
+    const externalProblemId = this.firstText(
+      explicit.externalProblemId,
+      explicit.hydroProblemId,
+      explicit.hydroProblemName,
+      explicit.hydroProblem,
+      source.externalProblemId,
+      source.hydroProblemId,
+      source.hydroProblemName,
+      source.hydroProblem,
+      source.ojProblemId,
+      source.problemId,
+      this.problemIdFromImportedProblemUrl(externalProblemUrl),
+    );
+    if (!externalProblemId) return null;
+
+    const platformBaseUrl = this.normalizeHydroBaseUrl(
+      this.firstText(
+        explicit.platformBaseUrl,
+        judgeConfig.platformBaseUrl,
+        source.platformBaseUrl,
+        source.hydroBaseUrl,
+        this.baseUrlFromImportedProblemUrl(externalProblemUrl),
+      ),
+    );
+    const domainId =
+      this.firstText(
+        explicit.domainId,
+        judgeConfig.domainId,
+        source.domainId,
+        source.hydroDomainId,
+        this.domainIdFromImportedProblemUrl(externalProblemUrl),
+      ) || 'system';
+    const domainName = this.firstText(explicit.domainName, judgeConfig.domainName, source.domainName, source.hydroDomainName) || domainId;
+    const languages = this.normalizeImportedLanguageList(
+      explicit.languages ??
+        explicit.languageConfig ??
+        explicit.languageConfigJson ??
+        source.languages ??
+        source.hydroLanguages ??
+        source.languageConfig ??
+        source.languageConfigJson,
+    );
+    const normalizedProblemUrl =
+      externalProblemUrl || this.defaultImportedHydroProblemUrl(externalProblemId, platformBaseUrl, domainId);
+    const accountId = this.uuidText(explicit.accountId ?? judgeConfig.accountId ?? source.accountId);
+    const accountLabel = this.firstText(explicit.accountLabel, judgeConfig.accountLabel, source.accountLabel);
+
+    return {
+      judgeProvider: this.firstText(explicit.judgeProvider, source.judgeProvider) || 'hydro',
+      externalProblemId,
+      externalProblemUrl: normalizedProblemUrl,
+      platformBaseUrl,
+      domainId,
+      domainName,
+      accountId: accountId || undefined,
+      accountLabel: accountLabel || undefined,
+      languages,
+      timeLimit: this.optionalPositiveInteger(explicit.timeLimit ?? source.timeLimit),
+      memoryLimit: this.optionalPositiveInteger(explicit.memoryLimit ?? source.memoryLimit),
+      judgeConfig: {
+        ...judgeConfig,
+        platformBaseUrl,
+        domainId,
+        domainName,
+        accountId: accountId || null,
+        accountLabel,
+        sourceUrl: this.firstText(judgeConfig.sourceUrl, source.sourceUrl, normalizedProblemUrl),
+      },
+    };
+  }
+
   private normalizeImportedQuestionType(type: string) {
     const map: Record<string, string> = {
       单选题: 'single_choice',
@@ -1176,6 +1301,86 @@ export class PapersService {
           .filter((name) => name && name !== '-' && name.toLowerCase() !== 'undefined'),
       ),
     ];
+  }
+
+  private normalizeImportedLanguageList(value: unknown) {
+    const parsed = this.parseJsonish(value);
+    if (Array.isArray(parsed)) {
+      return [...new Set(parsed.map((item) => String(item).trim()).filter(Boolean))];
+    }
+    const record = this.toJsonObject(parsed);
+    if (Array.isArray(record.languages)) {
+      return [...new Set(record.languages.map((item) => String(item).trim()).filter(Boolean))];
+    }
+    if (parsed && typeof parsed === 'object') return [];
+    return this.normalizeNameList(parsed);
+  }
+
+  private firstText(...values: unknown[]) {
+    for (const value of values) {
+      if (value === null || value === undefined) continue;
+      const text = String(value).trim();
+      if (text && text !== '-' && text.toLowerCase() !== 'undefined' && text !== '[object Object]') {
+        return text;
+      }
+    }
+    return '';
+  }
+
+  private uuidText(value: unknown) {
+    const text = this.firstText(value);
+    return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(text)
+      ? text
+      : '';
+  }
+
+  private optionalPositiveInteger(value: unknown) {
+    const numeric = Number(value);
+    return Number.isFinite(numeric) && numeric > 0 ? Math.round(numeric) : undefined;
+  }
+
+  private normalizeHydroBaseUrl(value?: string | null) {
+    const raw = String(value || process.env.HYDRO_BASE_URL || 'http://moran007.top').trim();
+    const withScheme = /^https?:\/\//i.test(raw) ? raw : `http://${raw}`;
+    return withScheme.replace(/\/+$/, '');
+  }
+
+  private baseUrlFromImportedProblemUrl(url?: string | null) {
+    const raw = String(url || '').trim();
+    if (!raw) return '';
+    try {
+      const parsed = new URL(raw);
+      return `${parsed.protocol}//${parsed.host}`;
+    } catch {
+      return '';
+    }
+  }
+
+  private domainIdFromImportedProblemUrl(url?: string | null) {
+    const raw = String(url || '').trim();
+    if (!raw) return '';
+    try {
+      const parsed = new URL(raw);
+      const match = parsed.pathname.match(/\/d\/([^/]+)\/p\//);
+      return match?.[1] ? decodeURIComponent(match[1]) : 'system';
+    } catch {
+      const match = raw.match(/\/d\/([^/]+)\/p\//);
+      return match?.[1] ? decodeURIComponent(match[1]) : '';
+    }
+  }
+
+  private problemIdFromImportedProblemUrl(url?: string | null) {
+    const raw = String(url || '').trim();
+    if (!raw) return '';
+    const match = raw.match(/\/p\/([^/?#]+)/);
+    return match?.[1] ? decodeURIComponent(match[1]) : '';
+  }
+
+  private defaultImportedHydroProblemUrl(problemId: string, baseUrl: string, domainId?: string) {
+    const normalizedBaseUrl = this.normalizeHydroBaseUrl(baseUrl);
+    const normalizedDomain = String(domainId || '').trim();
+    const domainPrefix = normalizedDomain && normalizedDomain !== 'system' ? `/d/${encodeURIComponent(normalizedDomain)}` : '';
+    return `${normalizedBaseUrl}${domainPrefix}/p/${encodeURIComponent(problemId)}`;
   }
 
   private optionalBoolean(value: unknown) {

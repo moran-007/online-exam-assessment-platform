@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { ExamStatus, PaperStatus, Prisma, UserStatus, UserType } from '@prisma/client';
+import { AnswerRecordStatus, AttemptStatus, ExamStatus, PaperStatus, Prisma, QuestionType, UserStatus, UserType } from '@prisma/client';
 import { toPagination } from '../../common/dto/pagination-query.dto';
 import { normalizeExamStatus, toApiEnum } from '../../common/utils/enum-normalizer';
 import { AuditService } from '../audit/audit.service';
@@ -10,6 +10,28 @@ import { BulkUpdateExamStatusDto } from './dto/bulk-update-exam-status.dto';
 import { CreateExamDto } from './dto/create-exam.dto';
 import { QueryExamDto } from './dto/query-exam.dto';
 import { UpdateExamDto } from './dto/update-exam.dto';
+
+type SnapshotQuestion = {
+  questionId: string;
+  score: number;
+  snapshot: {
+    type: string;
+    answer?: {
+      correctOptionIds?: string[];
+      blanks?: Array<{
+        index: number;
+        answers: string[];
+        ignoreCase?: boolean;
+        trimSpace?: boolean;
+        score?: number;
+      }>;
+    } | null;
+  };
+};
+
+type PaperSnapshot = {
+  sections: Array<{ questions: SnapshotQuestion[] }>;
+};
 
 @Injectable()
 export class ExamsService {
@@ -55,19 +77,23 @@ export class ExamsService {
     const classMap = await this.loadClassMap(items.map((exam) => exam.classId).filter(Boolean) as string[]);
 
     return {
-      items: items.map((exam) => ({
-        ...exam,
-        status: toApiEnum(exam.status),
-        courseName: exam.course.name,
-        paperName: exam.paper.name,
-        className: exam.classId ? classMap.get(exam.classId)?.name ?? '' : '公开',
-        totalScore: Number(exam.paper.totalScore),
-        attemptCount: exam._count.attempts,
-        announcement: this.activeAnnouncementText(exam),
-        announcementId: exam.announcements[0]?.id ?? null,
-        announcementVersion: exam.announcements[0]?.version ?? null,
-        resultVisibility: this.extractResultVisibility(exam.antiCheatConfigJson),
-      })),
+      items: items.map((exam) => {
+        const effectiveStatus = this.effectiveExamStatus(exam);
+        return {
+          ...exam,
+          status: toApiEnum(effectiveStatus),
+          storedStatus: toApiEnum(exam.status),
+          courseName: exam.course.name,
+          paperName: exam.paper.name,
+          className: exam.classId ? classMap.get(exam.classId)?.name ?? '' : '公开',
+          totalScore: Number(exam.paper.totalScore),
+          attemptCount: exam._count.attempts,
+          announcement: this.activeAnnouncementText(exam),
+          announcementId: exam.announcements[0]?.id ?? null,
+          announcementVersion: exam.announcements[0]?.version ?? null,
+          resultVisibility: this.extractResultVisibility(exam.antiCheatConfigJson),
+        };
+      }),
       page,
       pageSize,
       total,
@@ -99,7 +125,7 @@ export class ExamsService {
           classId: dto.classId,
           startTime,
           endTime,
-          durationMinutes: dto.durationMinutes,
+          durationMinutes: dto.durationMinutes ?? paper.durationMinutes,
           attemptLimit: dto.attemptLimit ?? 1,
           showAnswerMode: this.normalizeShowAnswerMode(dto.showAnswerMode ?? 'after_exam_end'),
           showScoreMode: this.normalizeShowScoreMode(dto.showScoreMode ?? 'after_submit'),
@@ -148,7 +174,8 @@ export class ExamsService {
 
     return {
       ...exam,
-      status: toApiEnum(exam.status),
+      status: toApiEnum(this.effectiveExamStatus(exam)),
+      storedStatus: toApiEnum(exam.status),
       className: exam.classId ? classMap.get(exam.classId)?.name ?? '' : '公开',
       announcement: this.activeAnnouncementText(exam),
       announcementId: exam.announcements[0]?.id ?? null,
@@ -170,8 +197,21 @@ export class ExamsService {
     }
 
     const statusOnlyPatch = this.isStatusOnlyPatch(dto);
-    if ((current.status === ExamStatus.RUNNING || current.status === ExamStatus.ENDED) && !statusOnlyPatch) {
+    if (
+      (current.status === ExamStatus.RUNNING || current.status === ExamStatus.ENDED) &&
+      !statusOnlyPatch &&
+      !this.canOverrideLockedExam(user)
+    ) {
       throw new BadRequestException('考试已开始或已结束，不能修改核心配置');
+    }
+    if (statusOnlyPatch && dto.status) {
+      const targetStatus = normalizeExamStatus(dto.status);
+      if (targetStatus === ExamStatus.ENDED) {
+        return this.end(id, user);
+      }
+      if (targetStatus === ExamStatus.RUNNING) {
+        return this.start(id, user);
+      }
     }
 
     const nextStartTime = dto.startTime ? new Date(dto.startTime) : current.startTime;
@@ -292,6 +332,104 @@ export class ExamsService {
     });
 
     return { id, status: toApiEnum(updated.status) };
+  }
+
+  async start(id: string, user: RequestUser) {
+    await this.dataScope.assertExamAccessible(user, id);
+    const exam = await this.prisma.exam.findFirst({
+      where: { id, deletedAt: null },
+    });
+
+    if (!exam) {
+      throw new NotFoundException('考试不存在');
+    }
+
+    if (exam.status === ExamStatus.ARCHIVED) {
+      throw new BadRequestException('归档考试不能直接启动');
+    }
+
+    const now = new Date();
+    const effectiveStatus = this.effectiveExamStatus(exam, now);
+    const isAlreadyRunning = effectiveStatus === ExamStatus.RUNNING;
+    const nextStartTime = isAlreadyRunning ? exam.startTime : now;
+    const nextEndTime = isAlreadyRunning
+      ? exam.endTime
+      : new Date(nextStartTime.getTime() + Math.max(1, exam.durationMinutes) * 60_000);
+    const updated = await this.prisma.exam.update({
+      where: { id },
+      data: {
+        status: ExamStatus.RUNNING,
+        startTime: nextStartTime,
+        endTime: nextEndTime,
+        updatedBy: user.id,
+      },
+    });
+
+    await this.audit.log({
+      userId: user.id,
+      action: 'exam:start',
+      module: 'exam',
+      targetType: 'exam',
+      targetId: id,
+      beforeData: { status: exam.status, startTime: exam.startTime, endTime: exam.endTime },
+      afterData: { status: updated.status, startTime: updated.startTime, endTime: updated.endTime },
+    });
+
+    return { id, status: toApiEnum(updated.status), startTime: updated.startTime, endTime: updated.endTime };
+  }
+
+  async end(id: string, user: RequestUser) {
+    await this.dataScope.assertExamAccessible(user, id);
+    const exam = await this.prisma.exam.findFirst({
+      where: { id, deletedAt: null },
+    });
+
+    if (!exam) {
+      throw new NotFoundException('考试不存在');
+    }
+
+    const endedAt = new Date();
+    let finalizedAttemptCount = 0;
+    await this.prisma.$transaction(async (tx) => {
+      await tx.exam.update({
+        where: { id },
+        data: {
+          status: ExamStatus.ENDED,
+          endTime: endedAt,
+          updatedBy: user.id,
+        },
+      });
+
+      const attempts = await tx.examAttempt.findMany({
+        where: { examId: id, status: AttemptStatus.IN_PROGRESS },
+        include: {
+          exam: true,
+          paperInstance: true,
+          answers: true,
+        },
+      });
+      for (const attempt of attempts) {
+        await this.finalizeAttemptForManualEnd(tx, attempt, endedAt);
+        finalizedAttemptCount += 1;
+      }
+    });
+
+    await this.audit.log({
+      userId: user.id,
+      action: 'exam:end',
+      module: 'exam',
+      targetType: 'exam',
+      targetId: id,
+      beforeData: { status: exam.status, endTime: exam.endTime },
+      afterData: { status: ExamStatus.ENDED, endTime: endedAt, finalizedAttemptCount },
+    });
+
+    return {
+      id,
+      status: toApiEnum(ExamStatus.ENDED),
+      endTime: endedAt,
+      finalizedAttemptCount,
+    };
   }
 
   async bulkUpdateStatus(dto: BulkUpdateExamStatusDto, user: RequestUser) {
@@ -683,6 +821,179 @@ export class ExamsService {
       skippedCount: unreadItems.length - targets.length,
       items: unreadItems,
     };
+  }
+
+  private effectiveExamStatus(exam: { status: ExamStatus; startTime: Date; endTime: Date }, now = new Date()) {
+    if (exam.status === ExamStatus.DRAFT || exam.status === ExamStatus.ARCHIVED) return exam.status;
+    if (exam.status === ExamStatus.ENDED || exam.endTime <= now) return ExamStatus.ENDED;
+    if (exam.status === ExamStatus.RUNNING || exam.startTime <= now) return ExamStatus.RUNNING;
+    return ExamStatus.SCHEDULED;
+  }
+
+  private canOverrideLockedExam(user: RequestUser) {
+    return user.userType === UserType.SUPER_ADMIN || user.userType === UserType.ADMIN;
+  }
+
+  private async finalizeAttemptForManualEnd(
+    tx: Prisma.TransactionClient,
+    attempt: Prisma.ExamAttemptGetPayload<{
+      include: { exam: true; paperInstance: true; answers: true };
+    }>,
+    endedAt: Date,
+  ) {
+    const paperSnapshot = attempt.paperInstance.paperSnapshotJson as unknown as PaperSnapshot;
+    const answerMap = new Map(attempt.answers.map((answer) => [answer.questionId, answer]));
+    let objectiveScore = 0;
+    let subjectiveScore = 0;
+    let judgeScore = 0;
+    let hasManual = false;
+    let hasJudge = false;
+
+    for (const paperQuestion of this.flattenPaperQuestions(paperSnapshot)) {
+      const existing = answerMap.get(paperQuestion.questionId);
+      const answerJson = (existing?.answerJson as Record<string, unknown> | undefined) ?? {};
+      const grading =
+        String(paperQuestion.snapshot.type).toUpperCase() === QuestionType.PROGRAMMING &&
+        existing?.status === AnswerRecordStatus.JUDGE_DONE
+          ? {
+              score: Number(existing.score),
+              isCorrect: existing.isCorrect,
+              status: AnswerRecordStatus.JUDGE_DONE,
+              autoResult: existing.autoResultJson ?? {},
+            }
+          : this.gradeQuestionForEnd(paperQuestion, answerJson);
+
+      if (grading.status === AnswerRecordStatus.AUTO_GRADED) {
+        objectiveScore += grading.score;
+      } else if (grading.status === AnswerRecordStatus.MANUAL_NEEDED) {
+        hasManual = true;
+        subjectiveScore += grading.score;
+      } else if (grading.status === AnswerRecordStatus.JUDGE_PENDING || grading.status === AnswerRecordStatus.JUDGE_DONE) {
+        hasJudge ||= grading.status === AnswerRecordStatus.JUDGE_PENDING;
+        judgeScore += grading.score;
+      }
+
+      await tx.answerRecord.upsert({
+        where: {
+          attemptId_questionId: {
+            attemptId: attempt.id,
+            questionId: paperQuestion.questionId,
+          },
+        },
+        update: {
+          answerJson: answerJson as Prisma.InputJsonObject,
+          isCorrect: grading.isCorrect,
+          score: grading.score,
+          status: grading.status,
+          autoResultJson: grading.autoResult as Prisma.InputJsonObject,
+        },
+        create: {
+          attemptId: attempt.id,
+          questionId: paperQuestion.questionId,
+          answerJson: answerJson as Prisma.InputJsonObject,
+          isCorrect: grading.isCorrect,
+          score: grading.score,
+          status: grading.status,
+          autoResultJson: grading.autoResult as Prisma.InputJsonObject,
+        },
+      });
+    }
+
+    await tx.examAttempt.update({
+      where: { id: attempt.id },
+      data: {
+        submittedAt: endedAt,
+        status: hasManual || hasJudge ? AttemptStatus.GRADING : AttemptStatus.GRADED,
+        objectiveScore,
+        subjectiveScore,
+        judgeScore,
+        totalScore: objectiveScore + subjectiveScore + judgeScore,
+        durationSeconds: this.attemptDurationSeconds(attempt, endedAt),
+      },
+    });
+  }
+
+  private flattenPaperQuestions(snapshot: PaperSnapshot) {
+    return snapshot.sections.flatMap((section) => section.questions);
+  }
+
+  private gradeQuestionForEnd(paperQuestion: SnapshotQuestion, answerJson: Record<string, unknown>) {
+    const type = String(paperQuestion.snapshot.type).toUpperCase();
+
+    if (
+      type === QuestionType.SINGLE_CHOICE ||
+      type === QuestionType.MULTIPLE_CHOICE ||
+      type === QuestionType.TRUE_FALSE
+    ) {
+      const selected = new Set((answerJson.selectedOptionIds as string[] | undefined) ?? []);
+      const correct = new Set(paperQuestion.snapshot.answer?.correctOptionIds ?? []);
+      const isCorrect = selected.size === correct.size && [...selected].every((optionId) => correct.has(optionId));
+      return {
+        score: isCorrect ? paperQuestion.score : 0,
+        isCorrect,
+        status: AnswerRecordStatus.AUTO_GRADED,
+        autoResult: { selectedOptionIds: [...selected], correctOptionIds: [...correct] },
+      };
+    }
+
+    if (type === QuestionType.FILL_BLANK) {
+      const blanks = (answerJson.blanks as Array<{ index: number; value: string }> | undefined) ?? [];
+      const rules = paperQuestion.snapshot.answer?.blanks ?? [];
+      let score = 0;
+      let allCorrect = true;
+
+      for (const rule of rules) {
+        const submitted = blanks.find((blank) => blank.index === rule.index)?.value ?? '';
+        const normalizedSubmitted = this.normalizeBlank(submitted, rule);
+        const matched = rule.answers.map((answer) => this.normalizeBlank(answer, rule)).includes(normalizedSubmitted);
+        if (matched) {
+          score += rule.score ?? paperQuestion.score / Math.max(rules.length, 1);
+        } else {
+          allCorrect = false;
+        }
+      }
+
+      return {
+        score,
+        isCorrect: allCorrect,
+        status: AnswerRecordStatus.AUTO_GRADED,
+        autoResult: { blanks, rules },
+      };
+    }
+
+    if (type === QuestionType.PROGRAMMING) {
+      return {
+        score: 0,
+        isCorrect: null,
+        status: AnswerRecordStatus.JUDGE_PENDING,
+        autoResult: {},
+      };
+    }
+
+    return {
+      score: 0,
+      isCorrect: null,
+      status: AnswerRecordStatus.MANUAL_NEEDED,
+      autoResult: {},
+    };
+  }
+
+  private normalizeBlank(value: string, rule: { ignoreCase?: boolean; trimSpace?: boolean }) {
+    let result = value;
+    if (rule.trimSpace ?? true) result = result.trim();
+    if (rule.ignoreCase) result = result.toLowerCase();
+    return result;
+  }
+
+  private attemptDurationSeconds(
+    attempt: { startedAt: Date; exam?: { durationMinutes: number; endTime: Date } },
+    endedAt: Date,
+  ) {
+    const durationDeadline = attempt.exam
+      ? new Date(attempt.startedAt.getTime() + attempt.exam.durationMinutes * 60_000)
+      : endedAt;
+    const effectiveEnd = endedAt < durationDeadline ? endedAt : durationDeadline;
+    return Math.max(0, Math.floor((effectiveEnd.getTime() - attempt.startedAt.getTime()) / 1000));
   }
 
   private normalizeShowAnswerMode(value: string) {

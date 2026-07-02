@@ -4,7 +4,8 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { ExamStatus, Prisma, QuestionStatus, QuestionType } from '@prisma/client';
+import ExcelJS from 'exceljs';
+import { ExamStatus, Prisma, QuestionStatus, QuestionType, TagType } from '@prisma/client';
 import { toPagination } from '../../common/dto/pagination-query.dto';
 import {
   normalizeQuestionStatus,
@@ -49,6 +50,27 @@ type ComparableQuestion = {
   optionFullLength: number;
   answerHash: string;
   answerLength: number;
+};
+
+type ExcelImportOptions = {
+  publish?: boolean;
+  skipDuplicates?: boolean;
+};
+
+type ExcelQuestionRow = {
+  rowNumber: number;
+  title: string;
+  content: string;
+  type: string;
+  courseName: string;
+  knowledgePointNames: string[];
+  tagNames: string[];
+  difficulty: number;
+  defaultScore: number;
+  analysis: string;
+  answerText: string;
+  optionValues: Array<{ optionKey: string; content: string }>;
+  allowOptionShuffle?: boolean;
 };
 
 @Injectable()
@@ -125,6 +147,7 @@ export class QuestionsService {
 
   async publicList(query: QueryQuestionDto) {
     const { page, pageSize, skip, take } = toPagination(query);
+    const now = new Date();
     const where: Prisma.QuestionWhereInput = {
       deletedAt: null,
       status: QuestionStatus.PUBLISHED,
@@ -139,6 +162,8 @@ export class QuestionsService {
             exams: {
               some: {
                 status: { in: [ExamStatus.SCHEDULED, ExamStatus.RUNNING] },
+                startTime: { lte: now },
+                endTime: { gt: now },
               },
             },
           },
@@ -185,6 +210,7 @@ export class QuestionsService {
   }
 
   async publicDetail(id: string) {
+    const now = new Date();
     const question = await this.prisma.question.findFirst({
       where: {
         id,
@@ -196,6 +222,8 @@ export class QuestionsService {
               exams: {
                 some: {
                   status: { in: [ExamStatus.SCHEDULED, ExamStatus.RUNNING] },
+                  startTime: { lte: now },
+                  endTime: { gt: now },
                 },
               },
             },
@@ -206,6 +234,7 @@ export class QuestionsService {
         course: true,
         options: { orderBy: { sortOrder: 'asc' } },
         answer: { select: { answerJson: true } },
+        programmingRef: true,
         tags: { include: { tag: true } },
       },
     });
@@ -224,6 +253,7 @@ export class QuestionsService {
       courseName: question.course.name,
       tags: question.tags.map((relation) => relation.tag),
       blankCount: this.blankCount(question.answer?.answerJson),
+      programmingRef: question.programmingRef ? this.formatProgrammingRef(question.programmingRef) : null,
       options: question.options.map((option) => ({
         optionId: option.id,
         label: option.optionKey,
@@ -379,6 +409,171 @@ export class QuestionsService {
       duplicateCount: items.filter((item) => item.status === 'duplicate').length,
       conflictCount: items.filter((item) => item.status === 'conflict').length,
       similarCount: items.filter((item) => item.status === 'similar').length,
+    };
+  }
+
+  async excelImportTemplate() {
+    const workbook = new ExcelJS.Workbook();
+    workbook.creator = 'online-exam-assessment-platform';
+    const worksheet = workbook.addWorksheet('题库导入模板');
+    worksheet.columns = [
+      { header: '题型', key: 'type', width: 16 },
+      { header: '标题', key: 'title', width: 28 },
+      { header: '题干', key: 'content', width: 48 },
+      { header: '选项A', key: 'optionA', width: 24 },
+      { header: '选项B', key: 'optionB', width: 24 },
+      { header: '选项C', key: 'optionC', width: 24 },
+      { header: '选项D', key: 'optionD', width: 24 },
+      { header: '正确答案', key: 'answer', width: 22 },
+      { header: '解析', key: 'analysis', width: 36 },
+      { header: '课程', key: 'course', width: 20 },
+      { header: '知识点', key: 'knowledgePoints', width: 28 },
+      { header: '标签', key: 'tags', width: 24 },
+      { header: '难度', key: 'difficulty', width: 10 },
+      { header: '分值', key: 'score', width: 10 },
+      { header: '允许选项随机', key: 'allowOptionShuffle', width: 14 },
+    ];
+    worksheet.addRows([
+      {
+        type: '单选题',
+        title: 'Python 输出',
+        content: '以下哪个函数用于输出内容？',
+        optionA: 'print()',
+        optionB: 'input()',
+        optionC: 'len()',
+        optionD: 'range()',
+        answer: 'A',
+        analysis: 'print() 用于输出。',
+        course: 'Python 基础',
+        knowledgePoints: '输入输出',
+        tags: '基础题,课堂练习',
+        difficulty: 1,
+        score: 2,
+        allowOptionShuffle: '是',
+      },
+      {
+        type: '多选题',
+        title: '循环语句',
+        content: '下面哪些是 Python 循环语句？',
+        optionA: 'for',
+        optionB: 'while',
+        optionC: 'if',
+        optionD: 'def',
+        answer: 'A,B',
+        analysis: 'for 和 while 是循环。',
+        course: 'Python 基础',
+        knowledgePoints: '循环',
+        tags: '基础题',
+        difficulty: 2,
+        score: 4,
+        allowOptionShuffle: '是',
+      },
+      {
+        type: '填空题',
+        title: '变量赋值',
+        content: '把数字 3 赋值给变量 a：a = ____',
+        answer: '3',
+        analysis: '赋值号右侧写 3。',
+        course: 'Python 基础',
+        knowledgePoints: '变量',
+        tags: '填空',
+        difficulty: 1,
+        score: 2,
+        allowOptionShuffle: '否',
+      },
+    ]);
+    worksheet.getRow(1).font = { bold: true };
+    worksheet.views = [{ state: 'frozen', ySplit: 1 }];
+    return Buffer.from(await workbook.xlsx.writeBuffer());
+  }
+
+  async importFromExcel(
+    file: { originalname?: string; buffer: Buffer },
+    options: ExcelImportOptions,
+    userId: string,
+  ) {
+    if (!file?.buffer?.length) {
+      throw new BadRequestException('请上传 Excel 文件');
+    }
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(file.buffer as unknown as ExcelJS.Buffer);
+    const worksheet = workbook.worksheets[0];
+    if (!worksheet) {
+      throw new BadRequestException('Excel 文件中没有可读取的工作表');
+    }
+
+    const headerMap = this.excelHeaderMap(worksheet);
+    const rows = this.excelQuestionRows(worksheet, headerMap);
+    if (!rows.length) {
+      throw new BadRequestException('Excel 中没有可导入的题目行');
+    }
+
+    const publish = options.publish ?? false;
+    const skipDuplicates = options.skipDuplicates ?? true;
+    const items: Array<{
+      rowNumber: number;
+      title: string;
+      status: 'imported' | 'skipped' | 'failed';
+      questionId?: string;
+      message: string;
+    }> = [];
+
+    for (const row of rows) {
+      try {
+        const payload = this.excelRowToCreateDto(row);
+        const duplicate = (await this.checkDuplicates([payload])).items[0];
+        if (duplicate && duplicate.status !== 'ok') {
+          const message = duplicate.message || '发现重复或冲突题目';
+          if (skipDuplicates) {
+            items.push({ rowNumber: row.rowNumber, title: row.title, status: 'skipped', message });
+            continue;
+          }
+          throw new BadRequestException(message);
+        }
+
+        const created = await this.create(payload, userId);
+        if (publish) {
+          await this.publish(created.id, userId);
+        }
+        items.push({
+          rowNumber: row.rowNumber,
+          title: row.title,
+          status: 'imported',
+          questionId: created.id,
+          message: publish ? '已导入并发布' : '已导入为草稿',
+        });
+      } catch (error) {
+        items.push({
+          rowNumber: row.rowNumber,
+          title: row.title,
+          status: 'failed',
+          message: error instanceof Error ? error.message : '导入失败',
+        });
+      }
+    }
+
+    const importedCount = items.filter((item) => item.status === 'imported').length;
+    const skippedCount = items.filter((item) => item.status === 'skipped').length;
+    const failedCount = items.filter((item) => item.status === 'failed').length;
+
+    await this.audit.log({
+      userId,
+      action: 'question:import-excel',
+      module: 'question',
+      afterData: {
+        fileName: file.originalname,
+        importedCount,
+        skippedCount,
+        failedCount,
+      },
+    });
+
+    return {
+      importedCount,
+      skippedCount,
+      failedCount,
+      total: items.length,
+      items,
     };
   }
 
@@ -550,6 +745,8 @@ export class QuestionsService {
         dto.knowledgePointIds,
         dto.knowledgePointNames,
       );
+      const tagNames = this.withProgrammingSourceTags(dto.tagNames, type, dto.programmingRef);
+      const tagIds = await this.resolveTagIdsForQuestion(tx, dto.tagIds, tagNames);
       const created = await tx.question.create({
         data: {
           courseId,
@@ -575,7 +772,7 @@ export class QuestionsService {
           scoringRuleJson: (dto.scoringRule ?? { mode: 'strict' }) as Prisma.InputJsonObject,
         },
       });
-      await this.replaceRelations(tx, created.id, knowledgePointIds, dto.tagIds);
+      await this.replaceRelations(tx, created.id, knowledgePointIds, tagIds);
       await this.upsertProgrammingRef(tx, created.id, type, dto.programmingRef);
 
       const snapshot = await this.buildSnapshot(tx, created.id);
@@ -618,7 +815,7 @@ export class QuestionsService {
     const hasAnswerPatch = dto.answer !== undefined;
     const hasScoringRulePatch = dto.scoringRule !== undefined;
     const hasKnowledgePatch = dto.knowledgePointIds !== undefined || dto.knowledgePointNames !== undefined;
-    const hasTagPatch = dto.tagIds !== undefined;
+    const hasTagPatch = dto.tagIds !== undefined || dto.tagNames !== undefined;
     const hasProgrammingRefPatch = dto.programmingRef !== undefined || type !== QuestionType.PROGRAMMING;
 
     if (hasOptionsPatch || dto.type) {
@@ -666,6 +863,13 @@ export class QuestionsService {
             targetCourseId,
             dto.knowledgePointIds,
             dto.knowledgePointNames,
+          )
+        : undefined;
+      const tagIds = hasTagPatch
+        ? await this.resolveTagIdsForQuestion(
+            tx,
+            dto.tagIds,
+            this.withProgrammingSourceTags(dto.tagNames, type, dto.programmingRef),
           )
         : undefined;
       const question = await tx.question.update({
@@ -721,7 +925,21 @@ export class QuestionsService {
       }
 
       if (hasKnowledgePatch || hasTagPatch) {
-        await this.replaceRelations(tx, id, knowledgePointIds, dto.tagIds);
+        await this.replaceRelations(tx, id, knowledgePointIds, tagIds);
+      }
+
+      if (!hasTagPatch && type === QuestionType.PROGRAMMING && dto.programmingRef !== undefined) {
+        const sourceTagIds = await this.resolveTagIdsForQuestion(
+          tx,
+          undefined,
+          this.programmingSourceTagNames(type, dto.programmingRef),
+        );
+        if (sourceTagIds.length) {
+          await tx.questionTag.createMany({
+            data: sourceTagIds.map((tagId) => ({ questionId: id, tagId })),
+            skipDuplicates: true,
+          });
+        }
       }
 
       if (hasProgrammingRefPatch) {
@@ -999,6 +1217,7 @@ export class QuestionsService {
     };
     const judgeConfig = {
       ...(ref?.judgeConfig ?? {}),
+      platformCode: provider,
       platformBaseUrl,
       domainId,
       domainName,
@@ -1210,6 +1429,78 @@ export class QuestionsService {
         select: { id: true },
       });
     }
+  }
+
+  private async resolveTagIdsForQuestion(
+    tx: Prisma.TransactionClient,
+    ids?: string[],
+    names?: string[],
+  ) {
+    const result = new Set<string>();
+    const uniqueIds = [...new Set((ids ?? []).filter(Boolean))];
+    if (uniqueIds.length) {
+      const existing = await tx.tag.findMany({
+        where: {
+          id: { in: uniqueIds },
+          type: TagType.QUESTION,
+          deletedAt: null,
+        },
+        select: { id: true },
+      });
+      existing.forEach((item) => result.add(item.id));
+    }
+
+    for (const name of this.cleanNameList(names)) {
+      const existing = await tx.tag.findFirst({
+        where: {
+          type: TagType.QUESTION,
+          deletedAt: null,
+          name: { equals: name, mode: 'insensitive' },
+        },
+        select: { id: true },
+      });
+      if (existing) {
+        result.add(existing.id);
+        continue;
+      }
+
+      try {
+        const created = await tx.tag.create({
+          data: {
+            name,
+            code: await this.nextTagCode(tx, name),
+            type: TagType.QUESTION,
+          },
+          select: { id: true },
+        });
+        result.add(created.id);
+      } catch (error) {
+        if (!this.isUniqueConflict(error)) throw error;
+        const raceCreated = await tx.tag.findFirst({
+          where: {
+            type: TagType.QUESTION,
+            deletedAt: null,
+            name: { equals: name, mode: 'insensitive' },
+          },
+          select: { id: true },
+        });
+        if (raceCreated) {
+          result.add(raceCreated.id);
+          continue;
+        }
+        const created = await tx.tag.create({
+          data: {
+            name,
+            code: await this.nextTagCode(tx, `${name}-${Date.now().toString(36)}`),
+            type: TagType.QUESTION,
+          },
+          select: { id: true },
+        });
+        result.add(created.id);
+      }
+    }
+
+    return [...result];
   }
 
   private async resolveCheckCourseIds(questions: CreateQuestionDto[]) {
@@ -1517,6 +1808,11 @@ export class QuestionsService {
     );
   }
 
+  private async nextTagCode(tx: Prisma.TransactionClient, name: string) {
+    const base = this.codeBase(name, 'tag');
+    return this.nextScopedCode((code) => tx.tag.findUnique({ where: { code }, select: { id: true } }), base);
+  }
+
   private async nextScopedCode(
     exists: (code: string) => Promise<{ id: string } | null>,
     base: string,
@@ -1550,6 +1846,39 @@ export class QuestionsService {
 
   private cleanNameList(values?: unknown[] | null) {
     return [...new Set((values ?? []).map((value) => this.cleanName(value)).filter(Boolean))];
+  }
+
+  private withProgrammingSourceTags(
+    tagNames: string[] | undefined,
+    type: QuestionType,
+    ref: CreateQuestionDto['programmingRef'] | undefined | null,
+  ) {
+    return this.cleanNameList([...(tagNames ?? []), ...this.programmingSourceTagNames(type, ref)]);
+  }
+
+  private programmingSourceTagNames(
+    type: QuestionType,
+    ref: CreateQuestionDto['programmingRef'] | undefined | null,
+  ) {
+    if (type !== QuestionType.PROGRAMMING || !ref?.externalProblemId) return [];
+    const judgeConfig = this.toPlainRecord(ref.judgeConfig);
+    const rawBaseUrl =
+      ref.platformBaseUrl ||
+      String(judgeConfig.platformBaseUrl ?? '') ||
+      (ref.externalProblemUrl ? this.baseUrlFromProblemUrl(ref.externalProblemUrl) : '');
+    const host = this.hostTagName(rawBaseUrl);
+    return ['外部编程题', host].filter(Boolean);
+  }
+
+  private hostTagName(value?: string | null) {
+    const raw = String(value || '').trim();
+    if (!raw) return '';
+    const withScheme = /^https?:\/\//i.test(raw) ? raw : `http://${raw}`;
+    try {
+      return new URL(withScheme).host.toLowerCase().replace(/^www\./, '');
+    } catch {
+      return raw.replace(/^https?:\/\//i, '').replace(/\/+$/, '').toLowerCase().replace(/^www\./, '');
+    }
   }
 
   private nameKey(value: unknown) {
@@ -1683,6 +2012,7 @@ export class QuestionsService {
   private async findOccupationMap(questionIds: string[]) {
     const result = new Map<string, Array<{ id: string; name: string; status: ExamStatus }>>();
     if (!questionIds.length) return result;
+    const now = new Date();
 
     const relations = await this.prisma.paperQuestion.findMany({
       where: {
@@ -1691,6 +2021,8 @@ export class QuestionsService {
           exams: {
             some: {
               status: { in: [ExamStatus.SCHEDULED, ExamStatus.RUNNING] },
+              startTime: { lte: now },
+              endTime: { gt: now },
             },
           },
         },
@@ -1699,7 +2031,11 @@ export class QuestionsService {
         paper: {
           include: {
             exams: {
-              where: { status: { in: [ExamStatus.SCHEDULED, ExamStatus.RUNNING] } },
+              where: {
+                status: { in: [ExamStatus.SCHEDULED, ExamStatus.RUNNING] },
+                startTime: { lte: now },
+                endTime: { gt: now },
+              },
               select: { id: true, name: true, status: true },
             },
           },
@@ -1882,6 +2218,211 @@ export class QuestionsService {
     if (!answerJson || typeof answerJson !== 'object' || Array.isArray(answerJson)) return 1;
     const blanks = (answerJson as QuestionAnswerJson).blanks;
     return Array.isArray(blanks) && blanks.length ? blanks.length : 1;
+  }
+
+  private excelHeaderMap(worksheet: ExcelJS.Worksheet) {
+    const map = new Map<string, number>();
+    const headerRow = worksheet.getRow(1);
+    headerRow.eachCell((cell, colNumber) => {
+      for (const key of this.excelHeaderKeys(this.cellText(cell.value))) {
+        if (!map.has(key)) map.set(key, colNumber);
+      }
+    });
+    return map;
+  }
+
+  private excelQuestionRows(worksheet: ExcelJS.Worksheet, headerMap: Map<string, number>) {
+    const rows: ExcelQuestionRow[] = [];
+    worksheet.eachRow((row, rowNumber) => {
+      if (rowNumber === 1) return;
+      const content = this.excelValue(row, headerMap, ['content', '题干', '题目内容']);
+      const title = this.excelValue(row, headerMap, ['title', '标题', '题目标题']) || content.slice(0, 80);
+      const type = this.excelValue(row, headerMap, ['type', '题型']) || '单选题';
+      const courseName = this.excelValue(row, headerMap, ['course', 'courseName', '课程']);
+      if (!title && !content && !courseName) return;
+
+      const optionValues: ExcelQuestionRow['optionValues'] = [];
+      for (const key of 'ABCDEFGHIJKLMNOPQRSTUVWXYZ') {
+        const value = this.excelValue(row, headerMap, [`option${key}`, `选项${key}`]);
+        if (value) optionValues.push({ optionKey: key, content: value });
+      }
+
+      rows.push({
+        rowNumber,
+        title,
+        content,
+        type,
+        courseName,
+        knowledgePointNames: this.splitNames(this.excelValue(row, headerMap, ['knowledgePoints', 'knowledgePoint', '知识点'])),
+        tagNames: this.splitNames(this.excelValue(row, headerMap, ['tags', '标签'])),
+        difficulty: this.clampImportNumber(this.excelValue(row, headerMap, ['difficulty', '难度']), 1, 5, 1),
+        defaultScore: this.nonNegativeImportNumber(this.excelValue(row, headerMap, ['score', 'defaultScore', '分值']), 2),
+        analysis: this.excelValue(row, headerMap, ['analysis', '解析']),
+        answerText: this.excelValue(row, headerMap, ['answer', 'correctAnswer', '正确答案', '答案']),
+        optionValues,
+        allowOptionShuffle: this.optionalBooleanFromExcel(
+          this.excelValue(row, headerMap, ['allowOptionShuffle', '允许选项随机']),
+        ),
+      });
+    });
+    return rows;
+  }
+
+  private excelRowToCreateDto(row: ExcelQuestionRow): CreateQuestionDto {
+    if (!row.courseName) throw new BadRequestException(`第 ${row.rowNumber} 行缺少课程`);
+    if (!row.content) throw new BadRequestException(`第 ${row.rowNumber} 行缺少题干`);
+    const type = this.excelQuestionType(row.type);
+    const options = this.excelOptions(type, row.optionValues, row.answerText);
+    return {
+      courseName: row.courseName,
+      type,
+      title: row.title || row.content.slice(0, 80),
+      content: row.content,
+      difficulty: row.difficulty,
+      defaultScore: row.defaultScore,
+      analysis: row.analysis,
+      allowOptionShuffle: row.allowOptionShuffle,
+      knowledgePointNames: row.knowledgePointNames,
+      tagNames: row.tagNames,
+      options,
+      answer: this.excelAnswer(type, row.answerText),
+      scoringRule: type === 'fill_blank' ? { mode: 'exact' } : { mode: 'strict' },
+    };
+  }
+
+  private excelOptions(type: string, values: ExcelQuestionRow['optionValues'], answerText: string) {
+    const options =
+      type === 'true_false' && !values.length
+        ? [
+            { optionKey: 'A', content: '正确' },
+            { optionKey: 'B', content: '错误' },
+          ]
+        : values;
+    const correctKeys = this.excelCorrectOptionKeys(type, answerText);
+    return options.map((option, index) => ({
+      optionKey: option.optionKey,
+      content: option.content,
+      isCorrect: correctKeys.has(option.optionKey),
+      sortOrder: index + 1,
+    }));
+  }
+
+  private excelAnswer(type: string, answerText: string) {
+    if (type === 'fill_blank') {
+      const parts = answerText.split(/[;；]/).map((item) => item.trim()).filter(Boolean);
+      return {
+        blanks: (parts.length ? parts : [answerText]).map((part, index) => ({
+          index: index + 1,
+          answers: part.split(/[，,、/|]/).map((item) => item.trim()).filter(Boolean),
+          trimSpace: true,
+          ignoreCase: false,
+        })),
+      };
+    }
+    if (['short_answer', 'programming', 'material', 'file_upload', 'scratch_project', 'arduino_project'].includes(type)) {
+      return { reference: answerText };
+    }
+    return {};
+  }
+
+  private excelCorrectOptionKeys(type: string, answerText: string) {
+    const normalized = answerText.trim();
+    if (type === 'true_false') {
+      if (/^(正确|对|true|t|yes|y|1|a)$/i.test(normalized)) return new Set(['A']);
+      if (/^(错误|错|false|f|no|n|0|b)$/i.test(normalized)) return new Set(['B']);
+    }
+    return new Set(
+      normalized
+        .split(/[，,;；、\s]+/)
+        .map((item) => item.trim().toUpperCase())
+        .filter(Boolean),
+    );
+  }
+
+  private excelQuestionType(value: string) {
+    const map: Record<string, string> = {
+      单选: 'single_choice',
+      单选题: 'single_choice',
+      多选: 'multiple_choice',
+      多选题: 'multiple_choice',
+      判断: 'true_false',
+      判断题: 'true_false',
+      填空: 'fill_blank',
+      填空题: 'fill_blank',
+      简答: 'short_answer',
+      简答题: 'short_answer',
+      编程: 'programming',
+      编程题: 'programming',
+      材料: 'material',
+      材料题: 'material',
+      文件上传: 'file_upload',
+      文件上传题: 'file_upload',
+      scratch: 'scratch_project',
+      scratch项目题: 'scratch_project',
+      arduino: 'arduino_project',
+      arduino项目题: 'arduino_project',
+    };
+    const raw = value.trim();
+    return toApiEnum(normalizeQuestionType(map[raw] ?? map[raw.toLowerCase()] ?? (raw || 'single_choice')));
+  }
+
+  private excelValue(row: ExcelJS.Row, headerMap: Map<string, number>, keys: string[]) {
+    for (const key of keys.flatMap((item) => this.excelHeaderKeys(item))) {
+      const index = headerMap.get(key);
+      if (!index) continue;
+      const value = this.cellText(row.getCell(index).value);
+      if (value) return value;
+    }
+    return '';
+  }
+
+  private excelHeaderKeys(value: string) {
+    const normalized = value.trim();
+    const compact = normalized.toLowerCase().replace(/\s+/g, '');
+    const optionMatch = compact.match(/^(?:选项|option)([a-z])$/i);
+    return [
+      normalized,
+      compact,
+      optionMatch ? `option${optionMatch[1].toUpperCase()}` : '',
+      optionMatch ? `选项${optionMatch[1].toUpperCase()}` : '',
+    ].filter(Boolean);
+  }
+
+  private cellText(value: ExcelJS.CellValue) {
+    if (value === null || value === undefined) return '';
+    if (typeof value === 'object') {
+      if ('text' in value && value.text) return String(value.text).trim();
+      if ('result' in value && value.result !== undefined) return String(value.result).trim();
+      if ('richText' in value && Array.isArray(value.richText)) {
+        return value.richText.map((item) => item.text).join('').trim();
+      }
+      if (value instanceof Date) return value.toISOString();
+      return String((value as { formula?: string }).formula ?? '').trim();
+    }
+    return String(value).trim();
+  }
+
+  private splitNames(value: string) {
+    return [...new Set(value.split(/[，,;；、]/).map((item) => item.trim()).filter(Boolean))];
+  }
+
+  private clampImportNumber(value: string, min: number, max: number, fallback: number) {
+    const number = Number(value);
+    if (!Number.isFinite(number)) return fallback;
+    return Math.min(max, Math.max(min, Math.round(number)));
+  }
+
+  private nonNegativeImportNumber(value: string, fallback: number) {
+    const number = Number(value);
+    if (!Number.isFinite(number)) return fallback;
+    return Math.max(0, number);
+  }
+
+  private optionalBooleanFromExcel(value: string) {
+    if (!value) return undefined;
+    if (/^(是|true|1|yes|y)$/i.test(value)) return true;
+    if (/^(否|false|0|no|n)$/i.test(value)) return false;
+    return undefined;
   }
 
   private describeOption(

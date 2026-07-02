@@ -10,6 +10,10 @@
           {{ resultSummaryText }}
         </el-tag>
         <el-tag type="info">不落库</el-tag>
+        <el-radio-group v-model="answerLayout" size="small" class="answer-layout-toggle">
+          <el-radio-button label="side">左右</el-radio-button>
+          <el-radio-button label="stack">上下</el-radio-button>
+        </el-radio-group>
         <el-button
           v-if="isStudent && submitted && wrongEntries.length"
           type="success"
@@ -32,7 +36,7 @@
             v-for="entry in visibleEntries"
             :key="entry.question.questionId"
             :data-question-id="entry.question.questionId"
-            :class="['question-card', 'exam-question', isSplitQuestion(entry.snapshot.type) ? 'programming-exam-question' : '']"
+            class="question-card exam-question answer-layout-question"
           >
             <div class="question-title">
               <div>
@@ -50,17 +54,18 @@
               </div>
             </div>
 
-            <template v-if="isSplitQuestion(entry.snapshot.type)">
-              <div class="programming-exam-split">
-                <div class="programming-statement">
-                  <h2 class="exam-question-title">{{ entry.snapshot.title || `第 ${entry.index + 1} 题` }}</h2>
-                  <MarkdownRenderer :source="entry.snapshot.content" />
-                  <div v-if="submitted" class="paper-analysis">
-                    <strong>解析</strong>
-                    <MarkdownRenderer :source="entry.snapshot.analysis || '暂无解析'" />
-                  </div>
+            <QuestionAnswerLayout :mode="answerLayout">
+              <template #statement>
+                <h2 class="exam-question-title">{{ entry.snapshot.title || `第 ${entry.index + 1} 题` }}</h2>
+                <MarkdownRenderer :source="entry.snapshot.content" />
+                <div v-if="submitted" class="paper-analysis">
+                  <strong>解析</strong>
+                  <MarkdownRenderer :source="entry.snapshot.analysis || '暂无解析'" />
                 </div>
-                <div class="programming-code-panel">
+              </template>
+
+              <template #answer>
+                <div class="question-answer-body">
                   <div v-if="entry.snapshot.type === 'programming'" class="programming-answer">
                     <div class="programming-toolbar">
                       <span class="programming-language-label">语言</span>
@@ -86,10 +91,11 @@
                     <CodeAnswerEditor
                       v-model="answers[entry.question.questionId].code"
                       :language="answers[entry.question.questionId].language"
+                      :language-label="languageLabel(answers[entry.question.questionId].language)"
                       :rows="22"
                     />
                   </div>
-                  <div v-else class="programming-answer">
+                  <div v-else-if="isSplitQuestion(entry.snapshot.type)" class="programming-answer">
                     <div class="programming-toolbar">
                       <span class="programming-language-label">作答</span>
                       <el-tag>{{ typeLabel(entry.snapshot.type) }}</el-tag>
@@ -102,69 +108,64 @@
                       placeholder="填写答案"
                     />
                   </div>
+                  <template v-else>
+                    <div class="programming-toolbar">
+                      <span class="programming-language-label">作答</span>
+                      <el-tag>{{ typeLabel(entry.snapshot.type) }}</el-tag>
+                    </div>
+                    <el-radio-group
+                      v-if="['single_choice', 'true_false'].includes(entry.snapshot.type)"
+                      v-model="answers[entry.question.questionId].selectedOptionIds[0]"
+                      class="answer-options"
+                    >
+                      <el-radio
+                        v-for="option in entry.snapshot.options || []"
+                        :key="optionIdFor(option)"
+                        :label="optionIdFor(option)"
+                        :class="['answer-option', submitted && option.isCorrect ? 'answer-correct' : '']"
+                      >
+                        <span class="option-choice">
+                          <strong>{{ optionLabelFor(option) }}.</strong>
+                          <MarkdownRenderer :source="option.content" />
+                        </span>
+                      </el-radio>
+                    </el-radio-group>
+
+                    <el-checkbox-group
+                      v-else-if="entry.snapshot.type === 'multiple_choice'"
+                      v-model="answers[entry.question.questionId].selectedOptionIds"
+                      class="answer-options"
+                    >
+                      <el-checkbox
+                        v-for="option in entry.snapshot.options || []"
+                        :key="optionIdFor(option)"
+                        :label="optionIdFor(option)"
+                        :class="['answer-option', submitted && option.isCorrect ? 'answer-correct' : '']"
+                      >
+                        <span class="option-choice">
+                          <strong>{{ optionLabelFor(option) }}.</strong>
+                          <MarkdownRenderer :source="option.content" />
+                        </span>
+                      </el-checkbox>
+                    </el-checkbox-group>
+
+                    <FillBlankAnswerInputs
+                      v-else-if="entry.snapshot.type === 'fill_blank'"
+                      v-model="answers[entry.question.questionId].blanks"
+                      :count="blankCountFor(entry.snapshot)"
+                    />
+                    <el-input
+                      v-else
+                      v-model="answers[entry.question.questionId].text"
+                      class="answer-input"
+                      type="textarea"
+                      :rows="6"
+                      placeholder="填写答案"
+                    />
+                  </template>
                 </div>
-              </div>
-            </template>
-
-            <template v-else>
-              <h2 class="exam-question-title">{{ entry.snapshot.title || `第 ${entry.index + 1} 题` }}</h2>
-              <MarkdownRenderer :source="entry.snapshot.content" />
-
-              <el-radio-group
-                v-if="['single_choice', 'true_false'].includes(entry.snapshot.type)"
-                v-model="answers[entry.question.questionId].selectedOptionIds[0]"
-                class="answer-options"
-              >
-                <el-radio
-                  v-for="option in entry.snapshot.options || []"
-                  :key="optionIdFor(option)"
-                  :label="optionIdFor(option)"
-                  :class="['answer-option', submitted && option.isCorrect ? 'answer-correct' : '']"
-                >
-                  <span class="option-choice">
-                    <strong>{{ optionLabelFor(option) }}.</strong>
-                    <MarkdownRenderer :source="option.content" />
-                  </span>
-                </el-radio>
-              </el-radio-group>
-
-              <el-checkbox-group
-                v-else-if="entry.snapshot.type === 'multiple_choice'"
-                v-model="answers[entry.question.questionId].selectedOptionIds"
-                class="answer-options"
-              >
-                <el-checkbox
-                  v-for="option in entry.snapshot.options || []"
-                  :key="optionIdFor(option)"
-                  :label="optionIdFor(option)"
-                  :class="['answer-option', submitted && option.isCorrect ? 'answer-correct' : '']"
-                >
-                  <span class="option-choice">
-                    <strong>{{ optionLabelFor(option) }}.</strong>
-                    <MarkdownRenderer :source="option.content" />
-                  </span>
-                </el-checkbox>
-              </el-checkbox-group>
-
-              <FillBlankAnswerInputs
-                v-else-if="entry.snapshot.type === 'fill_blank'"
-                v-model="answers[entry.question.questionId].blanks"
-                :count="blankCountFor(entry.snapshot)"
-              />
-              <el-input
-                v-else
-                v-model="answers[entry.question.questionId].text"
-                class="answer-input"
-                type="textarea"
-                :rows="6"
-                placeholder="填写答案"
-              />
-
-              <div v-if="submitted" class="paper-analysis">
-                <strong>解析</strong>
-                <MarkdownRenderer :source="entry.snapshot.analysis || '暂无解析'" />
-              </div>
-            </template>
+              </template>
+            </QuestionAnswerLayout>
 
             <div class="question-actions">
               <el-button :icon="Delete" @click="clearAnswer(entry.question.questionId)">清除本题</el-button>
@@ -222,6 +223,7 @@ import { api, getCurrentUser } from '../api';
 import CodeAnswerEditor from '../components/CodeAnswerEditor.vue';
 import FillBlankAnswerInputs from '../components/FillBlankAnswerInputs.vue';
 import MarkdownRenderer from '../components/MarkdownRenderer.vue';
+import QuestionAnswerLayout from '../components/QuestionAnswerLayout.vue';
 
 const route = useRoute();
 const router = useRouter();
@@ -230,6 +232,7 @@ const answers = reactive({});
 const submitted = ref(false);
 const addingWrongQuestions = ref(false);
 const currentIndex = ref(0);
+const answerLayout = ref('side');
 const currentUser = getCurrentUser();
 const isStudent = computed(() => currentUser?.userType === 'STUDENT');
 const objectiveQuestionTypes = new Set(['single_choice', 'multiple_choice', 'true_false', 'fill_blank']);

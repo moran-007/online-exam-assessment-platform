@@ -30,6 +30,45 @@
       </el-form>
     </div>
 
+    <div class="panel">
+      <div class="paper-preview-head">
+        <div>
+          <h2>我的账号</h2>
+          <span class="muted">当前登录账号用于拉取外部题目和教师测试提交的 OJ 账号</span>
+        </div>
+        <div class="toolbar">
+          <el-button @click="router.push('/profile')">个人中心维护</el-button>
+          <el-button type="primary" :icon="Plus" @click="openCreateOwnDialog">新增我的账号</el-button>
+        </div>
+      </div>
+      <el-table :data="myAccounts" size="small">
+        <el-table-column label="平台" min-width="110">
+          <template #default="{ row }">{{ row.platformName || row.platformCode }}</template>
+        </el-table-column>
+        <el-table-column prop="platformBaseUrl" label="站点" min-width="190" />
+        <el-table-column prop="loginUsername" label="登录账号" min-width="140" />
+        <el-table-column label="Hydro账号" min-width="160">
+          <template #default="{ row }">
+            <span>{{ row.hydroUsername }}</span>
+            <div class="muted">{{ row.hydroUserId }}</div>
+          </template>
+        </el-table-column>
+        <el-table-column label="状态" min-width="150">
+          <template #default="{ row }">
+            <el-tag :type="loginStatusTagType(row)" class="status-tag">{{ loginStatusLabel(row) }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="操作" width="220" fixed="right">
+          <template #default="{ row }">
+            <el-button link type="primary" @click="openEditDialog(row)">编辑</el-button>
+            <el-button link type="primary" :loading="testingId === row.id" @click="testAccount(row)">检测</el-button>
+            <el-button link :icon="Link" @click="openOj(row)">打开</el-button>
+            <el-button link type="danger" :icon="Delete" @click="deleteAccount(row)">删除</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+    </div>
+
     <div v-if="isSuperAdmin" class="panel external-platform-panel">
       <div class="paper-preview-head">
         <div>
@@ -200,16 +239,19 @@
 
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue';
+import { useRouter } from 'vue-router';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { Delete, Edit, Link, Plus, Refresh } from '@element-plus/icons-vue';
 import { api, buildQuery, getCurrentUser } from '../api';
 
 const currentUser = getCurrentUser();
+const router = useRouter();
 const isSuperAdmin = currentUser?.userType === 'SUPER_ADMIN';
 const platforms = ref([]);
 const students = ref([]);
 const teachers = ref([]);
 const accounts = ref([]);
+const myAccounts = ref([]);
 const loading = ref(false);
 const saving = ref(false);
 const platformSaving = ref(false);
@@ -260,6 +302,7 @@ const owners = computed(() => {
     return currentUser ? [currentUser] : [];
   }
   const map = new Map();
+  if (currentUser) map.set(currentUser.id, currentUser);
   [...students.value, ...teachers.value].forEach((user) =>
     map.set(user.id, user),
   );
@@ -278,7 +321,7 @@ async function load() {
       students.value = [];
       teachers.value = [];
     }
-    await loadAccounts();
+    await Promise.all([loadAccounts(), loadMyAccounts()]);
   } finally {
     loading.value = false;
   }
@@ -307,6 +350,10 @@ async function loadAccounts() {
   }
 }
 
+async function loadMyAccounts() {
+  myAccounts.value = await api('/hydro/my/accounts');
+}
+
 function openCreateDialog() {
   const platform = selectablePlatforms.value[0];
   Object.assign(accountForm, {
@@ -322,6 +369,14 @@ function openCreateDialog() {
     bindStatus: 'bound',
   });
   dialogVisible.value = true;
+}
+
+function openCreateOwnDialog() {
+  openCreateDialog();
+  accountForm.studentId = currentUser?.id || '';
+  accountForm.loginUsername = currentUser?.username || '';
+  accountForm.hydroUsername = currentUser?.username || '';
+  accountForm.hydroUserId = currentUser?.username || '';
 }
 
 function openEditDialog(row) {
@@ -369,7 +424,7 @@ async function saveAccount() {
       },
     });
     dialogVisible.value = false;
-    await loadAccounts();
+    await Promise.all([loadAccounts(), loadMyAccounts()]);
     ElMessage.success('外部账号已保存');
   } catch (error) {
     ElMessage.error(error.message || '保存失败');
@@ -452,7 +507,7 @@ async function testAccount(row) {
     const result = await api(isSuperAdmin ? `/hydro/accounts/${row.id}/test` : `/hydro/my/accounts/${row.id}/test`, {
       method: 'POST',
     });
-    await loadAccounts();
+    await Promise.all([loadAccounts(), loadMyAccounts()]);
     const messageType = result.status === 'blocked' ? 'error' : result.success ? 'success' : 'warning';
     ElMessage[messageType](result.message || '检测完成');
   } catch (error) {
@@ -470,7 +525,7 @@ async function deleteAccount(row) {
       cancelButtonText: '取消',
     });
     await api(isSuperAdmin ? `/hydro/accounts/${row.id}` : `/hydro/my/accounts/${row.id}`, { method: 'DELETE' });
-    await loadAccounts();
+    await Promise.all([loadAccounts(), loadMyAccounts()]);
     ElMessage.success('外部账号已删除');
   } catch (error) {
     if (error !== 'cancel' && error !== 'close') {

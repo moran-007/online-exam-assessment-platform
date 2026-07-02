@@ -138,22 +138,29 @@
       </el-table>
     </div>
 
-    <el-dialog v-model="practiceVisible" title="错题练习" :width="isSplitPracticeQuestion(practice?.question?.type) ? '1180px' : '780px'">
+    <el-dialog v-model="practiceVisible" title="错题练习" :width="practiceDialogWidth">
       <template v-if="practice">
         <div class="paper-preview-head">
           <div>
             <h2>{{ practice.question.title }}</h2>
             <span class="muted">{{ typeLabel(practice.question.type) }} · {{ practice.question.defaultScore }} 分</span>
           </div>
-          <el-tag type="warning">个人错题</el-tag>
+          <div class="toolbar">
+            <el-radio-group v-model="answerLayout" size="small" class="answer-layout-toggle">
+              <el-radio-button label="side">左右</el-radio-button>
+              <el-radio-button label="stack">上下</el-radio-button>
+            </el-radio-group>
+            <el-tag type="warning">个人错题</el-tag>
+          </div>
         </div>
 
-        <template v-if="isSplitPracticeQuestion(practice.question.type)">
-          <div class="programming-exam-split programming-practice-split">
-            <div class="programming-statement">
-              <MarkdownRenderer :source="practice.question.content" />
-            </div>
-            <div class="programming-code-panel">
+        <QuestionAnswerLayout :mode="answerLayout" framed>
+          <template #statement>
+            <MarkdownRenderer :source="practice.question.content" />
+          </template>
+
+          <template #answer>
+            <div class="question-answer-body">
               <div v-if="practice.question.type === 'programming'" class="programming-answer">
                 <div class="programming-toolbar">
                   <span class="programming-language-label">语言</span>
@@ -179,10 +186,11 @@
                 <CodeAnswerEditor
                   v-model="answer.code"
                   :language="answer.language"
+                  :language-label="languageLabel(answer.language)"
                   :rows="18"
                 />
               </div>
-              <div v-else class="programming-answer">
+              <div v-else-if="isSplitPracticeQuestion(practice.question.type)" class="programming-answer">
                 <div class="programming-toolbar">
                   <span class="programming-language-label">作答</span>
                   <el-tag>{{ typeLabel(practice.question.type) }}</el-tag>
@@ -195,41 +203,43 @@
                   placeholder="填写答案"
                 />
               </div>
+              <template v-else>
+                <div class="programming-toolbar">
+                  <span class="programming-language-label">作答</span>
+                  <el-tag>{{ typeLabel(practice.question.type) }}</el-tag>
+                </div>
+                <el-radio-group
+                  v-if="['single_choice', 'true_false'].includes(practice.question.type)"
+                  v-model="answer.selectedOptionIds[0]"
+                  class="answer-options"
+                >
+                  <el-radio v-for="option in practice.question.options || []" :key="option.optionId" :label="option.optionId" class="answer-option">
+                    <span class="option-choice">
+                      <strong>{{ option.label }}.</strong>
+                      <MarkdownRenderer :source="option.content" />
+                    </span>
+                  </el-radio>
+                </el-radio-group>
+
+                <el-checkbox-group v-else-if="practice.question.type === 'multiple_choice'" v-model="answer.selectedOptionIds" class="answer-options">
+                  <el-checkbox v-for="option in practice.question.options || []" :key="option.optionId" :label="option.optionId" class="answer-option">
+                    <span class="option-choice">
+                      <strong>{{ option.label }}.</strong>
+                      <MarkdownRenderer :source="option.content" />
+                    </span>
+                  </el-checkbox>
+                </el-checkbox-group>
+
+                <FillBlankAnswerInputs
+                  v-else-if="practice.question.type === 'fill_blank'"
+                  v-model="answer.blanks"
+                  :count="blankCountFor(practice.question)"
+                />
+                <el-input v-else v-model="answer.text" class="answer-input" type="textarea" :rows="5" placeholder="填写答案" />
+              </template>
             </div>
-          </div>
-        </template>
-
-        <template v-else>
-          <MarkdownRenderer :source="practice.question.content" />
-
-          <el-radio-group
-            v-if="['single_choice', 'true_false'].includes(practice.question.type)"
-            v-model="answer.selectedOptionIds[0]"
-            class="answer-options"
-          >
-            <el-radio v-for="option in practice.question.options || []" :key="option.optionId" :label="option.optionId" class="answer-option">
-              <span class="option-choice">
-                <strong>{{ option.label }}.</strong>
-                <MarkdownRenderer :source="option.content" />
-              </span>
-            </el-radio>
-          </el-radio-group>
-
-          <el-checkbox-group v-else-if="practice.question.type === 'multiple_choice'" v-model="answer.selectedOptionIds" class="answer-options">
-            <el-checkbox v-for="option in practice.question.options || []" :key="option.optionId" :label="option.optionId" class="answer-option">
-              <span class="option-choice">
-                <strong>{{ option.label }}.</strong>
-                <MarkdownRenderer :source="option.content" />
-              </span>
-            </el-checkbox>
-          </el-checkbox-group>
-
-          <FillBlankAnswerInputs
-            v-else-if="practice.question.type === 'fill_blank'"
-            v-model="answer.blanks"
-            :count="blankCountFor(practice.question)"
-          />
-        </template>
+          </template>
+        </QuestionAnswerLayout>
 
         <div class="toolbar question-actions">
           <el-button type="primary" :icon="Check" @click="checkPractice">提交练习</el-button>
@@ -297,7 +307,7 @@
 </template>
 
 <script setup>
-import { onMounted, reactive, ref } from 'vue';
+import { computed, onMounted, reactive, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { Aim, Check, Delete, Document, Download, Hide, Link, Plus, Refresh, Search } from '@element-plus/icons-vue';
@@ -306,6 +316,7 @@ import AnswerFeedback from '../components/AnswerFeedback.vue';
 import CodeAnswerEditor from '../components/CodeAnswerEditor.vue';
 import FillBlankAnswerInputs from '../components/FillBlankAnswerInputs.vue';
 import MarkdownRenderer from '../components/MarkdownRenderer.vue';
+import QuestionAnswerLayout from '../components/QuestionAnswerLayout.vue';
 import { useResponsiveColumns } from '../composables/useResponsiveColumns';
 
 const items = ref([]);
@@ -317,6 +328,7 @@ const selectedCandidateId = ref('');
 const practice = ref(null);
 const practiceVisible = ref(false);
 const practiceResult = ref(null);
+const answerLayout = ref('side');
 const exportVisible = ref(false);
 const traceVisible = ref(false);
 const traceEvents = ref([]);
@@ -335,6 +347,7 @@ const exportForm = reactive({
   includeWrongInfo: true,
 });
 const objectiveQuestionTypes = new Set(['single_choice', 'multiple_choice', 'true_false', 'fill_blank']);
+const practiceDialogWidth = computed(() => (answerLayout.value === 'side' ? '1180px' : '860px'));
 
 async function load() {
   const [wrongItems, insightData] = await Promise.all([

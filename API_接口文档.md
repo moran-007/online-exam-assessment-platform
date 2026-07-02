@@ -556,43 +556,51 @@ DELETE /api/v1/questions/:id
 
 ---
 
-### 6.6 提交审核
+### 6.6 题目重复检测
 
 ```http
-POST /api/v1/questions/:id/submit-review
+POST /api/v1/questions/duplicate-check
 ```
 
 ---
 
-### 6.7 审核题目
+### 6.7 批量删除题目
 
 ```http
-POST /api/v1/questions/:id/review
+POST /api/v1/questions/batch/delete
 ```
 
 请求：
 
 ```json
 {
-  "approved": true,
-  "comment": "通过"
+  "ids": ["question_001", "question_002"]
 }
 ```
 
 ---
 
-### 6.8 发布题目
+### 6.8 批量更新题目状态
 
 ```http
-POST /api/v1/questions/:id/publish
+PATCH /api/v1/questions/batch/status
+```
+
+请求：
+
+```json
+{
+  "ids": ["question_001"],
+  "status": "published"
+}
 ```
 
 ---
 
-### 6.9 禁用题目
+### 6.9 发布题目
 
 ```http
-POST /api/v1/questions/:id/disable
+POST /api/v1/questions/:id/publish
 ```
 
 ---
@@ -608,6 +616,8 @@ POST /api/v1/questions/import
 ```http
 Content-Type: multipart/form-data
 file=<excel_file>
+publish=false
+skipDuplicates=true
 ```
 
 返回：
@@ -617,12 +627,24 @@ file=<excel_file>
   "code": 0,
   "message": "ok",
   "data": {
-    "successCount": 80,
-    "failedCount": 3,
-    "errorFileUrl": "https://file.example.com/import-error.xlsx"
+    "importedCount": 80,
+    "skippedCount": 2,
+    "failedCount": 1,
+    "total": 83,
+    "items": [
+      {
+        "rowNumber": 2,
+        "title": "Python 输出",
+        "status": "imported",
+        "questionId": "question_001",
+        "message": "已导入为草稿"
+      }
+    ]
   }
 }
 ```
+
+说明：当前后端支持 `.xlsx` 模板导入，导入时会校验题型、课程、知识点、标签、答案和重复题。课程、知识点、题目标签可按名称自动复用或创建。
 
 ---
 
@@ -984,8 +1006,8 @@ PATCH /api/v1/exams/:id
 
 规则：
 
-1. running 状态不允许修改核心考试配置。
-2. ended 状态不允许修改。
+1. running / ended 状态下，普通教师和助教不允许修改核心考试配置，只能单独更新状态。
+2. `SUPER_ADMIN` / `ADMIN` 可兜底修改核心配置。
 3. 修改时间必须校验合法性。
 
 ---
@@ -1011,6 +1033,8 @@ POST /api/v1/exams/:id/start
 ```http
 POST /api/v1/exams/:id/end
 ```
+
+说明：手动结束会将考试 `endTime` 更新为当前时间，并自动提交所有进行中的答卷；客观题立即判分，主观题进入待批改，编程题等待 Judge 结果或人工回写。
 
 ---
 
@@ -1486,7 +1510,7 @@ GET /api/v1/student/attempts/:attemptId/result
 ### 10.1 获取待批改列表
 
 ```http
-GET /api/v1/grading/tasks?examId=exam_001&classId=class_001
+GET /api/v1/grading/answers?examId=exam_001&studentId=student_001&status=pending&keyword=循环&page=1&pageSize=20
 ```
 
 ---
@@ -1502,7 +1526,7 @@ GET /api/v1/grading/attempts/:attemptId
 ### 10.3 批改单题
 
 ```http
-POST /api/v1/grading/answers/:answerRecordId
+PATCH /api/v1/grading/answers/:answerRecordId
 ```
 
 请求：
@@ -1544,11 +1568,54 @@ POST /api/v1/grading/attempts/:attemptId/finish
 POST /api/v1/grading/attempts/:attemptId/regrade
 ```
 
+说明：
+
+仅重新判客观题（单选、多选、判断、填空），主观题和编程题保留人工批改或 Judge 回写结果。
+
+---
+
+### 10.6 发布成绩
+
+```http
+POST /api/v1/grading/exams/:examId/grades/publish
+```
+
 请求：
 
 ```json
 {
-  "reason": "题目答案修正后重新判分"
+  "attemptIds": ["attempt_001"],
+  "studentIds": ["student_001"],
+  "mode": "after_graded",
+  "skipPending": false
+}
+```
+
+说明：
+
+1. 默认将可发布的提交记录标记为 `graded`。
+2. 默认把考试 `showScoreMode` 切换为 `after_graded`，学生端只看到已完成批改的成绩。
+3. 存在 `manual_needed` 或 `judge_pending` 时默认阻断；`skipPending=true` 时跳过未完成批改的提交。
+
+---
+
+### 10.7 撤回成绩
+
+```http
+POST /api/v1/grading/exams/:examId/grades/withdraw
+```
+
+返回：
+
+```json
+{
+  "code": 0,
+  "message": "ok",
+  "data": {
+    "examId": "exam_001",
+    "showScoreMode": "never",
+    "withdrawn": true
+  }
 }
 ```
 
@@ -1590,302 +1657,201 @@ POST /api/v1/student/wrong-questions/:id/ignore
 
 ## 十二、Hydro / Judge 接口
 
-### 12.1 绑定 Hydro 账号
+### 12.1 Hydro 平台配置
 
 ```http
-POST /api/v1/hydro/accounts/bind
+GET    /api/v1/hydro/settings
+GET    /api/v1/hydro/platforms
+POST   /api/v1/hydro/platforms
+PATCH  /api/v1/hydro/platforms/:id
+DELETE /api/v1/hydro/platforms/:id
 ```
 
-请求：
+说明：
+
+1. `settings` 返回默认 Hydro 站点、回调配置和代码提交能力开关。
+2. 平台增删改仅 `SUPER_ADMIN` 可用。
+3. Judge Provider 当前以 Hydro 为默认实现，提交记录中保留 `provider` 字段，后续可扩展为其他 OJ。
+
+---
+
+### 12.2 编程题绑定
+
+```http
+GET    /api/v1/hydro/problems
+GET    /api/v1/hydro/problems/pull?problemUrl=https://hydro.example.com/p/1001
+GET    /api/v1/hydro/questions/:questionId/binding
+PUT    /api/v1/hydro/questions/:questionId/binding
+DELETE /api/v1/hydro/questions/:questionId/binding
+```
+
+绑定请求：
 
 ```json
 {
-  "studentId": "student_001",
-  "hydroUserId": "10001",
-  "hydroUsername": "stu001"
+  "judgeProvider": "hydro",
+  "externalProblemId": "1001",
+  "externalProblemUrl": "https://hydro.example.com/p/1001",
+  "platformBaseUrl": "https://hydro.example.com",
+  "domainId": "system",
+  "languages": ["py.py3", "cc.cc17o2"]
 }
 ```
 
-当前外部账号管理接口：
+---
+
+### 12.3 Hydro 账号绑定
+
+管理员/教师端：
 
 ```txt
-GET  /hydro/accounts
-PUT  /hydro/accounts/:studentId
-POST /hydro/accounts/:accountId/test
-GET  /hydro/my/accounts
-PUT  /hydro/my/account
-POST /hydro/my/accounts/:accountId/test
+GET    /api/v1/hydro/accounts
+PUT    /api/v1/hydro/accounts/:studentId
+POST   /api/v1/hydro/accounts/:accountId/test
+DELETE /api/v1/hydro/accounts/:accountId
+```
+
+学生个人端：
+
+```txt
+GET    /api/v1/hydro/my/accounts
+GET    /api/v1/hydro/my/account
+PUT    /api/v1/hydro/my/account
+POST   /api/v1/hydro/my/accounts/:accountId/test
+DELETE /api/v1/hydro/my/accounts/:accountId
 ```
 
 权限规则：
 
 - `SUPER_ADMIN` 可查看、创建、编辑、检测学生或教师的外部账号。
-- `TEACHER` 只能查看、添加、编辑、检测自己的外部账号。
+- `TEACHER` / `ASSISTANT` 按班级数据范围管理学生外部账号。
 - `STUDENT` 只能通过 `/hydro/my/*` 查看、添加、编辑、检测自己的外部账号。
-- 普通 `ADMIN` / `ASSISTANT` 不管理外部账号。
 
 ---
 
-### 12.2 创建 Hydro 测评任务
+### 12.4 Hydro 任务看板
 
 ```http
-POST /api/v1/hydro/tasks
+GET   /api/v1/hydro/tasks?page=1&pageSize=20&examId=exam_001&status=active
+POST  /api/v1/hydro/tasks
+PATCH /api/v1/hydro/tasks/:taskId
 ```
 
-请求：
+创建请求：
 
 ```json
 {
   "title": "Python 循环测评",
   "courseId": "course_001",
   "classId": "class_001",
+  "examId": "exam_001",
   "hydroUrl": "https://hydro.example.com/p/1001",
   "hydroProblemId": "1001",
+  "hydroContestId": "contest_001",
   "startTime": "2026-07-01T09:00:00+08:00",
-  "endTime": "2026-07-01T18:00:00+08:00"
+  "endTime": "2026-07-01T18:00:00+08:00",
+  "status": "draft"
 }
 ```
 
 ---
 
-### 12.3 获取 Hydro 跳转链接
+### 12.5 提交代码
 
 ```http
-GET /api/v1/hydro/tasks/:id/start
-```
-
-返回：
-
-```json
-{
-  "code": 0,
-  "message": "ok",
-  "data": {
-    "url": "https://hydro.example.com/p/1001?token=xxx"
-  }
-}
-```
-
----
-
-### 12.4 提交代码到 Judge
-
-```http
-POST /api/v1/judge/submit
+POST /api/v1/hydro/attempts/:attemptId/questions/:questionId/submit-code
+POST /api/v1/hydro/questions/:questionId/submit-code
 ```
 
 请求：
 
 ```json
 {
-  "attemptId": "attempt_001",
-  "questionId": "question_001",
-  "language": "python3",
+  "language": "py.py3",
   "code": "print(input())"
 }
 ```
 
-返回：
+说明：第一条用于考试内编程题提交，第二条用于公开练习题提交。后端会写入 `judge_submissions`，并按 Hydro 回写/轮询结果更新答题记录。
 
-```json
-{
-  "code": 0,
-  "message": "ok",
-  "data": {
-    "submissionId": "submission_001",
-    "status": "judging"
-  }
-}
+---
+
+### 12.6 获取提交详情
+
+```http
+GET /api/v1/hydro/submissions/:submissionId
 ```
 
 ---
 
-### 12.5 获取判题结果
+### 12.7 回写判题结果
 
 ```http
-GET /api/v1/judge/submissions/:id
-```
-
-返回：
-
-```json
-{
-  "code": 0,
-  "message": "ok",
-  "data": {
-    "submissionId": "submission_001",
-    "status": "accepted",
-    "score": 100,
-    "result": {
-      "time": 120,
-      "memory": 10240,
-      "cases": []
-    }
-  }
-}
-```
-
----
-
-### 12.6 同步 Hydro 结果
-
-```http
-POST /api/v1/hydro/tasks/:id/sync-results
-```
-
-返回：
-
-```json
-{
-  "code": 0,
-  "message": "ok",
-  "data": {
-    "syncedCount": 30,
-    "failedCount": 0
-  }
-}
-```
-
----
-
-### 12.7 Hydro 回调接口
-
-```http
-POST /api/v1/judge/callback/hydro
+PATCH /api/v1/hydro/submissions/:submissionId/result
+POST  /api/v1/hydro/writeback
+POST  /api/v1/hydro/callback
 ```
 
 请求：
 
 ```json
 {
+  "submissionId": "submission_001",
   "externalSubmissionId": "hydro_sub_001",
-  "hydroUserId": "10001",
-  "problemId": "1001",
   "status": "accepted",
   "score": 100,
-  "rawResult": {}
+  "result": {},
+  "judgedAt": "2026-07-01T10:10:00+08:00",
+  "secret": "callback-secret"
+}
+```
+
+---
+
+### 12.8 Hydro 汇总与任务结果同步
+
+```http
+GET  /api/v1/hydro/summary?examId=exam_001&questionId=question_001
+GET  /api/v1/hydro/tasks/:taskId/results
+POST /api/v1/hydro/tasks/:taskId/sync-results
+POST /api/v1/hydro/tasks/:taskId/retry-failed
+POST /api/v1/hydro/tasks/sync
+```
+
+返回：
+
+```json
+{
+  "code": 0,
+  "message": "ok",
+  "data": {
+    "taskId": "task_001",
+    "submissionCount": 30,
+    "syncedCount": 28,
+    "duplicateCleanedCount": 0
+  }
 }
 ```
 
 规则：
 
-1. 回调接口需要签名校验。
-2. 重复回调必须幂等。
-3. 不能覆盖更高优先级结果，除非配置允许。
-4. rawResult 必须保存。
+1. `sync-results` 从 `judge_submissions` 聚合到 `hydro_results`，用于任务看板。
+2. `retry-failed` 会尝试重新同步失败、错误或仍在判题中的最新提交。
+3. `tasks/sync` 支持按 `taskIds`、`examId`、`classId`、`courseId`、`status` 批量同步，单次最多处理 50 个任务。
+4. 回调接口使用 `HYDRO_CALLBACK_SECRET` 或 `x-hydro-secret` 校验。
 
 ---
 
 ## 十三、AI Analysis 接口
 
-### 13.1 创建学生考试分析
+当前源码仅保留 `ai_analysis_reports`、`ai_prompt_templates` 等数据库模型，未开放 `/api/v1/ai/*` 路由。AI 分析、推荐练习和报告查询属于后续模块，验收和联调时不应按本版本 API 调用。
 
-```http
-POST /api/v1/ai/analyze-attempt
-```
+预留能力：
 
-请求：
-
-```json
-{
-  "attemptId": "attempt_001",
-  "forceRegenerate": false
-}
-```
-
-返回：
-
-```json
-{
-  "code": 0,
-  "message": "ok",
-  "data": {
-    "reportId": "ai_report_001",
-    "status": "pending"
-  }
-}
-```
-
----
-
-### 13.2 创建班级考试分析
-
-```http
-POST /api/v1/ai/analyze-class-exam
-```
-
-请求：
-
-```json
-{
-  "examId": "exam_001",
-  "classId": "class_001"
-}
-```
-
----
-
-### 13.3 推荐练习
-
-```http
-POST /api/v1/ai/recommend-practice
-```
-
-请求：
-
-```json
-{
-  "studentId": "student_001",
-  "examId": "exam_001",
-  "questionCount": 10
-}
-```
-
-返回：
-
-```json
-{
-  "code": 0,
-  "message": "ok",
-  "data": {
-    "recommendationId": "rec_001",
-    "rules": [
-      {
-        "knowledgePointId": "kp_001",
-        "difficultyRange": [1, 3],
-        "questionCount": 10
-      }
-    ]
-  }
-}
-```
-
----
-
-### 13.4 获取 AI 报告
-
-```http
-GET /api/v1/ai/reports/:id
-```
-
-返回：
-
-```json
-{
-  "code": 0,
-  "message": "ok",
-  "data": {
-    "id": "ai_report_001",
-    "type": "student_exam_summary",
-    "status": "success",
-    "output": {
-      "summary": "本次测试基础题掌握较好，但循环结构存在薄弱。",
-      "weakPoints": [],
-      "teacherAdvice": ""
-    }
-  }
-}
-```
+1. 学生考试分析。
+2. 班级考试分析。
+3. 个性化练习推荐。
+4. AI 报告查询。
 
 ---
 
@@ -1950,7 +1916,7 @@ GET /api/v1/statistics/exams/:examId/knowledge-points
 ### 15.1 创建导出任务
 
 ```http
-POST /api/v1/export/tasks
+POST /api/v1/exports
 ```
 
 请求：
@@ -1982,7 +1948,7 @@ POST /api/v1/export/tasks
 ### 15.2 查询导出任务
 
 ```http
-GET /api/v1/export/tasks/:id
+GET /api/v1/exports?page=1&pageSize=20&type=exam_results&status=success
 ```
 
 返回：
@@ -2000,6 +1966,14 @@ GET /api/v1/export/tasks/:id
     "finishedAt": "2026-07-01T10:01:00+08:00"
   }
 }
+```
+
+---
+
+### 15.3 下载导出文件
+
+```http
+GET /api/v1/exports/:id/download
 ```
 
 ---
@@ -2145,8 +2119,10 @@ DELETE /api/v1/uploads/files/:filename
 ### 17.1 获取操作日志
 
 ```http
-GET /api/v1/audit-logs?page=1&pageSize=20&module=question&userId=user_001
+GET /api/v1/audit-logs?page=1&pageSize=20&module=question&action=question:create&userId=user_001&keyword=导入
 ```
+
+说明：仅 `SUPER_ADMIN` 可查询，支持按 `module`、`action`、`userId`、`targetType`、`targetId`、`keyword` 过滤。
 
 ---
 
@@ -2383,8 +2359,11 @@ POST /questions
 GET /questions/:id
 PATCH /questions/:id
 DELETE /questions/:id
+GET /questions/import-template
 POST /questions/import
-POST /questions/export
+POST /questions/duplicate-check
+POST /questions/batch/delete
+PATCH /questions/batch/status
 
 Paper:
 GET /papers
@@ -2419,21 +2398,21 @@ GET /student/attempts/:attemptId/result
 GET /student/wrong-questions
 
 Export:
-GET /export/tasks/:id
+GET /exports
+POST /exports
+GET /exports/:id/download
 
 Audit:
 GET /audit-logs
 ```
 
-第二阶段再做：
+当前已开放的扩展模块：
 
 ```txt
-Grading
-Hydro
-Judge
-AI
-Advanced Statistics
-Advanced Export
+Grading: /grading/answers, /grading/attempts/:id, /grading/exams/:id/grades/*
+Hydro/Judge: /hydro/platforms, /hydro/questions/:id/binding, /hydro/*/submit-code, /hydro/tasks/*
+Advanced Statistics: /statistics/*
+Advanced Export: /exports
 ```
 
 ---
@@ -2446,12 +2425,31 @@ Advanced Export
 GET   /grading/answers
 GET   /grading/attempts/:attemptId
 PATCH /grading/answers/:answerRecordId
+POST  /grading/attempts/:attemptId/finish
+POST  /grading/attempts/:attemptId/regrade
+POST  /grading/exams/:examId/grades/publish
+POST  /grading/exams/:examId/grades/withdraw
 ```
 
 说明：
 
 - `GET /grading/answers` 支持 `examId`、`studentId`、`status`、`keyword`、分页和排序。
 - `PATCH /grading/answers/:answerRecordId` 保存分数和批改意见，并自动重算答题记录总分。
+- `finish` 完成整卷批改，`regrade` 重判客观题，`grades/publish` 和 `grades/withdraw` 控制学生端成绩可见性。
+
+### 22.1.1 Hydro 任务级管理
+
+```txt
+GET   /hydro/tasks
+POST  /hydro/tasks
+PATCH /hydro/tasks/:taskId
+GET   /hydro/tasks/:taskId/results
+POST  /hydro/tasks/:taskId/sync-results
+POST  /hydro/tasks/:taskId/retry-failed
+POST  /hydro/tasks/sync
+```
+
+说明：`hydro_tasks` 与 `hydro_results` 已接入任务看板、单任务同步、失败重试和批量同步；结果来源为现有 `judge_submissions`。
 
 ### 22.2 导出中心
 

@@ -32,7 +32,7 @@
         <span>{{ status.description }}</span>
       </div>
       <div class="status-guide-note">
-        考试与试卷关系：创建考试只能选择“已公开”试卷；考试进入“进行中/已结束”后，核心配置会锁定。
+        考试与试卷关系：创建考试只能选择“已公开”试卷；进行中/已结束考试默认锁定核心配置，管理员可兜底调整。
       </div>
     </div>
     <div class="exam-admin-grid">
@@ -163,9 +163,10 @@
           </el-select>
         </el-form-item>
         <el-form-item label="试卷">
-          <el-select v-model="form.paperId" style="width: 100%">
+          <el-select v-model="form.paperId" style="width: 100%" @change="handlePaperChange">
             <el-option v-for="paper in papers" :key="paper.id" :label="paper.name" :value="paper.id" />
           </el-select>
+          <div v-if="paperDurationHint" class="form-tip">{{ paperDurationHint }}</div>
         </el-form-item>
         <el-form-item label="班级">
           <el-select v-model="form.classId" clearable style="width: 100%" placeholder="不选择则所有学生可见">
@@ -218,7 +219,7 @@
         </el-form-item>
         <el-alert
           v-if="editingId && !canSaveCore"
-          title="进行中或已结束考试仅支持单独更新状态，核心配置请复制或新建考试后调整。"
+          title="进行中或已结束考试仅支持单独更新状态；管理员账号可直接调整核心配置。"
           type="warning"
           show-icon
           :closable="false"
@@ -380,7 +381,7 @@ import { computed, onMounted, reactive, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { Check, Close, DataAnalysis, Delete, Edit, Plus, Refresh, Search, User, View } from '@element-plus/icons-vue';
-import { api, buildQuery } from '../api';
+import { api, buildQuery, getCurrentUser } from '../api';
 import { useResponsiveColumns } from '../composables/useResponsiveColumns';
 import {
   examStatusOptions,
@@ -425,9 +426,15 @@ const examPagination = reactive({ page: 1, pageSize: 20, total: 0 });
 const pageSizes = [20, 50, 100];
 const now = new Date();
 const form = reactive(baseForm());
+const currentUser = ref(getCurrentUser());
 const statusOptions = examStatusOptions;
-const canSaveCore = computed(() => !['running', 'ended'].includes(editingOriginalStatus.value));
+const canOverrideLockedExam = computed(() => ['SUPER_ADMIN', 'ADMIN'].includes(currentUser.value?.userType));
+const canSaveCore = computed(() => canOverrideLockedExam.value || !['running', 'ended'].includes(editingOriginalStatus.value));
 const selectedExamIds = computed(() => selectedExamRows.value.map((row) => row.id));
+const selectedPaper = computed(() => papers.value.find((paper) => paper.id === form.paperId) ?? null);
+const paperDurationHint = computed(() =>
+  selectedPaper.value ? `试卷答题时长 ${selectedPaper.value.durationMinutes || 0} 分钟，可在此处调整本场考试时长` : '',
+);
 const announcementUnreadItems = computed(() => (announcementReadReport.value?.items ?? []).filter((item) => !item.read));
 const announcementReadItems = computed(() =>
   announcementUnreadOnly.value ? announcementUnreadItems.value : announcementReadReport.value?.items ?? [],
@@ -495,6 +502,9 @@ async function loadAll() {
   selectedStudentId.value = selectedStudentId.value || students.value[0]?.id || '';
   form.courseId = form.courseId || courses.value[0]?.id || '';
   form.paperId = form.paperId || papers.value[0]?.id || '';
+  if (!editingId.value && selectedPaper.value && form.durationMinutes === 30) {
+    form.durationMinutes = selectedPaper.value.durationMinutes || form.durationMinutes;
+  }
 
   const focusExamId = String(route.query.focusExamId || '');
   if (focusExamId) {
@@ -583,12 +593,21 @@ function editExam(row) {
 function resetForm() {
   editingId.value = '';
   editingOriginalStatus.value = '';
+  const firstPaper = papers.value[0] ?? null;
   Object.assign(form, baseForm(), {
     courseId: courses.value[0]?.id || '',
     classId: '',
-    paperId: papers.value[0]?.id || '',
+    paperId: firstPaper?.id || '',
+    durationMinutes: firstPaper?.durationMinutes || baseForm().durationMinutes,
     resultVisibility: defaultResultVisibility(),
   });
+}
+
+function handlePaperChange() {
+  if (editingId.value) return;
+  if (selectedPaper.value?.durationMinutes) {
+    form.durationMinutes = selectedPaper.value.durationMinutes;
+  }
 }
 
 function closeExamForm() {
@@ -664,6 +683,10 @@ async function changeStatus(row, status) {
         { type: 'warning', confirmButtonText: '归档', cancelButtonText: '取消' },
       );
     }
+    if (status === 'ended') {
+      await endExam(row);
+      return;
+    }
     await api(`/exams/${row.id}`, {
       method: 'PATCH',
       body: { status },
@@ -675,6 +698,17 @@ async function changeStatus(row, status) {
       ElMessage.error(error.message);
     }
   }
+}
+
+async function endExam(row) {
+  await ElMessageBox.confirm(
+    `确认立即结束考试“${row.name || ''}”？系统会提交所有进行中的答卷，并将考试结束时间更新为当前时间。`,
+    '结束考试',
+    { type: 'warning', confirmButtonText: '立即结束', cancelButtonText: '取消' },
+  );
+  const result = await api(`/exams/${row.id}/end`, { method: 'POST' });
+  ElMessage.success(`考试已结束，已处理 ${result.finalizedAttemptCount || 0} 份进行中答卷`);
+  await loadAll();
 }
 
 function handleExamCommand(row, command) {
@@ -870,6 +904,7 @@ function examStatusActionText(currentStatus, targetStatus) {
     'scheduled->ended': '结束考试',
     'scheduled->archived': '归档考试',
     'running->ended': '结束考试',
+    'ended->running': '重新启动考试',
     'ended->archived': '归档考试',
     'archived->draft': '恢复草稿',
   };

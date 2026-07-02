@@ -1202,7 +1202,7 @@ UNIQUE(provider, external_submission_id)
 
 ---
 
-### 9.4 hydro_tasks Hydro 测评任务表，后期扩展
+### 9.4 hydro_tasks Hydro 测评任务表
 
 字段：
 
@@ -1223,9 +1223,11 @@ created_at          TIMESTAMP
 updated_at          TIMESTAMP
 ```
 
+用途：用于 Hydro 任务看板，按课程、班级、考试、Hydro 题号或比赛号组织外部测评任务，并驱动批量同步、失败重试和结果聚合。
+
 ---
 
-### 9.5 hydro_results Hydro 结果表，后期扩展
+### 9.5 hydro_results Hydro 结果表
 
 字段：
 
@@ -1243,6 +1245,8 @@ synced_at           TIMESTAMP
 created_at          TIMESTAMP
 updated_at          TIMESTAMP
 ```
+
+用途：由 `judge_submissions` 聚合生成，保存任务维度下每名学生的最新 Hydro 成绩、提交次数、最后提交时间和原始结果摘要。
 
 status：
 

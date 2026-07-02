@@ -3,7 +3,7 @@
     <div class="page-head">
       <div>
         <h1 class="page-title">试卷题库</h1>
-        <span class="muted">仅展示已公开且未被考试占用的试卷</span>
+        <span class="muted">展示当前可练习的公开试卷</span>
       </div>
       <div class="toolbar">
         <el-input
@@ -41,13 +41,6 @@
         <el-table-column v-if="showMediumColumns" prop="totalScore" label="总分" width="88" sortable="custom" />
         <el-table-column prop="durationMinutes" label="时长" width="100" sortable="custom">
           <template #default="{ row }">{{ row.durationMinutes }} 分钟</template>
-        </el-table-column>
-        <el-table-column label="考试占用" width="128">
-          <template #default="{ row }">
-            <el-tag :type="examUsageType(row)" effect="plain">
-              {{ examUsageLabel(row) }}
-            </el-tag>
-          </template>
         </el-table-column>
         <el-table-column v-if="showMediumColumns" prop="updatedAt" label="更新时间" width="180" sortable="custom">
           <template #default="{ row }">{{ formatDateTime(row.updatedAt) }}</template>
@@ -150,19 +143,6 @@ function typeLabel(value) {
     practice: '练习卷',
   };
   return map[value] ?? value;
-}
-
-function examUsageCount(row) {
-  return Number(row?.examUsageCount ?? row?._count?.exams ?? 0);
-}
-
-function examUsageLabel(row) {
-  const count = examUsageCount(row);
-  return count > 0 ? `已占用 ${count} 场` : '未占用';
-}
-
-function examUsageType(row) {
-  return examUsageCount(row) > 0 ? 'warning' : 'info';
 }
 
 function formatDateTime(value) {

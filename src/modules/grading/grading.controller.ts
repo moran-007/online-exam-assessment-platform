@@ -1,9 +1,10 @@
-import { Body, Controller, Get, Param, Patch, Query } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Permissions } from '../../common/decorators/permissions.decorator';
 import { RequestUser } from '../../common/interfaces/request-user.interface';
 import { GradeAnswerDto } from './dto/grade-answer.dto';
+import { PublishGradesDto } from './dto/grade-visibility.dto';
 import { QueryGradingDto } from './dto/query-grading.dto';
 import { GradingService } from './grading.service';
 
@@ -33,5 +34,33 @@ export class GradingController {
     @CurrentUser() user: RequestUser,
   ) {
     return this.gradingService.gradeAnswer(answerRecordId, dto, user);
+  }
+
+  @Post('attempts/:attemptId/finish')
+  @Permissions('grading:update')
+  finishAttempt(@Param('attemptId') attemptId: string, @CurrentUser() user: RequestUser) {
+    return this.gradingService.finishAttempt(attemptId, user);
+  }
+
+  @Post('attempts/:attemptId/regrade')
+  @Permissions('grading:update')
+  regradeAttempt(@Param('attemptId') attemptId: string, @CurrentUser() user: RequestUser) {
+    return this.gradingService.regradeAttempt(attemptId, user);
+  }
+
+  @Post('exams/:examId/grades/publish')
+  @Permissions('grading:update')
+  publishGrades(
+    @Param('examId') examId: string,
+    @Body() dto: PublishGradesDto,
+    @CurrentUser() user: RequestUser,
+  ) {
+    return this.gradingService.publishGrades(examId, dto, user);
+  }
+
+  @Post('exams/:examId/grades/withdraw')
+  @Permissions('grading:update')
+  withdrawGrades(@Param('examId') examId: string, @CurrentUser() user: RequestUser) {
+    return this.gradingService.withdrawGrades(examId, user);
   }
 }

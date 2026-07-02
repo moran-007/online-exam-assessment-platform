@@ -157,6 +157,9 @@
                     <el-button size="small" :icon="DocumentAdd" @click="insertCodeBlock(form, 'content')">
                       代码块
                     </el-button>
+                    <el-button v-if="form.type === 'fill_blank'" size="small" :icon="Plus" @click="insertFormBlankMarker">
+                      插入空位
+                    </el-button>
                     <el-button size="small" :icon="View" @click="previewVisible = !previewVisible">
                       预览
                     </el-button>
@@ -185,18 +188,35 @@
               <template v-if="form.type === 'programming'">
                 <el-form-item label="Hydro题目">
                   <div class="hydro-inline-field">
-                    <el-input v-model="form.programmingRef.externalProblemId" placeholder="输入 Hydro 题号或题名，例如 P1000" />
+                    <el-input
+                      v-model="form.programmingRef.externalProblemId"
+                      placeholder="输入题号或题目地址，例如 P1000 / https://tarjanoj.com/d/shiyan/p/B2002"
+                      @change="handleHydroProblemInputChange"
+                      @blur="handleHydroProblemInputChange"
+                    />
                     <el-button :icon="Refresh" :loading="hydroPulling" :disabled="!canPullHydroProblem" @click="pullHydroProblem">
                       拉取
                     </el-button>
                     <el-button :icon="Link" :disabled="!hydroProblemUrl" @click="openHydroProblemUrl">打开</el-button>
                   </div>
                 </el-form-item>
-                <el-form-item label="Hydro链接">
-                  <el-input v-model="form.programmingRef.externalProblemUrl" placeholder="留空则按 Hydro 站点自动生成" />
-                </el-form-item>
-                <el-form-item label="Hydro站点">
-                  <el-input v-model="form.programmingRef.platformBaseUrl" placeholder="例如 http://moran007.top" />
+                <el-form-item label="站点">
+                  <el-select
+                    v-model="form.programmingRef.platformBaseUrl"
+                    filterable
+                    allow-create
+                    default-first-option
+                    placeholder="选择平台站点"
+                    style="width: 100%"
+                    @change="handleHydroSiteChange"
+                  >
+                    <el-option
+                      v-for="site in hydroSiteOptions"
+                      :key="site.key"
+                      :label="site.label"
+                      :value="site.value"
+                    />
+                  </el-select>
                 </el-form-item>
                 <el-form-item label="Hydro域">
                   <div class="hydro-inline-field">
@@ -210,7 +230,7 @@
                       v-model="form.programmingRef.accountId"
                       clearable
                       filterable
-                      placeholder="选择用于拉取题目的外部账号"
+                      placeholder="同站点账号自动匹配，可手动切换"
                       @change="handleHydroAccountChange"
                     >
                       <el-option
@@ -264,7 +284,26 @@
                 </el-form-item>
               </template>
               <el-form-item v-else-if="form.type === 'fill_blank'" label="答案">
-                <el-input v-model="blankAnswers" placeholder="多个可接受答案用英文逗号分隔" />
+                <div class="fill-blank-answer-editor">
+                  <div class="toolbar">
+                    <el-button size="small" :icon="Plus" @click="addBlankAnswerRow">增加空位</el-button>
+                    <el-button size="small" :icon="DocumentAdd" @click="insertFormBlankMarker">插入题干空位</el-button>
+                    <span class="muted">题干中的 ____ 是学生看到的填空横线，也用于自动识别空位数量。</span>
+                  </div>
+                  <div v-for="(blank, index) in blankAnswerRows" :key="index" class="blank-answer-row">
+                    <el-tag>第 {{ index + 1 }} 空</el-tag>
+                    <el-input v-model="blank.answerText" placeholder="正确答案；多个答案用逗号分隔" />
+                    <el-button
+                      size="small"
+                      plain
+                      :icon="Delete"
+                      :disabled="blankAnswerRows.length <= 1"
+                      @click="removeBlankAnswerRow(index)"
+                    >
+                      删除
+                    </el-button>
+                  </div>
+                </div>
               </el-form-item>
               <el-form-item v-else label="参考答案">
                 <el-input
@@ -317,7 +356,7 @@
                   class="clickable-tag"
                   @click.stop="openRelatedExams(row)"
                 >
-                  隐藏
+                  比赛占用
                 </el-tag>
               </div>
             </template>
@@ -414,23 +453,31 @@
       </div>
     </div>
 
-    <el-dialog v-model="practiceVisible" title="题目作答" :width="isSplitPracticeQuestion(practiceDetail?.type) ? '1180px' : '780px'">
+    <el-dialog v-model="practiceVisible" title="题目作答" :width="practiceDialogWidth">
       <template v-if="practiceDetail">
         <div class="paper-preview-head">
           <div>
             <h2>{{ practiceDetail.title }}</h2>
             <span class="muted">{{ typeLabel(practiceDetail.type) }} · {{ practiceDetail.defaultScore }} 分</span>
           </div>
-          <el-tag :type="practiceDetail.status === 'published' ? 'success' : 'warning'">
-            {{ statusLabel(practiceDetail.status) || practiceDetail.status }}
-          </el-tag>
+          <div class="toolbar">
+            <el-radio-group v-model="answerLayout" size="small" class="answer-layout-toggle">
+              <el-radio-button label="side">左右</el-radio-button>
+              <el-radio-button label="stack">上下</el-radio-button>
+            </el-radio-group>
+            <el-tag :type="practiceDetail.status === 'published' ? 'success' : 'warning'">
+              {{ statusLabel(practiceDetail.status) || practiceDetail.status }}
+            </el-tag>
+          </div>
         </div>
-        <template v-if="isSplitPracticeQuestion(practiceDetail.type)">
-          <div class="programming-exam-split programming-practice-split">
-            <div class="programming-statement">
-              <MarkdownRenderer :source="practiceDetail.content || ''" />
-            </div>
-            <div class="programming-code-panel">
+
+        <QuestionAnswerLayout :mode="answerLayout" framed>
+          <template #statement>
+            <MarkdownRenderer :source="practiceDetail.content || ''" />
+          </template>
+
+          <template #answer>
+            <div class="question-answer-body">
               <div v-if="practiceDetail.type === 'programming'" class="programming-answer">
                 <div class="programming-toolbar">
                   <span class="programming-language-label">语言</span>
@@ -442,12 +489,30 @@
                       :value="language"
                     />
                   </el-select>
+                  <el-tag v-if="practiceDetail.programmingRef?.platformBaseUrl || practiceDetail.programmingRef?.externalProblemUrl" type="info">
+                    来源：{{ hydroSourceLabel(practiceDetail.programmingRef) }}
+                  </el-tag>
                   <el-tag v-if="practiceDetail.programmingRef?.domainId" type="info">
                     域：{{ formatHydroDomainLabel(practiceDetail.programmingRef) }}
                   </el-tag>
                   <el-tag v-if="practiceDetail.programmingRef?.externalProblemId" type="success">
                     {{ practiceDetail.programmingRef.externalProblemId }}
                   </el-tag>
+                  <span class="programming-language-label">账号</span>
+                  <el-select
+                    v-model="practiceHydroAccountId"
+                    :disabled="!practiceMatchedHydroAccounts.length"
+                    placeholder="选择提交账号"
+                    style="width: 230px"
+                  >
+                    <el-option
+                      v-for="account in practiceMatchedHydroAccounts"
+                      :key="account.id"
+                      :label="hydroPracticeAccountLabel(account)"
+                      :value="account.id"
+                    />
+                  </el-select>
+                  <el-tag v-if="!practiceMatchedHydroAccounts.length" type="warning">无同站点账号</el-tag>
                   <el-button :icon="Link" :disabled="!practiceDetail.programmingRef?.externalProblemUrl" @click="openHydroProblem(practiceDetail)">
                     打开 Hydro
                   </el-button>
@@ -473,10 +538,11 @@
                 <CodeAnswerEditor
                   v-model="practiceAnswer.code"
                   :language="practiceAnswer.language"
+                  :language-label="languageLabel(practiceAnswer.language)"
                   :rows="18"
                 />
               </div>
-              <div v-else class="programming-answer">
+              <div v-else-if="isSplitPracticeQuestion(practiceDetail.type)" class="programming-answer">
                 <div class="programming-toolbar">
                   <span class="programming-language-label">作答</span>
                   <el-tag>{{ typeLabel(practiceDetail.type) }}</el-tag>
@@ -489,42 +555,43 @@
                   placeholder="填写答案"
                 />
               </div>
+              <template v-else>
+                <div class="programming-toolbar">
+                  <span class="programming-language-label">作答</span>
+                  <el-tag>{{ typeLabel(practiceDetail.type) }}</el-tag>
+                </div>
+                <el-radio-group
+                  v-if="['single_choice', 'true_false'].includes(practiceDetail.type)"
+                  v-model="practiceAnswer.selectedOptionIds[0]"
+                  class="answer-options"
+                >
+                  <el-radio v-for="option in practiceOptions" :key="option.optionId" :label="option.optionId" class="answer-option">
+                    <span class="option-choice">
+                      <strong>{{ option.label }}.</strong>
+                      <MarkdownRenderer :source="option.content" />
+                    </span>
+                  </el-radio>
+                </el-radio-group>
+
+                <el-checkbox-group v-else-if="practiceDetail.type === 'multiple_choice'" v-model="practiceAnswer.selectedOptionIds" class="answer-options">
+                  <el-checkbox v-for="option in practiceOptions" :key="option.optionId" :label="option.optionId" class="answer-option">
+                    <span class="option-choice">
+                      <strong>{{ option.label }}.</strong>
+                      <MarkdownRenderer :source="option.content" />
+                    </span>
+                  </el-checkbox>
+                </el-checkbox-group>
+
+                <FillBlankAnswerInputs
+                  v-else-if="practiceDetail.type === 'fill_blank'"
+                  v-model="practiceAnswer.blanks"
+                  :count="blankCountFor(practiceDetail)"
+                />
+                <el-input v-else v-model="practiceAnswer.text" type="textarea" :rows="5" placeholder="填写答案" />
+              </template>
             </div>
-          </div>
-        </template>
-
-        <template v-else>
-          <MarkdownRenderer :source="practiceDetail.content || ''" />
-
-          <el-radio-group
-            v-if="['single_choice', 'true_false'].includes(practiceDetail.type)"
-            v-model="practiceAnswer.selectedOptionIds[0]"
-            class="answer-options"
-          >
-            <el-radio v-for="option in practiceOptions" :key="option.optionId" :label="option.optionId" class="answer-option">
-              <span class="option-choice">
-                <strong>{{ option.label }}.</strong>
-                <MarkdownRenderer :source="option.content" />
-              </span>
-            </el-radio>
-          </el-radio-group>
-
-          <el-checkbox-group v-else-if="practiceDetail.type === 'multiple_choice'" v-model="practiceAnswer.selectedOptionIds" class="answer-options">
-            <el-checkbox v-for="option in practiceOptions" :key="option.optionId" :label="option.optionId" class="answer-option">
-              <span class="option-choice">
-                <strong>{{ option.label }}.</strong>
-                <MarkdownRenderer :source="option.content" />
-              </span>
-            </el-checkbox>
-          </el-checkbox-group>
-
-          <FillBlankAnswerInputs
-            v-else-if="practiceDetail.type === 'fill_blank'"
-            v-model="practiceAnswer.blanks"
-            :count="blankCountFor(practiceDetail)"
-          />
-          <el-input v-else v-model="practiceAnswer.text" type="textarea" :rows="5" placeholder="填写答案" />
-        </template>
+          </template>
+        </QuestionAnswerLayout>
 
         <el-alert
           v-if="practiceDetail.status !== 'published'"
@@ -551,7 +618,7 @@
         <el-button
           type="primary"
           :loading="practiceProgrammingSubmitLoading"
-          :disabled="practiceDetail?.status !== 'published'"
+          :disabled="practiceDetail?.status !== 'published' || (practiceDetail?.type === 'programming' && !practiceHydroAccountId)"
           @click="practiceDetail?.type === 'programming' ? submitPracticeProgrammingAnswer() : checkPracticeAnswer()"
         >
           {{ practiceDetail?.type === 'programming' ? '提交 Hydro 评测' : '提交作答' }}
@@ -594,7 +661,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue';
+import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import {
@@ -619,7 +686,15 @@ import AnswerFeedback from '../components/AnswerFeedback.vue';
 import CodeAnswerEditor from '../components/CodeAnswerEditor.vue';
 import FillBlankAnswerInputs from '../components/FillBlankAnswerInputs.vue';
 import MarkdownRenderer from '../components/MarkdownRenderer.vue';
+import QuestionAnswerLayout from '../components/QuestionAnswerLayout.vue';
 import { useResponsiveColumns } from '../composables/useResponsiveColumns';
+import {
+  buildFillBlankAnswer,
+  emptyFillBlankRows,
+  fillBlankAnswerTextFromRows,
+  fillBlankAnswerTextFromRules,
+  fillBlankRowsFromText,
+} from '../utils/fillBlankAnswers';
 
 const router = useRouter();
 const { showMediumColumns, showLowColumns } = useResponsiveColumns();
@@ -649,7 +724,13 @@ const tags = ref([]);
 const formKnowledgeTree = ref([]);
 const filterKnowledgeTree = ref([]);
 const items = ref([]);
-const blankAnswers = ref('print');
+const blankAnswerRows = ref(emptyFillBlankRows());
+const blankAnswerText = computed({
+  get: () => fillBlankAnswerTextFromRows(blankAnswerRows.value),
+  set: (value) => {
+    blankAnswerRows.value = fillBlankRowsFromText(value);
+  },
+});
 const answerReference = ref('');
 const previewVisible = ref(true);
 const entryMode = ref('single');
@@ -675,6 +756,7 @@ const bulkQuestionStatus = ref('');
 const questionExportVisible = ref(false);
 const pendingExportQuestionIds = ref([]);
 const hydroAccounts = ref([]);
+const hydroPlatforms = ref([]);
 const questionExportOptions = reactive({
   format: 'zip',
   includeAnswers: true,
@@ -686,6 +768,8 @@ const practiceDetail = ref(null);
 const practiceResult = ref(null);
 const practiceProgrammingResult = ref(null);
 const practiceProgrammingSubmitLoading = ref(false);
+const practiceHydroAccountId = ref('');
+const answerLayout = ref('side');
 const practiceAnswer = reactive(emptyPracticeAnswer());
 
 const isEditing = computed(() => Boolean(editingId.value));
@@ -695,11 +779,13 @@ const formKnowledgeTreeOptions = computed(() => convertKnowledgeTree(formKnowled
 const filterKnowledgeTreeOptions = computed(() => convertKnowledgeTree(filterKnowledgeTree.value));
 const editorTitle = computed(() => (isEditing.value ? '编辑题目 / 复制题目' : '题目编辑'));
 const selectedQuestionIds = computed(() => selectedQuestionRows.value.map((row) => row.id));
+const practiceDialogWidth = computed(() => (answerLayout.value === 'side' ? '1180px' : '860px'));
+const practiceMatchedHydroAccounts = computed(() => matchedHydroAccountsFor(practiceDetail.value));
 const canPullHydroProblem = computed(() =>
   Boolean(form.programmingRef.externalProblemId?.trim() || form.programmingRef.externalProblemUrl?.trim()),
 );
 const hydroProblemUrl = computed(() => {
-  const explicit = form.programmingRef.externalProblemUrl?.trim();
+  const explicit = effectiveHydroProblemUrl(form.programmingRef);
   const problemId = form.programmingRef.externalProblemId?.trim();
   if (explicit) return explicit;
   const baseUrl = normalizeBaseUrl(form.programmingRef.platformBaseUrl || 'http://moran007.top');
@@ -708,11 +794,34 @@ const hydroProblemUrl = computed(() => {
   return problemId ? `${baseUrl}${domainPrefix}/p/${encodeURIComponent(problemId)}` : '';
 });
 const hydroAccountOptions = computed(() =>
-  hydroAccounts.value.map((account) => ({
+  matchingHydroAccountsForRef(form.programmingRef).map((account) => ({
     ...account,
-    label: `${account.loginUsername || account.hydroUsername} · ${account.platformName || 'Hydro'} · ${shortHost(account.platformBaseUrl)} · ${account.ownerName || account.ownerUsername || account.studentName || '账号'}`,
+    label: `${account.loginUsername || account.hydroUsername || '外部账号'} · ${account.platformName || account.platformCode || 'Hydro'} · ${shortHost(account.platformBaseUrl)}`,
   })),
 );
+const hydroSiteOptions = computed(() => {
+  const map = new Map();
+  const pushSite = (site) => {
+    const value = normalizeBaseUrl(site.value || site.baseUrl || site.platformBaseUrl);
+    const host = canonicalHost(value);
+    if (!host || map.has(host)) return;
+    map.set(host, {
+      key: host,
+      value,
+      judgeProvider: site.judgeProvider || site.code || site.platformCode || 'hydro',
+      label: `${site.name || site.platformName || '外部平台'} (${shortHost(value)})`,
+    });
+  };
+  hydroPlatforms.value.forEach((platform) => pushSite(platform));
+  hydroAccounts.value.forEach((account) =>
+    pushSite({
+      value: account.platformBaseUrl,
+      platformCode: account.platformCode,
+      platformName: account.platformName,
+    }),
+  );
+  return [...map.values()];
+});
 const selectedHydroAccount = computed(() =>
   hydroAccounts.value.find((account) => account.id === form.programmingRef.accountId) ?? null,
 );
@@ -807,6 +916,7 @@ function emptyProgrammingRef() {
     platformBaseUrl: 'http://moran007.top',
     domainId: 'system',
     domainName: 'system',
+    judgeProvider: 'hydro',
     accountId: '',
     accountLabel: '',
     languagesText: 'cc.cc17o2, py.py3',
@@ -826,10 +936,19 @@ async function loadCourses() {
 
 async function loadHydroAccounts() {
   try {
-    const data = await api('/hydro/accounts?pageSize=100&platformCode=hydro');
-    hydroAccounts.value = data.items ?? [];
+    const data = await api('/hydro/my/accounts');
+    hydroAccounts.value = data.items ?? data ?? [];
+    syncHydroAccountForSite();
   } catch {
     hydroAccounts.value = [];
+  }
+}
+
+async function loadHydroPlatforms() {
+  try {
+    hydroPlatforms.value = await api('/hydro/platforms');
+  } catch {
+    hydroPlatforms.value = [];
   }
 }
 
@@ -840,8 +959,100 @@ function handleHydroAccountChange(accountId) {
     return;
   }
   form.programmingRef.platformBaseUrl = account.platformBaseUrl || form.programmingRef.platformBaseUrl;
+  form.programmingRef.judgeProvider = account.platformCode || form.programmingRef.judgeProvider || 'hydro';
   form.programmingRef.accountLabel = `${account.loginUsername || account.hydroUsername}@${shortHost(account.platformBaseUrl)}`;
 }
+
+function handleHydroSiteChange(value) {
+  applyHydroSiteToRef(form.programmingRef, value);
+  if (form.programmingRef.externalProblemUrl && value && !sameHydroBaseUrl(form.programmingRef.externalProblemUrl, value)) {
+    form.programmingRef.externalProblemUrl = '';
+  }
+  syncHydroAccountForSite();
+}
+
+function handleHydroProblemInputChange() {
+  normalizeHydroProblemInput(form.programmingRef);
+  syncHydroAccountForSite();
+}
+
+function normalizeHydroProblemInput(ref) {
+  const raw = String(ref.externalProblemId || '').trim();
+  if (!raw) {
+    ref.externalProblemUrl = '';
+    return;
+  }
+  const parsed = parseHydroProblemUrl(raw);
+  if (parsed) {
+    ref.externalProblemId = parsed.problemId || raw;
+    ref.externalProblemUrl = parsed.url;
+    applyHydroSiteToRef(ref, parsed.baseUrl);
+    if (parsed.domainId) {
+      ref.domainId = parsed.domainId;
+      ref.domainName = parsed.domainId;
+    }
+    return;
+  }
+
+  ref.externalProblemId = cleanHydroProblemId(raw);
+  const explicitProblemId = problemIdFromHydroUrl(ref.externalProblemUrl);
+  if (explicitProblemId && explicitProblemId !== ref.externalProblemId) {
+    ref.externalProblemUrl = '';
+  }
+}
+
+function applyHydroSiteToRef(ref, value) {
+  const normalized = normalizeBaseUrl(value || ref.platformBaseUrl);
+  const site = hydroSiteOptions.value.find((item) => sameHydroBaseUrl(item.value, normalized));
+  ref.platformBaseUrl = site?.value || normalized;
+  ref.judgeProvider = site?.judgeProvider || matchingHydroAccountForSite(ref.platformBaseUrl)?.platformCode || ref.judgeProvider || 'hydro';
+}
+
+function syncHydroAccountForSite() {
+  const account = selectedHydroAccount.value;
+  if (account && sameHydroBaseUrl(account.platformBaseUrl, form.programmingRef.platformBaseUrl)) {
+    handleHydroAccountChange(account.id);
+    return;
+  }
+  const nextAccount = matchingHydroAccountForSite(form.programmingRef.platformBaseUrl);
+  form.programmingRef.accountId = nextAccount?.id || '';
+  form.programmingRef.accountLabel = nextAccount
+    ? `${nextAccount.loginUsername || nextAccount.hydroUsername}@${shortHost(nextAccount.platformBaseUrl)}`
+    : '';
+  if (nextAccount?.platformCode) {
+    form.programmingRef.judgeProvider = nextAccount.platformCode;
+  }
+}
+
+function matchingHydroAccountForSite(baseUrl) {
+  return hydroAccounts.value.find((account) => account.bindStatus === 'bound' && sameHydroBaseUrl(account.platformBaseUrl, baseUrl))
+    || hydroAccounts.value.find((account) => sameHydroBaseUrl(account.platformBaseUrl, baseUrl))
+    || null;
+}
+
+watch(
+  () => form.programmingRef.platformBaseUrl,
+  (value) => {
+    const account = selectedHydroAccount.value;
+    if (account && value && !sameHydroBaseUrl(account.platformBaseUrl, value)) {
+      form.programmingRef.accountId = '';
+      form.programmingRef.accountLabel = '';
+    }
+  },
+);
+
+watch(
+  () => form.programmingRef.externalProblemId,
+  (value) => {
+    const raw = String(value || '').trim();
+    if (!raw || parseHydroProblemUrl(raw)) return;
+    const currentProblemId = cleanHydroProblemId(raw);
+    const explicitProblemId = problemIdFromHydroUrl(form.programmingRef.externalProblemUrl);
+    if (explicitProblemId && explicitProblemId !== currentProblemId) {
+      form.programmingRef.externalProblemUrl = '';
+    }
+  },
+);
 
 async function loadFormKnowledgeTree() {
   formKnowledgeTree.value = form.courseId ? await api(`/knowledge-points/tree?courseId=${form.courseId}`) : [];
@@ -943,6 +1154,27 @@ function resetOptions() {
   }
 
   form.options = [];
+}
+
+function addBlankAnswerRow() {
+  blankAnswerRows.value = [...blankAnswerRows.value, { answerText: '' }];
+}
+
+function removeBlankAnswerRow(index) {
+  if (blankAnswerRows.value.length <= 1) return;
+  blankAnswerRows.value = blankAnswerRows.value.filter((_, rowIndex) => rowIndex !== index);
+}
+
+function insertFormBlankMarker() {
+  if (form.type !== 'fill_blank') return;
+  if (!blankAnswerRows.value.length) addBlankAnswerRow();
+  const marker = '____';
+  const current = String(form.content || '');
+  const needsSpace = current && !/[\s([{（【]$/.test(current);
+  form.content = `${current}${needsSpace ? ' ' : ''}${marker}`;
+  if (countBlankMarkers(form.content) > blankAnswerRows.value.length) {
+    addBlankAnswerRow();
+  }
 }
 
 function addOption() {
@@ -1048,7 +1280,7 @@ async function buildQuestionPayload(options = {}) {
   }
 
   if (form.type === 'fill_blank') {
-    payload.answer = buildBlankAnswer(blankAnswers.value, payload.defaultScore);
+    payload.answer = buildFillBlankAnswer(blankAnswerText.value, payload.defaultScore);
   } else if (!isChoice.value && answerReference.value.trim()) {
     payload.answer = { reference: answerReference.value.trim() };
   }
@@ -1109,6 +1341,7 @@ async function editQuestion(row) {
       platformBaseUrl: detail.programmingRef?.platformBaseUrl ?? detail.programmingRef?.judgeConfig?.platformBaseUrl ?? 'http://moran007.top',
       domainId: detail.programmingRef?.domainId ?? detail.programmingRef?.judgeConfig?.domainId ?? 'system',
       domainName: detail.programmingRef?.domainName ?? detail.programmingRef?.judgeConfig?.domainName ?? 'system',
+      judgeProvider: detail.programmingRef?.judgeProvider ?? detail.programmingRef?.judgeConfig?.platformCode ?? 'hydro',
       accountId: detail.programmingRef?.accountId ?? detail.programmingRef?.judgeConfig?.accountId ?? '',
       accountLabel: detail.programmingRef?.accountLabel ?? detail.programmingRef?.judgeConfig?.accountLabel ?? '',
       languagesText: (detail.programmingRef?.languages ?? []).join(', ') || 'cc.cc17o2, py.py3',
@@ -1127,7 +1360,7 @@ async function editQuestion(row) {
   if (isChoice.value && !form.options.length) resetOptions();
 
   const answerJson = detail.answer?.answerJson ?? {};
-  blankAnswers.value = answerJson.blanks?.[0]?.answers?.join(', ') ?? '';
+  blankAnswerText.value = fillBlankAnswerTextFromRules(answerJson.blanks);
   answerReference.value = answerJson.reference ?? '';
 }
 
@@ -1280,11 +1513,13 @@ function handleQuestionCommand(row, command) {
 }
 
 function buildProgrammingRefPayload() {
+  normalizeHydroProblemInput(form.programmingRef);
   const externalProblemId = form.programmingRef.externalProblemId.trim();
   if (!externalProblemId) return null;
   const payload = {
+    judgeProvider: form.programmingRef.judgeProvider || undefined,
     externalProblemId,
-    externalProblemUrl: form.programmingRef.externalProblemUrl.trim() || undefined,
+    externalProblemUrl: effectiveHydroProblemUrl(form.programmingRef) || undefined,
     platformBaseUrl: form.programmingRef.platformBaseUrl?.trim() || undefined,
     domainId: form.programmingRef.domainId?.trim() || undefined,
     domainName: form.programmingRef.domainName?.trim() || undefined,
@@ -1294,26 +1529,34 @@ function buildProgrammingRefPayload() {
   };
   if (form.programmingRef.timeLimit) payload.timeLimit = Number(form.programmingRef.timeLimit);
   if (form.programmingRef.memoryLimit) payload.memoryLimit = Number(form.programmingRef.memoryLimit);
-  if (form.programmingRef.judgeConfig) payload.judgeConfig = form.programmingRef.judgeConfig;
+  if (form.programmingRef.judgeConfig) {
+    payload.judgeConfig = {
+      ...form.programmingRef.judgeConfig,
+      ...(form.programmingRef.judgeProvider ? { platformCode: form.programmingRef.judgeProvider } : {}),
+    };
+  }
   return payload;
 }
 
 async function pullHydroProblem() {
+  normalizeHydroProblemInput(form.programmingRef);
   if (!canPullHydroProblem.value) {
     ElMessage.warning('请先填写 Hydro 题号或链接');
     return;
   }
 
+  const problemUrl = effectiveHydroProblemUrl(form.programmingRef);
   hydroPulling.value = true;
   try {
     const pulled = await api(
       `/hydro/problems/pull${buildQuery({
         problemId: form.programmingRef.externalProblemId.trim(),
-        problemUrl: form.programmingRef.externalProblemUrl.trim(),
+        problemUrl,
         platformBaseUrl: form.programmingRef.platformBaseUrl.trim(),
         domainId: form.programmingRef.domainId.trim(),
         domainName: form.programmingRef.domainName.trim(),
         accountId: form.programmingRef.accountId,
+        judgeProvider: form.programmingRef.judgeProvider,
       })}`,
     );
     applyPulledHydroProblem(form, pulled);
@@ -1333,6 +1576,7 @@ function applyPulledHydroProblem(target, pulled) {
   target.programmingRef.externalProblemId = ref.externalProblemId || pulled.externalProblemId || target.programmingRef.externalProblemId;
   target.programmingRef.externalProblemUrl = ref.externalProblemUrl || pulled.externalProblemUrl || target.programmingRef.externalProblemUrl;
   target.programmingRef.platformBaseUrl = ref.platformBaseUrl || ref.judgeConfig?.platformBaseUrl || target.programmingRef.platformBaseUrl;
+  target.programmingRef.judgeProvider = ref.judgeProvider || ref.judgeConfig?.platformCode || target.programmingRef.judgeProvider || 'hydro';
   const pulledDomainId = ref.domainId || ref.judgeConfig?.domainId || target.programmingRef.domainId || 'system';
   target.programmingRef.domainId = pulledDomainId;
   target.programmingRef.domainName = ref.domainName || ref.judgeConfig?.domainName || pulledDomainId;
@@ -1350,6 +1594,51 @@ function openHydroProblemUrl() {
   window.open(hydroProblemUrl.value, '_blank', 'noopener,noreferrer');
 }
 
+function effectiveHydroProblemUrl(ref) {
+  const explicit = String(ref?.externalProblemUrl || '').trim();
+  if (!explicit) return '';
+  const explicitProblemId = problemIdFromHydroUrl(explicit);
+  const currentProblemId = cleanHydroProblemId(ref?.externalProblemId);
+  if (explicitProblemId && currentProblemId && explicitProblemId !== currentProblemId) return '';
+  return explicit;
+}
+
+function cleanHydroProblemId(value) {
+  return String(value || '').trim().replace(/^#/, '');
+}
+
+function parseHydroProblemUrl(value) {
+  const raw = String(value || '').trim();
+  if (!/^https?:\/\//i.test(raw)) return null;
+  try {
+    const parsed = new URL(raw);
+    const problemId = problemIdFromHydroUrl(raw);
+    if (!problemId) return null;
+    return {
+      url: raw,
+      problemId,
+      baseUrl: `${parsed.protocol}//${parsed.host}`,
+      domainId: domainIdFromHydroUrl(raw) || 'system',
+    };
+  } catch {
+    return null;
+  }
+}
+
+function problemIdFromHydroUrl(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  const match = raw.match(/\/p\/([^/?#]+)/);
+  return match?.[1] ? decodeURIComponent(match[1]).trim() : '';
+}
+
+function domainIdFromHydroUrl(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  const match = raw.match(/\/d\/([^/]+)\/p\//);
+  return match?.[1] ? decodeURIComponent(match[1]).trim() : 'system';
+}
+
 function normalizeBaseUrl(value) {
   const raw = String(value || 'http://moran007.top').trim() || 'http://moran007.top';
   return (/^https?:\/\//i.test(raw) ? raw : `http://${raw}`).replace(/\/+$/, '');
@@ -1361,6 +1650,60 @@ function shortHost(value) {
   } catch {
     return String(value || '').replace(/^https?:\/\//i, '').replace(/\/+$/, '');
   }
+}
+
+function baseUrlFromProblemUrl(url) {
+  try {
+    const parsed = new URL(String(url || '').trim());
+    return `${parsed.protocol}//${parsed.host}`;
+  } catch {
+    return '';
+  }
+}
+
+function programmingRefBaseUrl(ref) {
+  const raw = ref?.platformBaseUrl || baseUrlFromProblemUrl(ref?.externalProblemUrl);
+  return raw ? normalizeBaseUrl(raw) : '';
+}
+
+function matchingHydroAccountsForRef(ref) {
+  const targetBaseUrl = programmingRefBaseUrl(ref);
+  if (!targetBaseUrl) return hydroAccounts.value;
+  return hydroAccounts.value.filter((account) => sameHydroBaseUrl(account.platformBaseUrl, targetBaseUrl));
+}
+
+function matchedHydroAccountsFor(question) {
+  const targetBaseUrl = programmingRefBaseUrl(question?.programmingRef);
+  if (!targetBaseUrl) return [];
+  return hydroAccounts.value.filter(
+    (account) => account.bindStatus === 'bound' && sameHydroBaseUrl(account.platformBaseUrl, targetBaseUrl),
+  );
+}
+
+function defaultHydroAccountId(question) {
+  const matched = matchedHydroAccountsFor(question);
+  const boundAccountId = question?.programmingRef?.accountId;
+  return matched.find((account) => account.id === boundAccountId)?.id || matched[0]?.id || '';
+}
+
+function hydroPracticeAccountLabel(account) {
+  return `${account.loginUsername || account.hydroUsername || 'Hydro账号'} · ${shortHost(account.platformBaseUrl)}`;
+}
+
+function sameHydroBaseUrl(left, right) {
+  const leftHost = canonicalHost(left);
+  const rightHost = canonicalHost(right);
+  return Boolean(leftHost && rightHost && leftHost === rightHost);
+}
+
+function canonicalHost(value) {
+  return shortHost(value).toLowerCase().replace(/^www\./, '');
+}
+
+function hydroSourceLabel(ref) {
+  const host = shortHost(programmingRefBaseUrl(ref));
+  const domain = ref?.domainName || ref?.domainId || 'system';
+  return [host, domain && domain !== 'system' ? domain : 'system'].filter(Boolean).join(' / ');
 }
 
 function parseHydroLanguages(value) {
@@ -1402,6 +1745,8 @@ async function openPracticeQuestion(row) {
   try {
     practiceDetail.value = await api(`/questions/${row.id}`);
     clearPracticeAnswer();
+    practiceHydroAccountId.value =
+      practiceDetail.value?.type === 'programming' ? defaultHydroAccountId(practiceDetail.value) : '';
     practiceVisible.value = true;
   } catch (error) {
     ElMessage.error(error.message);
@@ -1439,6 +1784,10 @@ async function submitPracticeProgrammingAnswer() {
     ElMessage.warning('请先填写代码');
     return;
   }
+  if (!practiceHydroAccountId.value) {
+    ElMessage.warning('请选择当前题目来源站点下的提交账号');
+    return;
+  }
   practiceProgrammingSubmitLoading.value = true;
   try {
     const response = await api(`/hydro/questions/${practiceDetail.value.id}/submit-code`, {
@@ -1446,6 +1795,7 @@ async function submitPracticeProgrammingAnswer() {
       body: {
         language: practiceAnswer.language || languageOptionsFor(practiceDetail.value)[0],
         code: practiceAnswer.code,
+        accountId: practiceHydroAccountId.value,
       },
     });
     practiceProgrammingResult.value = response;
@@ -1532,7 +1882,7 @@ function countBlankMarkers(content) {
 function resetForm() {
   editingId.value = '';
   Object.assign(form, baseForm(), { courseId: courses.value[0]?.id ?? '' });
-  blankAnswers.value = 'print';
+  blankAnswerRows.value = emptyFillBlankRows();
   answerReference.value = '';
   loadFormKnowledgeTree();
 }
@@ -1707,22 +2057,8 @@ function convertKnowledgeTree(items) {
   }));
 }
 
-function buildBlankAnswer(value, score) {
-  return {
-    blanks: [
-      {
-        index: 1,
-        answers: String(value || '').split(/[,，|]/).map((item) => item.trim()).filter(Boolean),
-        ignoreCase: true,
-        trimSpace: true,
-        score,
-      },
-    ],
-  };
-}
-
 onMounted(async () => {
-  await Promise.all([loadCourses(), loadTags(), loadHydroAccounts()]);
+  await Promise.all([loadCourses(), loadTags(), loadHydroPlatforms(), loadHydroAccounts()]);
   await load();
 });
 </script>

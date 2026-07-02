@@ -10,19 +10,26 @@
         <el-button v-if="isSimulating" :icon="Close" @click="exitSimulation">退出模拟</el-button>
         <el-tag :type="remainingType">剩余 {{ remainingText }}</el-tag>
         <el-tag>{{ answeredCount }} / {{ totalCount }}</el-tag>
+        <el-tooltip :content="asideCollapsed ? '展开答题卡' : '收起答题卡'" placement="bottom">
+          <el-button :icon="asideCollapsed ? Expand : Fold" @click="toggleAside" />
+        </el-tooltip>
+        <el-radio-group v-model="answerLayout" size="small" class="answer-layout-toggle">
+          <el-radio-button label="side">左右</el-radio-button>
+          <el-radio-button label="stack">上下</el-radio-button>
+        </el-radio-group>
         <el-button :icon="Upload" :disabled="autoSubmitting" @click="saveAll">保存</el-button>
         <el-button type="primary" :icon="Check" :loading="autoSubmitting" @click="submit">提交</el-button>
       </div>
     </div>
 
-    <div class="exam-layout">
+    <div class="exam-layout" :class="{ 'is-aside-collapsed': asideCollapsed }">
       <main class="exam-main">
         <template v-if="visibleEntries.length">
           <section
             v-for="entry in visibleEntries"
             :id="`question-${entry.question.questionId}`"
             :key="entry.question.questionId"
-            :class="['question-card', 'exam-question', isSplitQuestion(entry.question.type) ? 'programming-exam-question' : '']"
+            class="question-card exam-question answer-layout-question"
           >
             <div class="question-title">
               <div>
@@ -38,13 +45,14 @@
               </div>
             </div>
 
-            <template v-if="isSplitQuestion(entry.question.type)">
-              <div class="programming-exam-split">
-                <div class="programming-statement">
-                  <h2 class="exam-question-title">{{ entry.question.title || `第 ${entry.index + 1} 题` }}</h2>
-                  <MarkdownRenderer :source="entry.question.content" />
-                </div>
-                <div class="programming-code-panel">
+            <QuestionAnswerLayout :mode="answerLayout">
+              <template #statement>
+                <h2 class="exam-question-title">{{ entry.question.title || `第 ${entry.index + 1} 题` }}</h2>
+                <MarkdownRenderer :source="entry.question.content" />
+              </template>
+
+              <template #answer>
+                <div class="question-answer-body">
                   <div v-if="entry.question.type === 'programming'" class="programming-answer">
                     <div class="programming-toolbar">
                       <span class="programming-language-label">语言</span>
@@ -56,9 +64,30 @@
                           :value="language"
                         />
                       </el-select>
+                      <el-tag v-if="entry.question.programmingRef?.platformBaseUrl || entry.question.programmingRef?.externalProblemUrl" type="info">
+                        来源：{{ hydroSourceLabel(entry.question.programmingRef) }}
+                      </el-tag>
+                      <el-tag v-if="entry.question.programmingRef?.domainId" type="info">
+                        域：{{ entry.question.programmingRef.domainName || entry.question.programmingRef.domainId }}
+                      </el-tag>
                       <el-tag v-if="entry.question.programmingRef?.externalProblemId" type="success">
                         {{ entry.question.programmingRef.externalProblemId }}
                       </el-tag>
+                      <span class="programming-language-label">账号</span>
+                      <el-select
+                        v-model="selectedHydroAccountIds[entry.question.questionId]"
+                        :disabled="!matchedHydroAccountsFor(entry.question).length"
+                        placeholder="选择提交账号"
+                        style="width: 230px"
+                      >
+                        <el-option
+                          v-for="account in matchedHydroAccountsFor(entry.question)"
+                          :key="account.id"
+                          :label="hydroAccountLabel(account)"
+                          :value="account.id"
+                        />
+                      </el-select>
+                      <el-tag v-if="!matchedHydroAccountsFor(entry.question).length" type="warning">无同站点账号</el-tag>
                       <el-button
                         v-if="entry.question.programmingRef?.externalProblemUrl"
                         :icon="Link"
@@ -70,6 +99,7 @@
                         type="primary"
                         :icon="Upload"
                         :loading="Boolean(codeSubmitLoading[entry.question.questionId])"
+                        :disabled="!selectedHydroAccountIds[entry.question.questionId]"
                         @click="submitCode(entry)"
                       >
                         提交代码
@@ -122,10 +152,11 @@
                     <CodeAnswerEditor
                       v-model="answers[entry.question.questionId].code"
                       :language="answers[entry.question.questionId].language"
+                      :language-label="languageLabel(answers[entry.question.questionId].language)"
                       :rows="22"
                     />
                   </div>
-                  <div v-else class="programming-answer">
+                  <div v-else-if="isSplitQuestion(entry.question.type)" class="programming-answer">
                     <div class="programming-toolbar">
                       <span class="programming-language-label">作答</span>
                       <el-tag>{{ typeLabel(entry.question.type) }}</el-tag>
@@ -138,64 +169,64 @@
                       placeholder="填写答案"
                     />
                   </div>
+                  <template v-else>
+                    <div class="programming-toolbar">
+                      <span class="programming-language-label">作答</span>
+                      <el-tag>{{ typeLabel(entry.question.type) }}</el-tag>
+                    </div>
+                    <el-radio-group
+                      v-if="['single_choice', 'true_false'].includes(entry.question.type)"
+                      v-model="answers[entry.question.questionId].selectedOptionIds[0]"
+                      class="answer-options"
+                    >
+                      <el-radio
+                        v-for="option in entry.question.options"
+                        :key="option.optionId"
+                        :label="option.optionId"
+                        class="answer-option"
+                      >
+                        <span class="option-choice">
+                          <strong>{{ option.label }}.</strong>
+                          <MarkdownRenderer :source="option.content" />
+                        </span>
+                      </el-radio>
+                    </el-radio-group>
+
+                    <el-checkbox-group
+                      v-else-if="entry.question.type === 'multiple_choice'"
+                      v-model="answers[entry.question.questionId].selectedOptionIds"
+                      class="answer-options"
+                    >
+                      <el-checkbox
+                        v-for="option in entry.question.options"
+                        :key="option.optionId"
+                        :label="option.optionId"
+                        class="answer-option"
+                      >
+                        <span class="option-choice">
+                          <strong>{{ option.label }}.</strong>
+                          <MarkdownRenderer :source="option.content" />
+                        </span>
+                      </el-checkbox>
+                    </el-checkbox-group>
+
+                    <FillBlankAnswerInputs
+                      v-else-if="entry.question.type === 'fill_blank'"
+                      v-model="answers[entry.question.questionId].blanks"
+                      :count="blankCountFor(entry.question)"
+                    />
+                    <el-input
+                      v-else
+                      v-model="answers[entry.question.questionId].text"
+                      class="answer-input"
+                      type="textarea"
+                      :rows="6"
+                      placeholder="填写答案"
+                    />
+                  </template>
                 </div>
-              </div>
-            </template>
-
-            <template v-else>
-              <h2 class="exam-question-title">{{ entry.question.title || `第 ${entry.index + 1} 题` }}</h2>
-              <MarkdownRenderer :source="entry.question.content" />
-
-              <el-radio-group
-                v-if="['single_choice', 'true_false'].includes(entry.question.type)"
-                v-model="answers[entry.question.questionId].selectedOptionIds[0]"
-                class="answer-options"
-              >
-                <el-radio
-                  v-for="option in entry.question.options"
-                  :key="option.optionId"
-                  :label="option.optionId"
-                  class="answer-option"
-                >
-                  <span class="option-choice">
-                    <strong>{{ option.label }}.</strong>
-                    <MarkdownRenderer :source="option.content" />
-                  </span>
-                </el-radio>
-              </el-radio-group>
-
-              <el-checkbox-group
-                v-else-if="entry.question.type === 'multiple_choice'"
-                v-model="answers[entry.question.questionId].selectedOptionIds"
-                class="answer-options"
-              >
-                <el-checkbox
-                  v-for="option in entry.question.options"
-                  :key="option.optionId"
-                  :label="option.optionId"
-                  class="answer-option"
-                >
-                  <span class="option-choice">
-                    <strong>{{ option.label }}.</strong>
-                    <MarkdownRenderer :source="option.content" />
-                  </span>
-                </el-checkbox>
-              </el-checkbox-group>
-
-              <FillBlankAnswerInputs
-                v-else-if="entry.question.type === 'fill_blank'"
-                v-model="answers[entry.question.questionId].blanks"
-                :count="blankCountFor(entry.question)"
-              />
-              <el-input
-                v-else
-                v-model="answers[entry.question.questionId].text"
-                class="answer-input"
-                type="textarea"
-                :rows="6"
-                placeholder="填写答案"
-              />
-            </template>
+              </template>
+            </QuestionAnswerLayout>
 
             <div class="question-actions">
               <el-button :icon="Flag" :type="isFlagged(entry.question.questionId) ? 'warning' : 'default'" @click="toggleFlag(entry.question.questionId)">
@@ -216,44 +247,55 @@
         </div>
       </main>
 
-      <aside class="exam-aside panel">
-        <div class="exam-progress">
-          <div class="exam-progress-head">
-            <strong>答题卡</strong>
-            <span>{{ progressPercent }}%</span>
+      <aside class="exam-aside panel" :class="{ 'is-collapsed': asideCollapsed }">
+        <div class="exam-aside-toggle">
+          <el-tooltip :content="asideCollapsed ? '展开答题卡' : '收起答题卡'" placement="left">
+            <el-button :icon="asideCollapsed ? Expand : Fold" @click="toggleAside" />
+          </el-tooltip>
+        </div>
+        <template v-if="!asideCollapsed">
+          <div class="exam-progress">
+            <div class="exam-progress-head">
+              <strong>答题卡</strong>
+              <span>{{ progressPercent }}%</span>
+            </div>
+            <el-progress :percentage="progressPercent" :show-text="false" />
           </div>
-          <el-progress :percentage="progressPercent" :show-text="false" />
-        </div>
 
-        <div class="question-number-grid">
-          <button
-            v-for="entry in flatQuestions"
-            :key="entry.question.questionId"
-            type="button"
-            :class="numberButtonClass(entry)"
-            :title="numberTitle(entry)"
-            @click="goQuestion(entry.index)"
-          >
-            <span>{{ entry.index + 1 }}</span>
-            <i v-if="isFlagged(entry.question.questionId)">?</i>
-          </button>
-        </div>
+          <div class="question-number-grid">
+            <button
+              v-for="entry in flatQuestions"
+              :key="entry.question.questionId"
+              type="button"
+              :class="numberButtonClass(entry)"
+              :title="numberTitle(entry)"
+              @click="goQuestion(entry.index)"
+            >
+              <span>{{ entry.index + 1 }}</span>
+              <i v-if="isFlagged(entry.question.questionId)">?</i>
+            </button>
+          </div>
 
-        <div class="status-legend">
-          <span><b class="legend-dot answered"></b>已答</span>
-          <span><b class="legend-dot unanswered"></b>未答</span>
-          <span><b class="legend-dot flagged"></b>标疑</span>
-        </div>
+          <div class="status-legend">
+            <span><b class="legend-dot answered"></b>已答</span>
+            <span><b class="legend-dot unanswered"></b>未答</span>
+            <span><b class="legend-dot flagged"></b>标疑</span>
+          </div>
 
-        <el-divider />
+          <el-divider />
 
-        <div class="aside-actions">
-          <el-button :icon="Flag" :type="currentQuestionId && isFlagged(currentQuestionId) ? 'warning' : 'default'" @click="toggleCurrentFlag">
-            {{ currentQuestionId && isFlagged(currentQuestionId) ? '取消本题标疑' : '本题标疑' }}
-          </el-button>
-          <el-button :icon="Delete" :disabled="!currentQuestionId" @click="clearCurrentAnswer">清除本题</el-button>
-          <el-button :icon="Upload" :disabled="autoSubmitting" @click="saveAll">保存全部</el-button>
-          <el-button type="primary" :icon="Check" :loading="autoSubmitting" @click="submit">提交试卷</el-button>
+          <div class="aside-actions">
+            <el-button :icon="Flag" :type="currentQuestionId && isFlagged(currentQuestionId) ? 'warning' : 'default'" @click="toggleCurrentFlag">
+              {{ currentQuestionId && isFlagged(currentQuestionId) ? '取消本题标疑' : '本题标疑' }}
+            </el-button>
+            <el-button :icon="Delete" :disabled="!currentQuestionId" @click="clearCurrentAnswer">清除本题</el-button>
+            <el-button :icon="Upload" :disabled="autoSubmitting" @click="saveAll">保存全部</el-button>
+            <el-button type="primary" :icon="Check" :loading="autoSubmitting" @click="submit">提交试卷</el-button>
+          </div>
+        </template>
+        <div v-else class="exam-aside-compact">
+          <strong>{{ progressPercent }}%</strong>
+          <span>{{ answeredCount }}/{{ totalCount }}</span>
         </div>
       </aside>
     </div>
@@ -261,14 +303,15 @@
 </template>
 
 <script setup>
-import { computed, onMounted, onUnmounted, reactive, ref } from 'vue';
+import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { ElMessage, ElMessageBox } from 'element-plus';
-import { ArrowLeft, ArrowRight, Check, Close, Delete, Flag, Link, Refresh, Upload } from '@element-plus/icons-vue';
-import { api } from '../api';
+import { ArrowLeft, ArrowRight, Check, Close, Delete, Expand, Flag, Fold, Link, Refresh, Upload } from '@element-plus/icons-vue';
+import { api, getToken } from '../api';
 import CodeAnswerEditor from '../components/CodeAnswerEditor.vue';
 import FillBlankAnswerInputs from '../components/FillBlankAnswerInputs.vue';
 import MarkdownRenderer from '../components/MarkdownRenderer.vue';
+import QuestionAnswerLayout from '../components/QuestionAnswerLayout.vue';
 
 const route = useRoute();
 const router = useRouter();
@@ -282,12 +325,23 @@ const answers = reactive({});
 const flagged = reactive({});
 const codeSubmitLoading = reactive({});
 const codeSubmitFeedback = reactive({});
+const selectedHydroAccountIds = reactive({});
 const currentIndex = ref(0);
+const answerLayout = ref('side');
+const asideCollapsed = ref(localStorage.getItem('exam-aside-collapsed') === 'true');
+const hydroAccounts = ref([]);
 const autoSubmitting = ref(false);
 const submitted = ref(false);
 const simulateStudentId = computed(() => String(route.query.simulateStudentId || ''));
 const isSimulating = computed(() => Boolean(simulateStudentId.value));
 let clockTimer = null;
+let statusTimer = null;
+let autosaveTimer = null;
+let autosaveInterval = null;
+let answersHydrating = false;
+let saveInFlight = false;
+let pendingAutosave = false;
+const answersDirty = ref(false);
 const warnedThresholds = new Set();
 const objectiveQuestionTypes = new Set(['single_choice', 'multiple_choice', 'true_false', 'fill_blank']);
 
@@ -325,6 +379,16 @@ const remainingType = computed(() => {
   return 'success';
 });
 
+watch(
+  answers,
+  () => {
+    if (!answersHydrating) {
+      scheduleAutosave();
+    }
+  },
+  { deep: true },
+);
+
 async function load() {
   const entered = isSimulating.value
     ? await api(`/student/simulate/exams/${route.params.examId}/enter`, {
@@ -345,10 +409,19 @@ async function load() {
   attemptStartedAt.value = data.attemptStartedAt || data.exam?.serverTime || new Date().toISOString();
   serverOffsetMs.value = Date.now() - new Date(data.exam?.serverTime || Date.now()).getTime();
   paper.sections = data.paper.sections;
-  resetAnswers();
-  applySavedAnswers(data.answers ?? []);
+  await loadHydroAccounts();
+  answersHydrating = true;
+  try {
+    resetAnswers();
+    applySavedAnswers(data.answers ?? []);
+  } finally {
+    answersHydrating = false;
+  }
+  answersDirty.value = false;
   loadFlags();
   startClock();
+  startStatusPolling();
+  startAutosave();
 }
 
 function emptyAnswer() {
@@ -363,12 +436,16 @@ function emptyAnswer() {
 
 function resetAnswers() {
   Object.keys(answers).forEach((key) => delete answers[key]);
+  Object.keys(selectedHydroAccountIds).forEach((key) => delete selectedHydroAccountIds[key]);
   for (const entry of flatQuestions.value) {
     answers[entry.question.questionId] = {
       ...emptyAnswer(),
       blanks: blankAnswerList(entry.question),
       language: languageOptionsFor(entry.question)[0] || 'cc.cc17o2',
     };
+    if (entry.question.type === 'programming') {
+      selectedHydroAccountIds[entry.question.questionId] = defaultHydroAccountId(entry.question);
+    }
   }
 }
 
@@ -517,12 +594,88 @@ function openHydroProblem(question) {
   window.open(url, '_blank', 'noopener,noreferrer');
 }
 
+async function loadHydroAccounts() {
+  try {
+    const data = await api('/hydro/my/accounts');
+    hydroAccounts.value = data.items ?? data ?? [];
+  } catch {
+    hydroAccounts.value = [];
+  }
+}
+
+function defaultHydroAccountId(question) {
+  const matched = matchedHydroAccountsFor(question);
+  const boundAccountId = question?.programmingRef?.accountId;
+  return matched.find((account) => account.id === boundAccountId)?.id || matched[0]?.id || '';
+}
+
+function matchedHydroAccountsFor(question) {
+  const targetBaseUrl = programmingRefBaseUrl(question?.programmingRef);
+  if (!targetBaseUrl) return [];
+  return hydroAccounts.value.filter(
+    (account) => account.bindStatus === 'bound' && sameHydroBaseUrl(account.platformBaseUrl, targetBaseUrl),
+  );
+}
+
+function programmingRefBaseUrl(ref) {
+  const raw = ref?.platformBaseUrl || baseUrlFromProblemUrl(ref?.externalProblemUrl);
+  return raw ? normalizeBaseUrl(raw) : '';
+}
+
+function baseUrlFromProblemUrl(url) {
+  try {
+    const parsed = new URL(String(url || '').trim());
+    return `${parsed.protocol}//${parsed.host}`;
+  } catch {
+    return '';
+  }
+}
+
+function normalizeBaseUrl(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  return (/^https?:\/\//i.test(raw) ? raw : `http://${raw}`).replace(/\/+$/, '');
+}
+
+function shortHost(value) {
+  try {
+    return new URL(normalizeBaseUrl(value)).host;
+  } catch {
+    return String(value || '').replace(/^https?:\/\//i, '').replace(/\/+$/, '');
+  }
+}
+
+function sameHydroBaseUrl(left, right) {
+  const leftHost = canonicalHost(left);
+  const rightHost = canonicalHost(right);
+  return Boolean(leftHost && rightHost && leftHost === rightHost);
+}
+
+function canonicalHost(value) {
+  return shortHost(value).toLowerCase().replace(/^www\./, '');
+}
+
+function hydroAccountLabel(account) {
+  return `${account.loginUsername || account.hydroUsername || 'Hydro账号'} · ${shortHost(account.platformBaseUrl)}`;
+}
+
+function hydroSourceLabel(ref) {
+  const host = shortHost(programmingRefBaseUrl(ref));
+  const domain = ref?.domainName || ref?.domainId || 'system';
+  return [host, domain && domain !== 'system' ? domain : 'system'].filter(Boolean).join(' / ');
+}
+
 async function submitCode(entry) {
   const question = entry.question;
   const answer = answers[question.questionId];
+  const accountId = selectedHydroAccountIds[question.questionId];
   if (!attemptId.value || !answer) return;
   if (!String(answer.code ?? '').trim()) {
     ElMessage.warning('请先填写代码');
+    return;
+  }
+  if (!accountId) {
+    ElMessage.warning('请选择当前题目来源站点下的提交账号');
     return;
   }
 
@@ -533,6 +686,7 @@ async function submitCode(entry) {
       body: {
         language: answer.language || languageOptionsFor(question)[0],
         code: answer.code,
+        accountId,
       },
     });
     codeSubmitFeedback[question.questionId] = buildSubmissionFeedback(result, 'success');
@@ -662,22 +816,126 @@ function goQuestion(index) {
   currentIndex.value = index;
 }
 
-async function saveAll(options = {}) {
-  const { silent = false } = options;
-  const body = {
+function toggleAside() {
+  asideCollapsed.value = !asideCollapsed.value;
+  localStorage.setItem('exam-aside-collapsed', String(asideCollapsed.value));
+}
+
+function savePayload(finalizeEndedAttempt = false) {
+  return {
     answers: flatQuestions.value.map((entry) => ({
       questionId: entry.question.questionId,
       answer: payloadFor(entry.question.questionId),
     })),
+    finalizeEndedAttempt,
   };
-  const path = isSimulating.value
+}
+
+function savePath() {
+  return isSimulating.value
     ? `/student/simulate/attempts/${attemptId.value}/save-answers`
     : `/student/attempts/${attemptId.value}/save-answers`;
-  await api(path, {
+}
+
+async function keepaliveSave(path, body) {
+  const headers = { 'Content-Type': 'application/json' };
+  const token = getToken();
+  if (token) headers.Authorization = `Bearer ${token}`;
+
+  const response = await fetch(`/api/v1${path}`, {
     method: 'POST',
-    body: isSimulating.value ? { ...body, studentId: simulateStudentId.value } : body,
+    headers,
+    body: JSON.stringify(body),
+    keepalive: true,
   });
-  if (!silent) ElMessage.success('已保存');
+  const payload = await response.json().catch(() => null);
+  if (!response.ok || payload?.code !== 0) {
+    throw new Error(payload?.message || `请求失败：${response.status}`);
+  }
+  return payload.data;
+}
+
+async function saveAll(options = {}) {
+  const { silent = false, finalizeEndedAttempt = false, keepalive = false, swallow = false } = options;
+  if (!attemptId.value || submitted.value) return null;
+
+  const body = savePayload(finalizeEndedAttempt);
+  const requestBody = isSimulating.value ? { ...body, studentId: simulateStudentId.value } : body;
+  const path = savePath();
+
+  try {
+    const result = keepalive
+      ? await keepaliveSave(path, requestBody)
+      : await api(path, { method: 'POST', body: requestBody });
+    answersDirty.value = false;
+    if (!silent) ElMessage.success('已保存');
+    return result;
+  } catch (error) {
+    if (!silent) ElMessage.error(error.message || '保存失败');
+    if (!swallow) throw error;
+    return null;
+  }
+}
+
+function scheduleAutosave() {
+  if (!attemptId.value || submitted.value || autoSubmitting.value) return;
+  answersDirty.value = true;
+  if (autosaveTimer) window.clearTimeout(autosaveTimer);
+  autosaveTimer = window.setTimeout(() => {
+    void flushAutosave();
+  }, 1800);
+}
+
+function startAutosave() {
+  if (autosaveInterval) window.clearInterval(autosaveInterval);
+  autosaveInterval = window.setInterval(() => {
+    void flushAutosave();
+  }, 8000);
+}
+
+async function flushAutosave(options = {}) {
+  if (!attemptId.value || submitted.value || autoSubmitting.value || !answersDirty.value) return null;
+  if (saveInFlight) {
+    pendingAutosave = true;
+    return null;
+  }
+
+  saveInFlight = true;
+  try {
+    return await saveAll({ silent: true, swallow: true, ...options });
+  } finally {
+    saveInFlight = false;
+    if (pendingAutosave) {
+      pendingAutosave = false;
+      void flushAutosave(options);
+    }
+  }
+}
+
+function handleVisibilityChange() {
+  if (document.visibilityState === 'hidden') {
+    void flushAutosave({ keepalive: true });
+  }
+}
+
+function handlePageHide() {
+  if (!answersDirty.value || !attemptId.value || submitted.value) return;
+  void saveAll({ silent: true, keepalive: true, swallow: true });
+}
+
+async function finalizeRemoteEndedAttempt() {
+  if (submitted.value || !attemptId.value) return;
+
+  autoSubmitting.value = true;
+  const result = await saveAll({
+    silent: true,
+    finalizeEndedAttempt: true,
+    swallow: true,
+  });
+  submitted.value = true;
+  ElMessage.warning(result?.finalized ? '考试已结束，已保存当前页面答案并交卷' : '考试已结束，系统已提交当前答卷');
+  const query = isSimulating.value ? `?simulateStudentId=${simulateStudentId.value}` : '';
+  router.push(`/student/attempts/${attemptId.value}/result${query}`);
 }
 
 async function submit(options = {}) {
@@ -690,7 +948,7 @@ async function submit(options = {}) {
   }
   autoSubmitting.value = true;
   try {
-    await saveAll({ silent: auto });
+    await saveAll({ silent: auto, finalizeEndedAttempt: auto || remainingMs.value <= 0 });
     const result = await api(
       isSimulating.value
         ? `/student/simulate/attempts/${attemptId.value}/submit`
@@ -729,6 +987,29 @@ function startClock() {
   }, 1000);
 }
 
+function startStatusPolling() {
+  if (statusTimer) window.clearInterval(statusTimer);
+  statusTimer = window.setInterval(refreshAttemptStatus, 10_000);
+}
+
+async function refreshAttemptStatus() {
+  if (!attemptId.value || submitted.value || autoSubmitting.value) return;
+  try {
+    const data = isSimulating.value
+      ? await api(`/student/simulate/attempts/${attemptId.value}?studentId=${simulateStudentId.value}`)
+      : await api(`/student/attempts/${attemptId.value}`);
+    if (data.exam) {
+      exam.value = data.exam;
+      serverOffsetMs.value = Date.now() - new Date(data.exam.serverTime || Date.now()).getTime();
+    }
+    if (data.status && data.status !== 'in_progress') {
+      await finalizeRemoteEndedAttempt();
+    }
+  } catch {
+    // Keep local countdown/save behavior active; explicit save/submit actions will show any actionable error.
+  }
+}
+
 function checkTimeWarnings() {
   const thresholds = [10 * 60 * 1000, 5 * 60 * 1000, 60 * 1000];
   for (const threshold of thresholds) {
@@ -754,9 +1035,20 @@ function formatDuration(ms) {
   return `${minutes}:${seconds.toString().padStart(2, '0')}`;
 }
 
-onMounted(load);
+onMounted(() => {
+  window.addEventListener('visibilitychange', handleVisibilityChange);
+  window.addEventListener('pagehide', handlePageHide);
+  window.addEventListener('beforeunload', handlePageHide);
+  void load();
+});
 
 onUnmounted(() => {
   if (clockTimer) window.clearInterval(clockTimer);
+  if (statusTimer) window.clearInterval(statusTimer);
+  if (autosaveTimer) window.clearTimeout(autosaveTimer);
+  if (autosaveInterval) window.clearInterval(autosaveInterval);
+  window.removeEventListener('visibilitychange', handleVisibilityChange);
+  window.removeEventListener('pagehide', handlePageHide);
+  window.removeEventListener('beforeunload', handlePageHide);
 });
 </script>

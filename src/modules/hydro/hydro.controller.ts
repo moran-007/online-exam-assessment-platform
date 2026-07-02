@@ -11,7 +11,10 @@ import {
   PullHydroProblemDto,
   QueryHydroSummaryDto,
   SaveHydroPlatformDto,
+  SaveHydroTaskDto,
+  SyncHydroTasksDto,
   SubmitHydroCodeDto,
+  UpdateHydroTaskDto,
   WriteBackHydroResultDto,
 } from './dto/hydro.dto';
 import { HydroService } from './hydro.service';
@@ -59,6 +62,52 @@ export class HydroController {
   @Permissions('question:read')
   listProblems(@Query() query: QueryHydroSummaryDto, @CurrentUser() user: RequestUser) {
     return this.hydroService.listProblemBindings(query, user);
+  }
+
+  @Get('tasks')
+  @Permissions('exam:read')
+  tasks(@Query() query: QueryHydroSummaryDto, @CurrentUser() user: RequestUser) {
+    return this.hydroService.tasks(query, user);
+  }
+
+  @Post('tasks')
+  @Permissions('exam:create')
+  createTask(@Body() dto: SaveHydroTaskDto, @CurrentUser() user: RequestUser) {
+    return this.hydroService.createTask(dto, user);
+  }
+
+  @Post('tasks/sync')
+  @Permissions('grading:update')
+  syncTasks(@Body() dto: SyncHydroTasksDto, @CurrentUser() user: RequestUser) {
+    return this.hydroService.syncTasks(dto, user);
+  }
+
+  @Patch('tasks/:taskId')
+  @Permissions('exam:update')
+  updateTask(
+    @Param('taskId') taskId: string,
+    @Body() dto: UpdateHydroTaskDto,
+    @CurrentUser() user: RequestUser,
+  ) {
+    return this.hydroService.updateTask(taskId, dto, user);
+  }
+
+  @Get('tasks/:taskId/results')
+  @Permissions('exam:read')
+  taskResults(@Param('taskId') taskId: string, @Query() query: QueryHydroSummaryDto, @CurrentUser() user: RequestUser) {
+    return this.hydroService.taskResults(taskId, query, user);
+  }
+
+  @Post('tasks/:taskId/sync-results')
+  @Permissions('grading:update')
+  syncTaskResults(@Param('taskId') taskId: string, @CurrentUser() user: RequestUser) {
+    return this.hydroService.syncTaskResults(taskId, user);
+  }
+
+  @Post('tasks/:taskId/retry-failed')
+  @Permissions('grading:update')
+  retryFailedTaskResults(@Param('taskId') taskId: string, @CurrentUser() user: RequestUser) {
+    return this.hydroService.retryFailedTaskResults(taskId, user);
   }
 
   @Get('problems/pull')

@@ -39,7 +39,7 @@
       </el-form>
     </div>
 
-    <div v-if="user?.userType === 'STUDENT'" class="panel profile-panel hydro-account-panel">
+    <div v-if="canManageOwnExternalAccounts" class="panel profile-panel hydro-account-panel">
       <div class="paper-preview-head">
         <div>
           <h2>外部账号</h2>
@@ -159,11 +159,15 @@ const roleName = computed(() => {
 async function load() {
   user.value = await api('/auth/me');
   setSession({ user: user.value });
-  if (user.value?.userType === 'STUDENT') {
+  if (canManageOwnExternalAccounts.value) {
     await loadPlatforms();
     await loadHydroAccounts();
   }
 }
+
+const canManageOwnExternalAccounts = computed(() =>
+  ['SUPER_ADMIN', 'ADMIN', 'TEACHER', 'ASSISTANT', 'STUDENT'].includes(user.value?.userType),
+);
 
 async function loadPlatforms() {
   platforms.value = await api('/hydro/platforms');

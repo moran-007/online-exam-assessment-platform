@@ -1,5 +1,19 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common';
-import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  Patch,
+  Post,
+  Query,
+  Res,
+  UploadedFile,
+  UseInterceptors,
+} from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { ApiBearerAuth, ApiBody, ApiConsumes, ApiTags } from '@nestjs/swagger';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Permissions } from '../../common/decorators/permissions.decorator';
 import { Public } from '../../common/decorators/public.decorator';
@@ -48,6 +62,52 @@ export class QuestionsController {
     return this.questionsService.checkDuplicates(dto.questions);
   }
 
+  @Get('import-template')
+  @Permissions('question:read')
+  async downloadImportTemplate(@Res() res: any) {
+    const buffer = await this.questionsService.excelImportTemplate();
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', 'attachment; filename="question-import-template.xlsx"');
+    res.send(buffer);
+  }
+
+  @Post('import')
+  @Permissions('question:create')
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        file: { type: 'string', format: 'binary' },
+        publish: { type: 'boolean', default: false },
+        skipDuplicates: { type: 'boolean', default: true },
+      },
+      required: ['file'],
+    },
+  })
+  @UseInterceptors(
+    FileInterceptor('file', {
+      limits: { fileSize: 20 * 1024 * 1024 },
+    }),
+  )
+  importExcel(
+    @UploadedFile() file: any,
+    @Body() body: { publish?: unknown; skipDuplicates?: unknown },
+    @CurrentUser() user: RequestUser,
+  ) {
+    if (!file) {
+      throw new BadRequestException('请上传 Excel 文件');
+    }
+    return this.questionsService.importFromExcel(
+      file,
+      {
+        publish: this.formBoolean(body.publish, false),
+        skipDuplicates: this.formBoolean(body.skipDuplicates, true),
+      },
+      user.id,
+    );
+  }
+
   @Post('batch/delete')
   @Permissions('question:update')
   bulkDelete(@Body() dto: BulkQuestionActionDto, @CurrentUser() user: RequestUser) {
@@ -93,5 +153,11 @@ export class QuestionsController {
   @Permissions('question:update')
   remove(@Param('id') id: string, @CurrentUser() user: RequestUser) {
     return this.questionsService.remove(id, user.id);
+  }
+
+  private formBoolean(value: unknown, defaultValue: boolean) {
+    if (value === undefined || value === null || value === '') return defaultValue;
+    if (typeof value === 'boolean') return value;
+    return ['true', '1', 'yes', 'on', '是'].includes(String(value).trim().toLowerCase());
   }
 }
