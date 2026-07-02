@@ -6,6 +6,11 @@
   >
     <div class="code-answer-editor__toolbar">
       <span class="code-answer-editor__meta">{{ displayLanguageLabel }}</span>
+      <div class="code-answer-editor__tools" aria-label="代码工具">
+        <button type="button" title="插入常用模板" :disabled="!canEdit" @click="insertTemplate">&lt;/&gt;</button>
+        <button type="button" title="整理缩进和空白" :disabled="!canEdit" @click="formatCode">{ }</button>
+        <button type="button" title="注释/取消注释（Ctrl+/）" :disabled="!canEdit" @click="toggleEditorComment">//</button>
+      </div>
       <div class="code-answer-editor__font-tools" aria-label="代码字号">
         <button type="button" title="减小字号" :disabled="fontSize <= minFontSize" @click="changeFontSize(-1)">A-</button>
         <span>{{ fontSize }}px</span>
@@ -13,34 +18,23 @@
       </div>
     </div>
 
-    <pre class="code-answer-editor__surface hljs"><code
-      ref="editor"
-      class="code-answer-editor__code"
-      :contenteditable="canEdit ? 'true' : 'false'"
-      :data-placeholder="placeholder"
-      :aria-label="ariaLabel"
-      role="textbox"
-      aria-multiline="true"
-      spellcheck="false"
-      autocapitalize="off"
-      autocomplete="off"
-      autocorrect="off"
-      v-html="highlightedCode"
-      @blur="focused = false"
-      @compositionend="handleCompositionEnd"
-      @compositionstart="isComposing = true"
-      @focus="focused = true"
-      @input="handleInput"
-      @keydown="handleKeydown"
-      @paste="handlePaste"
-    ></code></pre>
+    <div ref="editorHost" class="code-answer-editor__host" :aria-label="ariaLabel"></div>
   </div>
 </template>
 
 <script setup>
-import { computed, nextTick, ref, watch } from 'vue';
-import hljs from 'highlight.js/lib/common';
-import 'highlight.js/styles/github.css';
+import { basicSetup } from 'codemirror';
+import { indentWithTab, deleteTrailingWhitespace, toggleComment } from '@codemirror/commands';
+import { cpp } from '@codemirror/lang-cpp';
+import { go } from '@codemirror/lang-go';
+import { java } from '@codemirror/lang-java';
+import { javascript } from '@codemirror/lang-javascript';
+import { python } from '@codemirror/lang-python';
+import { rust } from '@codemirror/lang-rust';
+import { indentRange, indentUnit } from '@codemirror/language';
+import { Compartment, EditorState } from '@codemirror/state';
+import { EditorView, keymap, placeholder as editorPlaceholder } from '@codemirror/view';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue';
 
 const props = defineProps({
   modelValue: {
@@ -79,155 +73,155 @@ const props = defineProps({
 
 const emit = defineEmits(['update:modelValue']);
 
-const editor = ref(null);
+const editorHost = ref(null);
+const editorView = shallowRef(null);
 const focused = ref(false);
-const isComposing = ref(false);
 const minFontSize = 12;
 const maxFontSize = 22;
 const fontSize = ref(readStoredFontSize());
-let pendingCaretOffset = null;
+const languageCompartment = new Compartment();
+const readonlyCompartment = new Compartment();
+const editableCompartment = new Compartment();
+const placeholderCompartment = new Compartment();
 
 const canEdit = computed(() => !props.disabled && !props.readonly);
-const highlightLanguage = computed(() => normalizeHighlightLanguage(props.language));
-const normalizedLanguageLabel = computed(() => (highlightLanguage.value || 'text').toUpperCase());
+const normalizedLanguage = computed(() => normalizeLanguage(props.language));
+const normalizedLanguageLabel = computed(() => (normalizedLanguage.value || 'text').toUpperCase());
 const displayLanguageLabel = computed(() => props.languageLabel || normalizedLanguageLabel.value);
-const editorMinHeight = computed(() => {
-  const rows = Math.max(6, Number(props.rows) || 18);
-  return `${Math.round(rows * fontSize.value * 1.6 + 24)}px`;
+const editorHeight = computed(() => {
+  const rows = Math.max(8, Number(props.rows) || 18);
+  return `${Math.round(rows * 24 + 24)}px`;
 });
 const editorStyle = computed(() => ({
-  '--code-editor-min-height': editorMinHeight.value,
+  '--code-editor-height': editorHeight.value,
   '--code-editor-font-size': `${fontSize.value}px`,
 }));
 
-const highlightedCode = computed(() => {
-  const source = props.modelValue || '';
-  const language = highlightLanguage.value;
-  if (source && language && hljs.getLanguage(language)) {
-    return hljs.highlight(source, { language, ignoreIllegals: true }).value;
-  }
-  return escapeHtml(source);
+onMounted(() => {
+  if (!editorHost.value) return;
+
+  editorView.value = new EditorView({
+    parent: editorHost.value,
+    state: EditorState.create({
+      doc: props.modelValue || '',
+      extensions: [
+        basicSetup,
+        indentUnit.of('  '),
+        EditorState.tabSize.of(2),
+        languageCompartment.of(languageExtension()),
+        readonlyCompartment.of(EditorState.readOnly.of(!canEdit.value)),
+        editableCompartment.of(EditorView.editable.of(canEdit.value)),
+        placeholderCompartment.of(editorPlaceholder(props.placeholder)),
+        keymap.of([
+          indentWithTab,
+          { key: 'Mod-/', run: toggleComment },
+          { key: 'Shift-Alt-f', run: formatEditorView },
+        ]),
+        EditorView.updateListener.of((update) => {
+          if (!update.docChanged) return;
+          emit('update:modelValue', update.state.doc.toString());
+        }),
+        EditorView.domEventHandlers({
+          focus: () => {
+            focused.value = true;
+          },
+          blur: () => {
+            focused.value = false;
+          },
+        }),
+      ],
+    }),
+  });
 });
 
 watch(
-  () => [props.modelValue, props.language],
-  () => {
-    if (!focused.value) return;
-    const offset = pendingCaretOffset ?? getCaretOffset();
-    nextTick(() => restoreCaretOffset(offset));
+  () => props.modelValue,
+  (value) => {
+    const view = editorView.value;
+    if (!view) return;
+    const nextValue = value || '';
+    const currentValue = view.state.doc.toString();
+    if (nextValue === currentValue) return;
+
+    view.dispatch({
+      changes: { from: 0, to: currentValue.length, insert: nextValue },
+    });
   },
 );
 
-function handleInput() {
-  if (isComposing.value) return;
-  pendingCaretOffset = getCaretOffset();
-  emit('update:modelValue', currentEditorText());
-  nextTick(() => {
-    restoreCaretOffset(pendingCaretOffset);
-    pendingCaretOffset = null;
+watch(
+  () => props.language,
+  () => reconfigure(languageCompartment, languageExtension()),
+);
+
+watch(
+  () => props.placeholder,
+  (value) => reconfigure(placeholderCompartment, editorPlaceholder(value || '')),
+);
+
+watch(
+  [() => props.disabled, () => props.readonly],
+  () => {
+    reconfigure(readonlyCompartment, EditorState.readOnly.of(!canEdit.value));
+    reconfigure(editableCompartment, EditorView.editable.of(canEdit.value));
+  },
+);
+
+onBeforeUnmount(() => {
+  editorView.value?.destroy();
+  editorView.value = null;
+});
+
+function reconfigure(compartment, extension) {
+  const view = editorView.value;
+  if (!view) return;
+  view.dispatch({ effects: compartment.reconfigure(extension) });
+}
+
+function insertTemplate() {
+  const view = editorView.value;
+  if (!view || !canEdit.value) return;
+  const template = templateForLanguage();
+  const cursor = view.state.selection.main;
+  const prefix = view.state.doc.length && cursor.from > 0 ? '\n' : '';
+  const text = `${prefix}${template}`;
+  view.dispatch({
+    changes: { from: cursor.from, to: cursor.to, insert: text },
+    selection: { anchor: cursor.from + text.length },
+    scrollIntoView: true,
   });
+  view.focus();
 }
 
-function handleCompositionEnd() {
-  isComposing.value = false;
-  handleInput();
+function formatCode() {
+  const view = editorView.value;
+  if (!view || !canEdit.value) return;
+  formatEditorView(view);
+  view.focus();
 }
 
-function handleKeydown(event) {
-  if (!canEdit.value) {
-    event.preventDefault();
-    return;
+function toggleEditorComment() {
+  const view = editorView.value;
+  if (!view || !canEdit.value) return;
+  toggleComment(view);
+  view.focus();
+}
+
+function formatEditorView(view) {
+  deleteTrailingWhitespace(view);
+  const changes = indentRange(view.state, 0, view.state.doc.length);
+  if (!changes.empty) {
+    view.dispatch({ changes, scrollIntoView: true });
   }
-
-  if (event.key === 'Tab') {
-    event.preventDefault();
-    insertPlainText('  ');
-    return;
-  }
-
-  if (event.key === 'Enter') {
-    event.preventDefault();
-    insertPlainText('\n');
-  }
-}
-
-function handlePaste(event) {
-  if (!canEdit.value) return;
-  event.preventDefault();
-  insertPlainText(event.clipboardData?.getData('text/plain') || '');
-}
-
-function insertPlainText(text) {
-  const root = editor.value;
-  if (!root || !text) return;
-  root.focus();
-  const selection = window.getSelection();
-  if (!selection?.rangeCount) return;
-
-  const range = selection.getRangeAt(0);
-  if (!root.contains(range.commonAncestorContainer)) return;
-
-  range.deleteContents();
-  const node = document.createTextNode(text);
-  range.insertNode(node);
-  range.setStartAfter(node);
-  range.collapse(true);
-  selection.removeAllRanges();
-  selection.addRange(range);
-  handleInput();
-}
-
-function currentEditorText() {
-  const text = editor.value?.innerText ?? editor.value?.textContent ?? '';
-  return text.replace(/\u00a0/g, ' ');
-}
-
-function getCaretOffset() {
-  const root = editor.value;
-  const selection = window.getSelection();
-  if (!root || !selection?.rangeCount) return 0;
-  const range = selection.getRangeAt(0);
-  if (!root.contains(range.endContainer)) return 0;
-
-  const before = range.cloneRange();
-  before.selectNodeContents(root);
-  before.setEnd(range.endContainer, range.endOffset);
-  return before.toString().length;
-}
-
-function restoreCaretOffset(offset) {
-  const root = editor.value;
-  if (!root || offset === null || offset === undefined) return;
-  const selection = window.getSelection();
-  const range = document.createRange();
-  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
-  let remaining = Math.max(0, offset);
-  let node = walker.nextNode();
-
-  while (node) {
-    const length = node.textContent.length;
-    if (remaining <= length) {
-      range.setStart(node, remaining);
-      range.collapse(true);
-      selection.removeAllRanges();
-      selection.addRange(range);
-      return;
-    }
-    remaining -= length;
-    node = walker.nextNode();
-  }
-
-  range.selectNodeContents(root);
-  range.collapse(false);
-  selection.removeAllRanges();
-  selection.addRange(range);
+  return true;
 }
 
 function changeFontSize(step) {
   fontSize.value = clampFontSize(fontSize.value + step);
   localStorage.setItem('code-answer-font-size', String(fontSize.value));
   nextTick(() => {
-    if (focused.value) restoreCaretOffset(getCaretOffset());
+    editorView.value?.requestMeasure();
+    editorView.value?.focus();
   });
 }
 
@@ -239,38 +233,70 @@ function clampFontSize(value) {
   return Math.min(maxFontSize, Math.max(minFontSize, Math.round(value)));
 }
 
-function normalizeHighlightLanguage(language) {
+function languageExtension() {
+  switch (normalizedLanguage.value) {
+    case 'python':
+      return python();
+    case 'java':
+      return java();
+    case 'javascript':
+      return javascript();
+    case 'typescript':
+      return javascript({ typescript: true });
+    case 'go':
+      return go();
+    case 'rust':
+      return rust();
+    case 'c':
+    case 'cpp':
+      return cpp();
+    default:
+      return [];
+  }
+}
+
+function templateForLanguage() {
+  const language = normalizedLanguage.value;
+  if (language === 'python') return 'print("Hello,World!")\n';
+  if (language === 'java') {
+    return [
+      'public class Main {',
+      '  public static void main(String[] args) {',
+      '    System.out.println("Hello,World!");',
+      '  }',
+      '}',
+      '',
+    ].join('\n');
+  }
+  if (language === 'c') {
+    return ['#include <stdio.h>', '', 'int main(void) {', '  printf("Hello,World!\\n");', '  return 0;', '}', ''].join('\n');
+  }
+  return ['#include <bits/stdc++.h>', 'using namespace std;', '', 'int main() {', '  cout << "Hello,World!" << endl;', '  return 0;', '}', ''].join('\n');
+}
+
+function normalizeLanguage(language) {
   const raw = String(language || '').trim().toLowerCase();
   if (!raw) return '';
   if (raw.includes('python') || raw.startsWith('py.')) return 'python';
   if (raw.includes('java') && !raw.includes('javascript')) return 'java';
-  if (raw.includes('javascript') || raw === 'js' || raw.endsWith('.js')) return 'javascript';
   if (raw.includes('typescript') || raw === 'ts' || raw.endsWith('.ts')) return 'typescript';
+  if (raw.includes('javascript') || raw === 'js' || raw.endsWith('.js')) return 'javascript';
   if (raw.includes('c++') || raw.includes('cpp') || raw.startsWith('cc.') || raw === 'cc') return 'cpp';
   if (raw === 'c' || raw.includes('gcc') || raw.startsWith('c.')) return 'c';
-  if (raw.includes('pas') || raw.includes('delphi')) return 'delphi';
   if (raw.includes('go')) return 'go';
   if (raw.includes('rust') || raw === 'rs') return 'rust';
+  if (raw.includes('pas') || raw.includes('delphi')) return '';
   return raw.replace(/[^a-z0-9_+-]/g, '');
-}
-
-function escapeHtml(value) {
-  return String(value)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
 }
 </script>
 
 <style scoped>
 .code-answer-editor {
-  min-height: var(--code-editor-min-height);
+  min-height: 0;
   margin-top: 14px;
-  border: 1px solid var(--border);
+  border: 1px solid #d9e2ec;
   border-radius: 8px;
-  background: #f6f8fa;
+  background: #f8fafc;
   overflow: hidden;
   transition: border-color 0.18s ease, box-shadow 0.18s ease;
 }
@@ -285,22 +311,28 @@ function escapeHtml(value) {
 }
 
 .code-answer-editor__toolbar {
-  min-height: 36px;
-  display: flex;
+  min-height: 40px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 8px;
   align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  padding: 6px 10px;
-  border-bottom: 1px solid #d5dde5;
-  background: #ffffff;
+  padding: 7px 10px;
+  border-bottom: 1px solid #d9e2ec;
+  background: linear-gradient(180deg, #ffffff, #f8fafc);
 }
 
 .code-answer-editor__meta {
-  color: var(--muted);
+  min-width: 0;
+  overflow: hidden;
+  color: #334155;
   font-size: 12px;
-  font-weight: 700;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
+.code-answer-editor__tools,
 .code-answer-editor__font-tools {
   display: inline-flex;
   align-items: center;
@@ -309,56 +341,109 @@ function escapeHtml(value) {
   font-size: 12px;
 }
 
+.code-answer-editor__tools button,
 .code-answer-editor__font-tools button {
   min-width: 32px;
   height: 24px;
   padding: 0 6px;
-  border: 1px solid var(--border);
+  border: 1px solid #cbd5e1;
   border-radius: 6px;
   background: #ffffff;
-  color: var(--text);
+  color: #1f2937;
   cursor: pointer;
   font: inherit;
+  font-weight: 700;
+  transition: background 0.16s ease, border-color 0.16s ease, color 0.16s ease;
 }
 
+.code-answer-editor__tools button:hover:not(:disabled),
+.code-answer-editor__font-tools button:hover:not(:disabled) {
+  border-color: var(--accent);
+  background: #eef6ff;
+  color: var(--accent);
+}
+
+.code-answer-editor__tools button:disabled,
 .code-answer-editor__font-tools button:disabled {
   cursor: not-allowed;
   color: #a7b0bc;
   background: #f4f6f8;
 }
 
-.code-answer-editor__surface {
-  min-height: var(--code-editor-min-height);
-  max-height: min(68vh, 720px);
-  margin: 0;
-  padding: 12px 14px;
-  border: 0;
-  background: transparent;
-  overflow: auto;
+.code-answer-editor__host {
+  min-height: 260px;
 }
 
-.code-answer-editor__code {
-  display: block;
-  min-width: max-content;
-  min-height: calc(var(--code-editor-min-height) - 24px);
-  outline: 0;
-  color: inherit;
-  font-family: "Cascadia Code", Consolas, "SFMono-Regular", monospace;
+.code-answer-editor__host :deep(.cm-editor) {
+  height: var(--code-editor-height);
+  min-height: 260px;
+  max-height: min(62vh, 640px);
+  resize: vertical;
+  overflow: hidden;
+  background: #fbfdff;
+  color: #0f172a;
   font-size: var(--code-editor-font-size);
-  line-height: 1.6;
-  tab-size: 2;
-  white-space: pre;
 }
 
-.code-answer-editor__code:empty::before {
-  content: attr(data-placeholder);
-  color: #95a1af;
-  pointer-events: none;
+.code-answer-editor__host :deep(.cm-scroller) {
+  overflow: auto;
+  font-family: "Cascadia Code", Consolas, "SFMono-Regular", monospace;
+  line-height: 1.6;
+}
+
+.code-answer-editor__host :deep(.cm-content) {
+  min-height: 100%;
+  padding: 12px 0;
+  caret-color: #111827;
+}
+
+.code-answer-editor__host :deep(.cm-line) {
+  padding: 0 12px;
+}
+
+.code-answer-editor__host :deep(.cm-gutters) {
+  border-right: 1px solid #d9e2ec;
+  background: #f1f5f9;
+  color: #64748b;
+}
+
+.code-answer-editor__host :deep(.cm-activeLine) {
+  background: #eef6ff;
+}
+
+.code-answer-editor__host :deep(.cm-activeLineGutter) {
+  background: #e2eef8;
+  color: #1f3f68;
+}
+
+.code-answer-editor__host :deep(.cm-selectionBackground),
+.code-answer-editor__host :deep(.cm-focused .cm-selectionBackground),
+.code-answer-editor__host :deep(.cm-content ::selection) {
+  background: rgba(59, 130, 246, 0.22);
+}
+
+.code-answer-editor__host :deep(.cm-matchingBracket) {
+  outline: 1px solid #38bdf8;
+  background: #e0f2fe;
+}
+
+.code-answer-editor__host :deep(.cm-tooltip) {
+  border: 1px solid #d9e2ec;
+  border-radius: 6px;
+  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.14);
+}
+
+.code-answer-editor__host :deep(.cm-tooltip-autocomplete > ul) {
+  max-height: 220px;
+  font-family: "Cascadia Code", Consolas, "SFMono-Regular", monospace;
 }
 
 @media (max-width: 1100px) {
-  .code-answer-editor,
-  .code-answer-editor__surface {
+  .code-answer-editor__toolbar {
+    grid-template-columns: 1fr;
+  }
+
+  .code-answer-editor__host :deep(.cm-editor) {
     min-height: 320px;
   }
 }
