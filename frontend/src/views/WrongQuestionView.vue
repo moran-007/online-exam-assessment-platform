@@ -140,7 +140,7 @@
 
     <el-dialog v-model="practiceVisible" title="错题练习" :width="practiceDialogWidth">
       <template v-if="practice">
-        <div class="paper-preview-head">
+        <div class="paper-preview-head answer-dialog-head">
           <div>
             <h2>{{ practice.question.title }}</h2>
             <span class="muted">{{ typeLabel(practice.question.type) }} · {{ practice.question.defaultScore }} 分</span>

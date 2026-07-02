@@ -1046,12 +1046,31 @@ function buildSinglePreview() {
   }
 
   if (singleForm.type === 'fill_blank') {
-    payload.answer = buildFillBlankAnswer(blankAnswerText.value, payload.defaultScore, blankAnswerOptions());
+    payload.answer = buildSingleFillBlankPreviewAnswer(payload.defaultScore);
   } else if (!isChoiceType(singleForm.type) && answerReference.value.trim()) {
     payload.answer = { reference: answerReference.value.trim() };
   }
 
   return payload;
+}
+
+function buildSingleFillBlankPreviewAnswer(score) {
+  try {
+    return buildFillBlankAnswer(blankAnswerText.value, score, blankAnswerOptions());
+  } catch {
+    const markerCount = countBlankMarkers(singleForm.content);
+    const rowCount = Math.max(1, markerCount, blankAnswerRows.value.length);
+    const blankScore = rowCount ? Number(score || 0) / rowCount : Number(score || 0);
+    return {
+      blanks: Array.from({ length: rowCount }, (_, index) => ({
+        index: index + 1,
+        answers: [],
+        ignoreCase: !blankCaseSensitive.value,
+        trimSpace: !blankSpaceSensitive.value,
+        score: blankScore,
+      })),
+    };
+  }
 }
 
 async function importSingle() {
@@ -1814,6 +1833,13 @@ function validatePayload(payload, label) {
     }
     if (payload.type === 'multiple_choice' && correctCount < 2) {
       throw new Error(`${label}：多选题至少需要两个正确选项`);
+    }
+  }
+
+  if (payload.type === 'fill_blank') {
+    const blanks = payload.answer?.blanks ?? [];
+    if (!blanks.length || blanks.every((blank) => !blank.answers?.length)) {
+      throw new Error(`${label}：请至少填写一个空位答案`);
     }
   }
 }
