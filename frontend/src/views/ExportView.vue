@@ -3,6 +3,9 @@
     <div class="page-head">
       <h1 class="page-title">导出中心</h1>
       <div class="toolbar">
+        <el-button v-if="canExportFullArchive" type="primary" :loading="exporting" :icon="Download" @click="exportFullArchive">
+          一键导出全部
+        </el-button>
         <el-button v-if="canManageGlobalTasks" @click="openDownloadAudits">下载审计</el-button>
         <el-button v-if="canManageGlobalTasks" :icon="Delete" @click="cleanupExpired">清理过期</el-button>
         <el-button :icon="Refresh" @click="loadAll">刷新</el-button>
@@ -26,9 +29,7 @@
                 <el-option v-for="course in courses" :key="course.id" :label="course.name" :value="course.id" />
               </el-select>
               <el-select v-model="paperFilter.status" clearable placeholder="状态" style="width: 140px" @change="loadPapers">
-                <el-option label="草稿" value="draft" />
-                <el-option label="已发布" value="published" />
-                <el-option label="已归档" value="archived" />
+                <el-option v-for="status in paperStatusOptions" :key="status.value" :label="status.label" :value="status.value" />
               </el-select>
               <el-button :icon="Search" @click="loadPapers">查询</el-button>
             </div>
@@ -47,7 +48,7 @@
               <el-table-column v-if="showMediumColumns" prop="durationMinutes" label="时长" width="90" sortable="custom" />
               <el-table-column prop="status" label="状态" width="100" sortable="custom">
                 <template #default="{ row }">
-                  <el-tag :type="row.status === 'published' ? 'success' : 'info'">{{ paperStatusLabel(row.status) }}</el-tag>
+                  <el-tag :type="paperStatusType(row.status)" effect="plain">{{ paperStatusLabel(row.status) }}</el-tag>
                 </template>
               </el-table-column>
               <el-table-column v-if="showLowColumns" prop="createdAt" label="录入时间" width="170" sortable="custom">
@@ -99,10 +100,7 @@
                 <el-option v-for="item in classes" :key="item.id" :label="item.name" :value="item.id" />
               </el-select>
               <el-select v-model="examFilter.status" clearable placeholder="状态" style="width: 140px" @change="loadExams">
-                <el-option label="草稿" value="draft" />
-                <el-option label="已安排" value="scheduled" />
-                <el-option label="进行中" value="running" />
-                <el-option label="已结束" value="ended" />
+                <el-option v-for="status in examStatusOptions" :key="status.value" :label="status.label" :value="status.value" />
               </el-select>
               <el-button :icon="Search" @click="loadExams">查询</el-button>
             </div>
@@ -121,7 +119,7 @@
               <el-table-column v-if="showMediumColumns" prop="attemptCount" label="提交/进入" width="110" sortable="custom" />
               <el-table-column prop="status" label="状态" width="100" sortable="custom">
                 <template #default="{ row }">
-                  <el-tag :type="row.status === 'ended' ? 'info' : row.status === 'running' ? 'success' : 'warning'">
+                  <el-tag :type="examStatusType(row.status)" effect="plain">
                     {{ examStatusLabel(row.status) }}
                   </el-tag>
                 </template>
@@ -292,6 +290,12 @@ import { ElMessage } from 'element-plus';
 import { Delete, Download, Refresh, Search } from '@element-plus/icons-vue';
 import { api, buildQuery, getCurrentUser } from '../api';
 import { useResponsiveColumns } from '../composables/useResponsiveColumns';
+import {
+  examStatusOptions,
+  paperStatusOptions,
+  statusLabel as entityStatusLabel,
+  statusTagType as entityStatusTagType,
+} from '../statusMeta';
 
 const exportTypes = [
   { label: '考试成绩', value: 'exam_results' },
@@ -302,6 +306,7 @@ const exportTypes = [
   { label: '错题导出', value: 'wrong_questions' },
   { label: '班级', value: 'classes' },
   { label: '统计分析', value: 'statistics' },
+  { label: '全量资源包', value: 'full_archive' },
 ];
 
 const activeTab = ref('papers');
@@ -318,6 +323,7 @@ const auditLoading = ref(false);
 const { showMediumColumns, showLowColumns } = useResponsiveColumns();
 const currentUser = getCurrentUser();
 const canManageGlobalTasks = ['SUPER_ADMIN', 'ADMIN'].includes(currentUser?.userType);
+const canExportFullArchive = currentUser?.userType === 'SUPER_ADMIN';
 const paperFilter = reactive({ keyword: '', courseId: '', status: '', sortBy: 'createdAt', sortOrder: 'desc' });
 const examFilter = reactive({ keyword: '', courseId: '', classId: '', status: '', sortBy: 'startTime', sortOrder: 'desc' });
 const taskFilter = reactive({ type: '', status: '', scope: 'mine' });
@@ -443,6 +449,15 @@ async function directExport(payload) {
   } finally {
     exporting.value = false;
   }
+}
+
+async function exportFullArchive() {
+  await directExport({
+    type: 'full_archive',
+    format: 'zip',
+    includeAnswers: true,
+    includeAnalysis: true,
+  });
 }
 
 async function retryTask(row) {
@@ -599,13 +614,19 @@ function statusTagType(status) {
 }
 
 function paperStatusLabel(value) {
-  const map = { draft: '草稿', published: '已发布', archived: '已归档' };
-  return map[value] ?? value;
+  return entityStatusLabel('paper', value);
+}
+
+function paperStatusType(value) {
+  return entityStatusTagType('paper', value);
 }
 
 function examStatusLabel(value) {
-  const map = { draft: '草稿', scheduled: '已安排', running: '进行中', ended: '已结束', archived: '已归档' };
-  return map[value] ?? value;
+  return entityStatusLabel('exam', value);
+}
+
+function examStatusType(value) {
+  return entityStatusTagType('exam', value);
 }
 
 function formatDate(value) {

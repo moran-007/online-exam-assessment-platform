@@ -26,6 +26,15 @@
         <el-button :icon="Refresh" @click="loadAll">刷新</el-button>
       </div>
     </div>
+    <div class="status-guide">
+      <div v-for="status in statusOptions" :key="status.value" class="status-guide-item">
+        <el-tag :type="status.type" effect="plain">{{ status.label }}</el-tag>
+        <span>{{ status.description }}</span>
+      </div>
+      <div class="status-guide-note">
+        考试与试卷关系：创建考试只能选择“已公开”试卷；考试进入“进行中/已结束”后，核心配置会锁定。
+      </div>
+    </div>
     <div class="exam-admin-grid">
       <div class="panel library-table-panel exam-table-panel">
         <div class="toolbar exam-sim-toolbar">
@@ -61,7 +70,26 @@
           <el-table-column v-if="showLowColumns" prop="className" label="班级" width="130" />
           <el-table-column v-if="showMediumColumns" prop="paperName" label="试卷" min-width="150" />
           <el-table-column prop="status" label="状态" width="100" sortable="custom">
-            <template #default="{ row }">{{ statusLabel(row.status) }}</template>
+            <template #default="{ row }">
+              <div class="row-action-cell" @click.stop @mousedown.stop>
+                <el-dropdown trigger="click" @command="(status) => changeStatus(row, status)">
+                  <el-tag class="status-action-tag" :type="statusType(row.status)" effect="plain">
+                    {{ statusLabel(row.status) }}
+                  </el-tag>
+                  <template #dropdown>
+                    <el-dropdown-menu>
+                      <el-dropdown-item
+                        v-for="status in examStatusTargets(row)"
+                        :key="status.value"
+                        :command="status.value"
+                      >
+                        {{ examStatusActionText(row.status, status.value) }}
+                      </el-dropdown-item>
+                    </el-dropdown-menu>
+                  </template>
+                </el-dropdown>
+              </div>
+            </template>
           </el-table-column>
           <el-table-column v-if="showLowColumns" prop="startTime" label="开始时间" width="170" sortable="custom">
             <template #default="{ row }">{{ formatDateTime(row.startTime) }}</template>
@@ -81,19 +109,22 @@
           </el-table-column>
           <el-table-column label="操作" width="100">
             <template #default="{ row }">
-              <div class="question-actions">
-                <el-dropdown trigger="click" @command="(command) => handleExamCommand(row, command)" @click.stop>
-                  <el-button size="small">操作</el-button>
+              <div class="question-actions row-action-cell" @click.stop @mousedown.stop>
+                <el-dropdown trigger="click" @command="(command) => handleExamCommand(row, command)">
+                  <el-button size="small" @click.stop>操作</el-button>
                   <template #dropdown>
                     <el-dropdown-menu>
                       <el-dropdown-item command="edit">编辑</el-dropdown-item>
                       <el-dropdown-item command="trial">试答</el-dropdown-item>
                       <el-dropdown-item command="ranking">成绩</el-dropdown-item>
                       <el-dropdown-item command="announcementReads">公告阅读</el-dropdown-item>
-                      <el-dropdown-item v-if="row.status === 'draft'" command="publish">发布</el-dropdown-item>
-                      <el-dropdown-item v-else-if="row.status === 'scheduled'" command="unpublish">取消发布</el-dropdown-item>
-                      <el-dropdown-item v-if="row.status === 'scheduled'" command="start">开始</el-dropdown-item>
-                      <el-dropdown-item v-if="row.status === 'running'" command="end">结束</el-dropdown-item>
+                      <el-dropdown-item
+                        v-for="status in examStatusTargets(row)"
+                        :key="status.value"
+                        :command="`status:${status.value}`"
+                      >
+                        {{ examStatusActionText(row.status, status.value) }}
+                      </el-dropdown-item>
                       <el-dropdown-item command="simulate">模拟学生</el-dropdown-item>
                       <el-dropdown-item command="delete" divided>删除</el-dropdown-item>
                     </el-dropdown-menu>
@@ -178,9 +209,12 @@
           </div>
         </el-form-item>
         <el-form-item v-if="editingId" label="状态">
-          <el-select v-model="form.status" style="width: 100%">
+          <div class="status-control-row">
+            <el-select v-model="form.status" style="width: 180px">
             <el-option v-for="status in statusOptions" :key="status.value" :label="status.label" :value="status.value" />
-          </el-select>
+            </el-select>
+            <span class="muted">{{ formStatusDescription }}</span>
+          </div>
         </el-form-item>
         <el-alert
           v-if="editingId && !canSaveCore"
@@ -208,7 +242,10 @@
             <span class="muted">{{ selectedExam.courseName }} · {{ selectedExam.paperName }}</span>
             <span class="muted">范围：{{ selectedExam.className || '公开' }}</span>
           </div>
-          <el-tag>{{ statusLabel(selectedExam.status) }}</el-tag>
+          <div class="status-inline">
+            <el-tag :type="statusType(selectedExam.status)" effect="plain">{{ statusLabel(selectedExam.status) }}</el-tag>
+            <span class="muted">{{ selectedExamStatusDescription }}</span>
+          </div>
         </div>
         <div class="exam-preview-meta">
           <span>开始：{{ formatDateTime(selectedExam.startTime) }}</span>
@@ -244,7 +281,13 @@
         <el-table-column prop="attemptNo" label="第几次" width="80" />
         <el-table-column prop="totalScore" label="总分" width="90" />
         <el-table-column prop="objectiveScore" label="客观题" width="90" />
-        <el-table-column prop="status" label="状态" width="120" />
+        <el-table-column prop="status" label="状态" width="120">
+          <template #default="{ row }">
+            <el-tag :type="attemptStatusType(row.status)" effect="plain">
+              {{ attemptStatusLabel(row.status) }}
+            </el-tag>
+          </template>
+        </el-table-column>
         <el-table-column prop="submittedAt" label="提交时间" min-width="170" />
       </el-table>
     </el-drawer>
@@ -339,6 +382,13 @@ import { ElMessage, ElMessageBox } from 'element-plus';
 import { Check, Close, DataAnalysis, Delete, Edit, Plus, Refresh, Search, User, View } from '@element-plus/icons-vue';
 import { api, buildQuery } from '../api';
 import { useResponsiveColumns } from '../composables/useResponsiveColumns';
+import {
+  examStatusOptions,
+  statusDescription,
+  statusLabel as getStatusLabel,
+  statusTagType,
+  statusTransitionOptions,
+} from '../statusMeta';
 
 const router = useRouter();
 const route = useRoute();
@@ -375,17 +425,16 @@ const examPagination = reactive({ page: 1, pageSize: 20, total: 0 });
 const pageSizes = [20, 50, 100];
 const now = new Date();
 const form = reactive(baseForm());
-const statusOptions = [
-  { label: '草稿', value: 'draft' },
-  { label: '已安排', value: 'scheduled' },
-  { label: '进行中', value: 'running' },
-  { label: '已结束', value: 'ended' },
-];
+const statusOptions = examStatusOptions;
 const canSaveCore = computed(() => !['running', 'ended'].includes(editingOriginalStatus.value));
 const selectedExamIds = computed(() => selectedExamRows.value.map((row) => row.id));
 const announcementUnreadItems = computed(() => (announcementReadReport.value?.items ?? []).filter((item) => !item.read));
 const announcementReadItems = computed(() =>
   announcementUnreadOnly.value ? announcementUnreadItems.value : announcementReadReport.value?.items ?? [],
+);
+const formStatusDescription = computed(() => statusDescription('exam', form.status));
+const selectedExamStatusDescription = computed(() =>
+  selectedExam.value ? statusDescription('exam', selectedExam.value.status) : '',
 );
 
 function baseForm() {
@@ -577,8 +626,8 @@ async function createExam() {
 
 async function publish(row) {
   try {
-    await api(`/exams/${row.id}/publish`, { method: 'POST' });
-    ElMessage.success('已发布');
+    const result = await api(`/exams/${row.id}/publish`, { method: 'POST' });
+    ElMessage.success(`考试状态已更新为${statusLabel(result.status || 'scheduled')}`);
     await loadAll();
   } catch (error) {
     ElMessage.error(error.message);
@@ -608,6 +657,13 @@ function handleSelectionChange(rows) {
 
 async function changeStatus(row, status) {
   try {
+    if (status === 'archived') {
+      await ElMessageBox.confirm(
+        '归档后考试会从日常安排中收起，成绩和记录仍保留。需要重新维护时可恢复为草稿。',
+        '归档考试',
+        { type: 'warning', confirmButtonText: '归档', cancelButtonText: '取消' },
+      );
+    }
     await api(`/exams/${row.id}`, {
       method: 'PATCH',
       body: { status },
@@ -615,7 +671,9 @@ async function changeStatus(row, status) {
     ElMessage.success(`状态已更新为${statusLabel(status)}`);
     await loadAll();
   } catch (error) {
-    ElMessage.error(error.message);
+    if (error !== 'cancel') {
+      ElMessage.error(error.message);
+    }
   }
 }
 
@@ -632,6 +690,7 @@ function handleExamCommand(row, command) {
     simulate: () => simulate(row),
     delete: () => removeExam(row),
   };
+  if (command?.startsWith('status:')) return changeStatus(row, command.slice('status:'.length));
   handlers[command]?.();
 }
 
@@ -781,7 +840,40 @@ function csvCell(value) {
 }
 
 function statusLabel(value) {
-  return statusOptions.find((status) => status.value === value)?.label ?? value;
+  return getStatusLabel('exam', value);
+}
+
+function statusType(value) {
+  return statusTagType('exam', value);
+}
+
+function attemptStatusLabel(value) {
+  return getStatusLabel('attempt', value);
+}
+
+function attemptStatusType(value) {
+  return statusTagType('attempt', value);
+}
+
+function examStatusTargets(row) {
+  return statusTransitionOptions('exam', row?.status);
+}
+
+function examStatusActionText(currentStatus, targetStatus) {
+  const key = `${currentStatus}->${targetStatus}`;
+  const map = {
+    'draft->scheduled': '安排考试',
+    'draft->running': '直接开始',
+    'draft->archived': '归档考试',
+    'scheduled->draft': '转回草稿',
+    'scheduled->running': '开始考试',
+    'scheduled->ended': '结束考试',
+    'scheduled->archived': '归档考试',
+    'running->ended': '结束考试',
+    'ended->archived': '归档考试',
+    'archived->draft': '恢复草稿',
+  };
+  return map[key] ?? `设为${statusLabel(targetStatus)}`;
 }
 
 function formatDateTime(value) {

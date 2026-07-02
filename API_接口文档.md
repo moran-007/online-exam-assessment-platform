@@ -2468,8 +2468,11 @@ exam_results
 grading
 question_bank
 papers
+paper_document
+wrong_questions
 classes
 statistics
+full_archive
 ```
 
 支持格式：
@@ -2477,7 +2480,12 @@ statistics
 ```txt
 csv
 json
+pdf
+docx
+zip
 ```
+
+说明：`full_archive` 仅超级管理员可创建，仅支持 `zip`，会导出题库、试卷迁移包、课程、知识点、标签、班级、考试等资源清单。
 
 ### 22.3 班级与权限范围
 

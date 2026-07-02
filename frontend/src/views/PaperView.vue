@@ -34,6 +34,16 @@
       </div>
     </div>
 
+    <div class="status-guide">
+      <div v-for="status in paperStatusOptions" :key="status.value" class="status-guide-item">
+        <el-tag :type="status.type" effect="plain">{{ status.label }}</el-tag>
+        <span>{{ status.description }}</span>
+      </div>
+      <div class="status-guide-note">
+        试卷与考试关系：只有“已公开”试卷可创建考试；学生题库仅展示已公开且未被考试占用的试卷。
+      </div>
+    </div>
+
     <div class="paper-layout">
       <main class="paper-main">
         <div class="panel library-table-panel paper-library-panel">
@@ -58,21 +68,56 @@
             <el-table-column prop="questionCount" label="题数" width="80" />
             <el-table-column v-if="showMediumColumns" prop="totalScore" label="总分" width="86" sortable="custom" />
             <el-table-column v-if="showMediumColumns" prop="durationMinutes" label="时长" width="86" sortable="custom" />
-            <el-table-column prop="status" label="状态" width="100" sortable="custom" />
+            <el-table-column prop="status" label="状态" width="128" sortable="custom">
+              <template #default="{ row }">
+                <div class="row-action-cell" @click.stop @mousedown.stop>
+                  <el-dropdown trigger="click" @command="(status) => changePaperStatus(row, status)">
+                    <el-tag class="status-action-tag" :type="statusTagType('paper', row.status)" effect="plain">
+                      {{ statusLabel('paper', row.status) }}
+                    </el-tag>
+                    <template #dropdown>
+                      <el-dropdown-menu>
+                        <el-dropdown-item
+                          v-for="status in paperStatusTargets(row)"
+                          :key="status.value"
+                          :command="status.value"
+                        >
+                          {{ paperStatusActionText(row.status, status.value) }}
+                        </el-dropdown-item>
+                      </el-dropdown-menu>
+                    </template>
+                  </el-dropdown>
+                </div>
+              </template>
+            </el-table-column>
+            <el-table-column prop="examUsageCount" label="考试占用" width="128">
+              <template #default="{ row }">
+                <el-tag :type="examUsageType(row)" effect="plain">
+                  {{ examUsageLabel(row) }}
+                </el-tag>
+              </template>
+            </el-table-column>
             <el-table-column v-if="showLowColumns" prop="createdAt" label="录入时间" width="170" sortable="custom">
               <template #default="{ row }">{{ formatDateTime(row.createdAt) }}</template>
             </el-table-column>
             <el-table-column label="操作" width="100">
               <template #default="{ row }">
-                <div class="question-actions">
-                  <el-dropdown trigger="click" @command="(command) => handlePaperCommand(row, command)" @click.stop>
-                    <el-button size="small">操作</el-button>
+                <div class="question-actions row-action-cell" @click.stop @mousedown.stop>
+                  <el-dropdown trigger="click" @command="(command) => handlePaperCommand(row, command)">
+                    <el-button size="small" @click.stop>操作</el-button>
                     <template #dropdown>
                       <el-dropdown-menu>
                         <el-dropdown-item command="preview">预览</el-dropdown-item>
                         <el-dropdown-item command="edit">调整</el-dropdown-item>
                         <el-dropdown-item command="answer">试答</el-dropdown-item>
                         <el-dropdown-item command="copy">复制为草稿</el-dropdown-item>
+                        <el-dropdown-item
+                          v-for="status in paperStatusTargets(row)"
+                          :key="status.value"
+                          :command="`status:${status.value}`"
+                        >
+                          {{ paperStatusActionText(row.status, status.value) }}
+                        </el-dropdown-item>
                       </el-dropdown-menu>
                     </template>
                   </el-dropdown>
@@ -106,7 +151,9 @@
             <div class="toolbar">
               <el-tag>{{ totalQuestionCount }} 题</el-tag>
               <el-tag type="success">{{ detail.totalScore }} 分</el-tag>
-              <el-tag :type="canEditPaper ? 'warning' : 'info'">{{ detail.status }}</el-tag>
+              <el-tag :type="statusTagType('paper', detail.status)" effect="plain">
+                {{ statusLabel('paper', detail.status) }}
+              </el-tag>
               <el-tag v-if="detail.shuffleQuestions" type="warning">题目随机已启用</el-tag>
               <el-tag v-if="detail.shuffleOptions" type="warning">选项随机已启用</el-tag>
               <el-button :icon="Check" @click="answerPaper">试答试卷</el-button>
@@ -271,7 +318,15 @@
         <el-tab-pane label="试卷信息" name="info">
           <div class="paper-tool-head">
             <h3>试卷信息</h3>
-            <el-tag :type="canEditPaper ? 'warning' : 'success'">{{ detail.status }}</el-tag>
+            <div class="status-inline">
+              <el-tag :type="statusTagType('paper', detail.status)" effect="plain">
+                {{ statusLabel('paper', detail.status) }}
+              </el-tag>
+              <el-tag :type="examUsageType(detail)" effect="plain">
+                {{ examUsageLabel(detail) }}
+              </el-tag>
+              <span class="muted">{{ paperCurrentStatusDescription }}</span>
+            </div>
           </div>
           <el-form :model="editPaperForm" label-width="72px">
             <el-form-item label="名称">
@@ -289,9 +344,27 @@
               <el-checkbox v-model="editPaperForm.shuffleQuestions" :disabled="!canEditPaper">题目顺序随机</el-checkbox>
               <el-checkbox v-model="editPaperForm.shuffleOptions" :disabled="!canEditPaper">选项顺序随机</el-checkbox>
             </el-form-item>
+            <el-form-item label="状态">
+              <div class="status-control-row">
+                <el-select
+                  :model-value="detail.status"
+                  placeholder="试卷状态"
+                  style="width: 180px"
+                  @change="(status) => changePaperStatus(detail, status)"
+                >
+                  <el-option
+                    v-for="status in paperStatusOptions"
+                    :key="status.value"
+                    :label="status.label"
+                    :value="status.value"
+                  />
+                </el-select>
+                <span class="muted">{{ paperCurrentStatusDescription }}</span>
+              </div>
+            </el-form-item>
             <div class="toolbar">
               <el-button type="primary" :icon="Edit" :disabled="!canEditPaper" @click="savePaperInfo">保存试卷</el-button>
-              <el-button v-if="detail.status === 'published'" :icon="Close" @click="unpublishPaper">取消发布</el-button>
+              <el-button v-if="detail.status === 'published'" :icon="Close" @click="unpublishPaper">转回草稿</el-button>
             </div>
           </el-form>
         </el-tab-pane>
@@ -312,11 +385,11 @@
             <div class="toolbar">
               <el-button :icon="Plus" :disabled="!canEditPaper" @click="addQuestion">加入试卷</el-button>
               <el-button type="success" :icon="Check" :disabled="!detail || detail.status === 'published'" @click="publishPaper">
-                发布试卷
+                公开试卷
               </el-button>
             </div>
           </el-form>
-          <p v-if="detail && !canEditPaper" class="muted paper-tip">已发布试卷只可查看；如需大改，建议复制为新草稿后调整。</p>
+          <p v-if="detail && !canEditPaper" class="muted paper-tip">已公开试卷只可查看；如需大改，建议复制为新草稿后调整。</p>
         </el-tab-pane>
 
         <el-tab-pane label="条件组卷" name="bulk">
@@ -385,7 +458,12 @@
           <div class="toolbar">
             <el-tag>{{ totalQuestionCount }} 题</el-tag>
             <el-tag type="success">{{ detail.totalScore }} 分</el-tag>
-            <el-tag :type="canEditPaper ? 'warning' : 'info'">{{ detail.status }}</el-tag>
+            <el-tag :type="statusTagType('paper', detail.status)" effect="plain">
+              {{ statusLabel('paper', detail.status) }}
+            </el-tag>
+            <el-tag :type="examUsageType(detail)" effect="plain">
+              {{ examUsageLabel(detail) }}
+            </el-tag>
             <el-tag v-if="detail.shuffleQuestions" type="warning">题目随机已启用</el-tag>
             <el-tag v-if="detail.shuffleOptions" type="warning">选项随机已启用</el-tag>
             <el-button :icon="Edit" @click="paperEditorVisible = true">调整试卷</el-button>
@@ -512,6 +590,13 @@ import { Bottom, Check, Close, Delete, DocumentCopy, Edit, Plus, Refresh, Top, U
 import { api, buildQuery } from '../api';
 import MarkdownRenderer from '../components/MarkdownRenderer.vue';
 import { useResponsiveColumns } from '../composables/useResponsiveColumns';
+import {
+  paperStatusOptions,
+  statusDescription,
+  statusLabel,
+  statusTagType,
+  statusTransitionOptions,
+} from '../statusMeta';
 
 const router = useRouter();
 const courses = ref([]);
@@ -535,11 +620,6 @@ const openPaperGroups = ref([]);
 const paperFilter = reactive({ keyword: '', courseId: '', status: '', sortBy: 'createdAt', sortOrder: 'desc' });
 const paperPagination = reactive({ page: 1, pageSize: 20, total: 0 });
 const pageSizes = [20, 50, 100];
-const paperStatusOptions = [
-  { label: '草稿', value: 'draft' },
-  { label: '已发布', value: 'published' },
-  { label: '已归档', value: 'archived' },
-];
 const form = reactive({ name: '', courseId: '', durationMinutes: 60, type: 'fixed' });
 const editPaperForm = reactive({
   name: '',
@@ -580,6 +660,7 @@ const snapshotForm = reactive({
 const canEditPaper = computed(() => detail.value?.status === 'draft');
 const canEditSnapshot = computed(() => Boolean(detail.value?.canEditSnapshots));
 const snapshotEditTip = computed(() => detail.value?.snapshotEditReason || '当前试卷暂不能修改显示内容');
+const paperCurrentStatusDescription = computed(() => (detail.value ? statusDescription('paper', detail.value.status) : ''));
 const paperGroups = computed(() => {
   const groups = new Map();
   for (const paper of papers.value) {
@@ -891,6 +972,7 @@ function handlePaperCommand(row, command) {
   if (command === 'edit') return openPaperEditor(row);
   if (command === 'answer') return answerPaper(row);
   if (command === 'copy') return copyPaperAsDraft(row);
+  if (command?.startsWith('status:')) return changePaperStatus(row, command.slice('status:'.length));
 }
 
 async function copyPaperAsDraft(row) {
@@ -996,9 +1078,7 @@ async function savePaperInfo() {
 }
 
 async function unpublishPaper() {
-  await api(`/papers/${selectedPaperId.value}`, { method: 'PATCH', body: { status: 'draft' } });
-  ElMessage.success('已取消发布，可继续编辑');
-  await refreshSelectedPaper();
+  await changePaperStatus(detail.value, 'draft');
 }
 
 async function updatePaperQuestion(paperQuestion) {
@@ -1095,9 +1175,66 @@ async function removeQuestion(paperQuestion) {
 }
 
 async function publishPaper() {
-  await api(`/papers/${selectedPaperId.value}/publish`, { method: 'POST' });
-  ElMessage.success('已发布');
-  await refreshSelectedPaper();
+  await changePaperStatus(detail.value, 'published');
+}
+
+function paperStatusTargets(row) {
+  return statusTransitionOptions('paper', row?.status);
+}
+
+function examUsageCount(row) {
+  return Number(row?.examUsageCount ?? row?._count?.exams ?? 0);
+}
+
+function examUsageLabel(row) {
+  const count = examUsageCount(row);
+  return count > 0 ? `已占用 ${count} 场` : '未占用';
+}
+
+function examUsageType(row) {
+  return examUsageCount(row) > 0 ? 'warning' : 'info';
+}
+
+function paperStatusActionText(currentStatus, targetStatus) {
+  const key = `${currentStatus}->${targetStatus}`;
+  const map = {
+    'draft->published': '公开试卷',
+    'draft->archived': '归档试卷',
+    'published->draft': '转回草稿',
+    'published->archived': '归档试卷',
+    'archived->draft': '恢复草稿',
+  };
+  return map[key] ?? `设为${statusLabel('paper', targetStatus)}`;
+}
+
+async function changePaperStatus(row, targetStatus) {
+  const paperId = row?.id || selectedPaperId.value;
+  const currentStatus = row?.status || detail.value?.status;
+  if (!paperId || !targetStatus || targetStatus === currentStatus) return;
+
+  try {
+    if (targetStatus === 'archived') {
+      await ElMessageBox.confirm(
+        '归档后试卷会保留数据，但不建议继续用于创建新考试。需要重新维护时可恢复为草稿。',
+        '归档试卷',
+        { type: 'warning', confirmButtonText: '归档', cancelButtonText: '取消' },
+      );
+    }
+
+    if (targetStatus === 'published') {
+      await api(`/papers/${paperId}/publish`, { method: 'POST' });
+    } else {
+      await api(`/papers/${paperId}`, { method: 'PATCH', body: { status: targetStatus } });
+    }
+
+    ElMessage.success(`试卷状态已更新为${statusLabel('paper', targetStatus)}`);
+    selectedPaperId.value = paperId;
+    await refreshSelectedPaper();
+  } catch (error) {
+    if (error !== 'cancel') {
+      ElMessage.error(error.message || '试卷状态更新失败');
+    }
+  }
 }
 
 function answerPaper(row) {

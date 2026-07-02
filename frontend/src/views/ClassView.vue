@@ -43,16 +43,18 @@
         <el-table-column prop="sortOrder" label="排序" width="90" sortable="custom" />
         <el-table-column label="操作" width="130">
           <template #default="{ row }">
-            <el-dropdown trigger="click" @command="(command) => handleCommand(row, command)" @click.stop>
-              <el-button size="small">操作</el-button>
-              <template #dropdown>
-                <el-dropdown-menu>
-                  <el-dropdown-item command="edit">编辑</el-dropdown-item>
-                  <el-dropdown-item command="members">成员</el-dropdown-item>
-                  <el-dropdown-item command="remove" divided>归档</el-dropdown-item>
-                </el-dropdown-menu>
-              </template>
-            </el-dropdown>
+            <div class="row-action-cell" @click.stop @mousedown.stop>
+              <el-dropdown trigger="click" @command="(command) => handleCommand(row, command)">
+                <el-button size="small" @click.stop>操作</el-button>
+                <template #dropdown>
+                  <el-dropdown-menu>
+                    <el-dropdown-item command="edit">编辑</el-dropdown-item>
+                    <el-dropdown-item command="members">成员</el-dropdown-item>
+                    <el-dropdown-item command="remove" divided>归档</el-dropdown-item>
+                  </el-dropdown-menu>
+                </template>
+              </el-dropdown>
+            </div>
           </template>
         </el-table-column>
       </el-table>

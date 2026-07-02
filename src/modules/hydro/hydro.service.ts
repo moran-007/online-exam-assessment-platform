@@ -7,6 +7,7 @@ import {
   OnModuleInit,
   UnauthorizedException,
 } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
 import {
   AnswerRecordStatus,
   AttemptStatus,
@@ -28,6 +29,7 @@ import {
   BindHydroProblemDto,
   PullHydroProblemDto,
   QueryHydroSummaryDto,
+  SaveHydroPlatformDto,
   SubmitHydroCodeDto,
   WriteBackHydroResultDto,
 } from './dto/hydro.dto';
@@ -101,6 +103,17 @@ type HydroRecordResult = {
   result: Record<string, unknown>;
 };
 
+type ExternalOjPlatformRow = {
+  id: string;
+  code: string;
+  name: string;
+  baseUrl: string;
+  enabled: boolean;
+  sortOrder: number;
+  createdAt: Date;
+  updatedAt: Date;
+};
+
 @Injectable()
 export class HydroService implements OnModuleInit, OnModuleDestroy {
   private pollTimer?: ReturnType<typeof setInterval>;
@@ -132,15 +145,114 @@ export class HydroService implements OnModuleInit, OnModuleDestroy {
     };
   }
 
-  platforms() {
-    return [
-      {
-        code: 'hydro',
-        name: 'Hydro',
-        baseUrl: this.hydroBaseUrl(),
-        default: true,
-      },
-    ];
+  async platforms(user?: RequestUser, includeDisabled = false) {
+    const canSeeDisabled = includeDisabled && user?.userType === UserType.SUPER_ADMIN;
+    const disabledFilter = canSeeDisabled ? Prisma.empty : Prisma.sql`AND enabled = true`;
+    const platforms = await this.prisma.$queryRaw<ExternalOjPlatformRow[]>`
+      SELECT
+        id,
+        code,
+        name,
+        base_url AS "baseUrl",
+        enabled,
+        sort_order AS "sortOrder",
+        created_at AS "createdAt",
+        updated_at AS "updatedAt"
+      FROM external_oj_platforms
+      WHERE deleted_at IS NULL ${disabledFilter}
+      ORDER BY sort_order ASC, name ASC
+    `;
+
+    return platforms.map((platform, index) => this.formatPlatform(platform, index === 0));
+  }
+
+  async createPlatform(dto: SaveHydroPlatformDto, user: RequestUser) {
+    const data = this.platformData(dto);
+    await this.assertPlatformCodeAvailable(data.code);
+
+    const [platform] = await this.prisma.$queryRaw<ExternalOjPlatformRow[]>`
+      INSERT INTO external_oj_platforms (id, code, name, base_url, enabled, sort_order, updated_at)
+      VALUES (${randomUUID()}::uuid, ${data.code}, ${data.name}, ${data.baseUrl}, ${data.enabled}, ${data.sortOrder}, CURRENT_TIMESTAMP)
+      RETURNING
+        id,
+        code,
+        name,
+        base_url AS "baseUrl",
+        enabled,
+        sort_order AS "sortOrder",
+        created_at AS "createdAt",
+        updated_at AS "updatedAt"
+    `;
+
+    await this.audit.log({
+      userId: user.id,
+      action: 'hydro:create-platform',
+      module: 'hydro',
+      targetType: 'external_oj_platform',
+      targetId: platform.id,
+      afterData: this.formatPlatform(platform),
+    });
+
+    return this.formatPlatform(platform);
+  }
+
+  async updatePlatform(id: string, dto: SaveHydroPlatformDto, user: RequestUser) {
+    const existing = await this.findPlatform(id);
+    if (!existing) throw new NotFoundException('接入平台不存在');
+
+    const data = this.platformData(dto);
+    await this.assertPlatformCodeAvailable(data.code, id);
+
+    const [platform] = await this.prisma.$queryRaw<ExternalOjPlatformRow[]>`
+      UPDATE external_oj_platforms
+      SET
+        code = ${data.code},
+        name = ${data.name},
+        base_url = ${data.baseUrl},
+        enabled = ${data.enabled},
+        sort_order = ${data.sortOrder},
+        updated_at = CURRENT_TIMESTAMP
+      WHERE id = ${id}::uuid AND deleted_at IS NULL
+      RETURNING
+        id,
+        code,
+        name,
+        base_url AS "baseUrl",
+        enabled,
+        sort_order AS "sortOrder",
+        created_at AS "createdAt",
+        updated_at AS "updatedAt"
+    `;
+
+    await this.audit.log({
+      userId: user.id,
+      action: 'hydro:update-platform',
+      module: 'hydro',
+      targetType: 'external_oj_platform',
+      targetId: id,
+      beforeData: this.formatPlatform(existing),
+      afterData: this.formatPlatform(platform),
+    });
+
+    return this.formatPlatform(platform);
+  }
+
+  async deletePlatform(id: string, user: RequestUser) {
+    const existing = await this.findPlatform(id);
+    if (!existing) throw new NotFoundException('接入平台不存在');
+
+    await this.prisma.$executeRaw`DELETE FROM external_oj_platforms WHERE id = ${id}::uuid`;
+
+    await this.audit.log({
+      userId: user.id,
+      action: 'hydro:delete-platform',
+      module: 'hydro',
+      targetType: 'external_oj_platform',
+      targetId: id,
+      beforeData: this.formatPlatform(existing),
+    });
+
+    return true;
   }
 
   async pullProblem(query: PullHydroProblemDto) {
@@ -456,7 +568,7 @@ export class HydroService implements OnModuleInit, OnModuleDestroy {
       where: {
         id: studentId,
         status: UserStatus.ACTIVE,
-        userType: { in: [UserType.STUDENT, UserType.TEACHER] },
+        userType: { in: [UserType.SUPER_ADMIN, UserType.ADMIN, UserType.TEACHER, UserType.ASSISTANT, UserType.STUDENT] },
         deletedAt: null,
       },
       select: { id: true },
@@ -534,6 +646,29 @@ export class HydroService implements OnModuleInit, OnModuleDestroy {
     if (!account) throw new NotFoundException('外部账号不存在');
     this.assertCanManageExternalAccount(user, account.studentId);
     return this.testHydroAccountLogin(account);
+  }
+
+  async deleteAccount(accountId: string, user: RequestUser) {
+    const account = await this.prisma.hydroAccount.findFirst({ where: { id: accountId } });
+    if (!account) throw new NotFoundException('外部账号不存在');
+    this.assertCanManageExternalAccount(user, account.studentId);
+
+    await this.prisma.hydroAccount.delete({ where: { id: accountId } });
+    await this.audit.log({
+      userId: user.id,
+      action: 'hydro:delete-account',
+      module: 'hydro',
+      targetType: 'hydro_account',
+      targetId: accountId,
+      beforeData: this.formatHydroAccount(account),
+    });
+
+    return true;
+  }
+
+  async deleteMyAccount(accountId: string, user: RequestUser) {
+    this.assertCanManageOwnExternalAccounts(user);
+    return this.deleteAccount(accountId, user);
   }
 
   async submitCode(attemptId: string, questionId: string, dto: SubmitHydroCodeDto, user: RequestUser) {
@@ -1374,6 +1509,70 @@ export class HydroService implements OnModuleInit, OnModuleDestroy {
     return withScheme.replace(/\/+$/, '');
   }
 
+  private platformData(dto: SaveHydroPlatformDto) {
+    const code = this.normalizePlatformCode(dto.code);
+    const name = dto.name.trim();
+    const baseUrl = this.normalizePlatformBaseUrl(dto.baseUrl);
+    if (!code) throw new BadRequestException('请填写平台编码');
+    if (!name) throw new BadRequestException('请填写平台名称');
+    if (!baseUrl) throw new BadRequestException('请填写平台站点');
+    return {
+      code,
+      name,
+      baseUrl,
+      enabled: dto.enabled ?? true,
+      sortOrder: dto.sortOrder ?? 0,
+    };
+  }
+
+  private async assertPlatformCodeAvailable(code: string, currentId?: string) {
+    const currentFilter = currentId ? Prisma.sql`AND id <> ${currentId}::uuid` : Prisma.empty;
+    const duplicate = await this.prisma.$queryRaw<Array<{ id: string }>>`
+      SELECT id
+      FROM external_oj_platforms
+      WHERE code = ${code} ${currentFilter}
+      LIMIT 1
+    `;
+    if (duplicate.length) {
+      throw new BadRequestException('平台编码已存在');
+    }
+  }
+
+  private async findPlatform(id: string) {
+    const [platform] = await this.prisma.$queryRaw<ExternalOjPlatformRow[]>`
+      SELECT
+        id,
+        code,
+        name,
+        base_url AS "baseUrl",
+        enabled,
+        sort_order AS "sortOrder",
+        created_at AS "createdAt",
+        updated_at AS "updatedAt"
+      FROM external_oj_platforms
+      WHERE id = ${id}::uuid AND deleted_at IS NULL
+      LIMIT 1
+    `;
+    return platform ?? null;
+  }
+
+  private formatPlatform(
+    platform: ExternalOjPlatformRow,
+    isDefault = false,
+  ) {
+    return {
+      id: platform.id,
+      code: platform.code,
+      name: platform.name,
+      baseUrl: platform.baseUrl,
+      enabled: platform.enabled,
+      sortOrder: platform.sortOrder,
+      createdAt: platform.createdAt,
+      updatedAt: platform.updatedAt,
+      default: isDefault,
+    };
+  }
+
   private platformName(code: string) {
     return code === 'hydro' ? 'Hydro' : code;
   }
@@ -1422,19 +1621,17 @@ export class HydroService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async testHydroAccountLogin(account: HydroAccount) {
-    if (account.platformCode !== 'hydro') {
-      throw new BadRequestException('当前只支持 Hydro 平台登录检测');
-    }
     if (!account.loginUsername || !account.loginPassword) {
       throw new BadRequestException('外部账号缺少登录账号或密码');
     }
 
+    const platformLabel = this.platformLoginLabel(account);
     let status = 'failed';
-    let message = 'Hydro 登录失败';
+    let message = `${platformLabel} 登录失败`;
     try {
       await this.createHydroSession(account);
       status = 'success';
-      message = 'Hydro 登录检测通过';
+      message = `${platformLabel} 登录检测通过`;
     } catch (error) {
       const rawMessage = error instanceof Error ? error.message : message;
       if (this.isHydroBotChallenge(rawMessage)) {
@@ -1553,6 +1750,7 @@ export class HydroService implements OnModuleInit, OnModuleDestroy {
 
   private async createHydroSession(account: HydroAccount, explicitBaseUrl?: string): Promise<HydroSession> {
     const baseUrl = this.normalizePlatformBaseUrl(explicitBaseUrl || account.platformBaseUrl);
+    const platformLabel = this.platformLoginLabel(account);
     const cookies = new Map<string, string>();
     const collectCookies = (response: Response) => {
       const anyHeaders = response.headers as Headers & { getSetCookie?: () => string[]; raw?: () => Record<string, string[]> };
@@ -1618,7 +1816,7 @@ export class HydroService implements OnModuleInit, OnModuleDestroy {
     const hasSession = cookies.has('sid') || cookies.has('sid.sig');
     const bodyLooksLoggedIn = /退出|注销|logout/i.test(text) && !/密码错误|登录失败|LoginError|password/i.test(text);
     if (!((redirectedAway && hasSession) || bodyLooksLoggedIn)) {
-      const message = this.sanitizeHydroMessage(text, `Hydro 登录失败：${response.status}`);
+      const message = this.sanitizeHydroMessage(text, `${platformLabel} 登录失败：${response.status}`);
       throw new BadRequestException(message);
     }
 
@@ -1626,12 +1824,16 @@ export class HydroService implements OnModuleInit, OnModuleDestroy {
       where: { id: account.id },
       data: {
         lastLoginStatus: 'success',
-        lastLoginMessage: 'Hydro 登录检测通过',
+        lastLoginMessage: `${platformLabel} 登录检测通过`,
         lastLoginAt: new Date(),
       },
     });
 
     return { baseUrl, cookieHeader, fetch: sessionFetch };
+  }
+
+  private platformLoginLabel(account: Pick<HydroAccount, 'platformCode' | 'platformName'>) {
+    return account.platformName?.trim() || this.platformName(this.normalizePlatformCode(account.platformCode));
   }
 
   private async fetchHydroRecordResult(
@@ -2135,12 +2337,13 @@ export class HydroService implements OnModuleInit, OnModuleDestroy {
   }
 
   private canManageOwnExternalAccounts(user: RequestUser) {
-    return user.userType === UserType.STUDENT || user.userType === UserType.TEACHER;
+    const ownAccountTypes: UserType[] = [UserType.ADMIN, UserType.TEACHER, UserType.ASSISTANT, UserType.STUDENT];
+    return ownAccountTypes.includes(user.userType as UserType);
   }
 
   private assertCanManageOwnExternalAccounts(user: RequestUser) {
     if (!this.canManageOwnExternalAccounts(user)) {
-      throw new ForbiddenException('只有学生或教师可以添加自己的外部账号');
+      throw new ForbiddenException('只能添加和维护自己的外部账号');
     }
   }
 

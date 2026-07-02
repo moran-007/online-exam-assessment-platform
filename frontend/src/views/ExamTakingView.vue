@@ -6,16 +6,6 @@
         <span class="muted">共 {{ totalCount }} 题，已答 {{ answeredCount }} 题，标疑 {{ flaggedCount }} 题</span>
       </div>
       <div class="toolbar">
-        <el-radio-group v-model="viewMode" size="small">
-          <el-radio-button label="single">
-            <el-icon><List /></el-icon>
-            逐题
-          </el-radio-button>
-          <el-radio-button label="all">
-            <el-icon><Grid /></el-icon>
-            整卷
-          </el-radio-button>
-        </el-radio-group>
         <el-tag v-if="isSimulating" type="warning">教师模拟学生</el-tag>
         <el-button v-if="isSimulating" :icon="Close" @click="exitSimulation">退出模拟</el-button>
         <el-tag :type="remainingType">剩余 {{ remainingText }}</el-tag>
@@ -32,7 +22,7 @@
             v-for="entry in visibleEntries"
             :id="`question-${entry.question.questionId}`"
             :key="entry.question.questionId"
-            :class="['question-card', 'exam-question', entry.question.type === 'programming' ? 'programming-exam-question' : '']"
+            :class="['question-card', 'exam-question', isSplitQuestion(entry.question.type) ? 'programming-exam-question' : '']"
           >
             <div class="question-title">
               <div>
@@ -48,14 +38,14 @@
               </div>
             </div>
 
-            <template v-if="entry.question.type === 'programming'">
+            <template v-if="isSplitQuestion(entry.question.type)">
               <div class="programming-exam-split">
                 <div class="programming-statement">
                   <h2 class="exam-question-title">{{ entry.question.title || `第 ${entry.index + 1} 题` }}</h2>
                   <MarkdownRenderer :source="entry.question.content" />
                 </div>
                 <div class="programming-code-panel">
-                  <div class="programming-answer">
+                  <div v-if="entry.question.type === 'programming'" class="programming-answer">
                     <div class="programming-toolbar">
                       <span class="programming-language-label">语言</span>
                       <el-select v-model="answers[entry.question.questionId].language" style="width: 170px">
@@ -129,12 +119,23 @@
                         {{ codeSubmitFeedback[entry.question.questionId].message }}
                       </div>
                     </el-alert>
-                    <el-input
+                    <CodeAnswerEditor
                       v-model="answers[entry.question.questionId].code"
-                      class="answer-input code-answer-input"
+                      :language="answers[entry.question.questionId].language"
+                      :rows="22"
+                    />
+                  </div>
+                  <div v-else class="programming-answer">
+                    <div class="programming-toolbar">
+                      <span class="programming-language-label">作答</span>
+                      <el-tag>{{ typeLabel(entry.question.type) }}</el-tag>
+                    </div>
+                    <el-input
+                      v-model="answers[entry.question.questionId].text"
+                      class="answer-input subjective-answer-input"
                       type="textarea"
                       :rows="22"
-                      placeholder="在这里编写代码"
+                      placeholder="填写答案"
                     />
                   </div>
                 </div>
@@ -181,11 +182,10 @@
                 </el-checkbox>
               </el-checkbox-group>
 
-              <el-input
+              <FillBlankAnswerInputs
                 v-else-if="entry.question.type === 'fill_blank'"
-                v-model="answers[entry.question.questionId].blanks[0].value"
-                class="answer-input"
-                placeholder="填写答案"
+                v-model="answers[entry.question.questionId].blanks"
+                :count="blankCountFor(entry.question)"
               />
               <el-input
                 v-else
@@ -208,7 +208,7 @@
 
         <el-empty v-else description="暂无题目" />
 
-        <div v-if="viewMode === 'single' && totalCount" class="exam-stepbar">
+        <div v-if="totalCount" class="exam-stepbar">
           <el-button :icon="ArrowLeft" :disabled="currentIndex <= 0" @click="goQuestion(currentIndex - 1)">上一题</el-button>
           <el-button type="primary" :icon="ArrowRight" :disabled="currentIndex >= totalCount - 1" @click="goQuestion(currentIndex + 1)">
             下一题
@@ -261,11 +261,13 @@
 </template>
 
 <script setup>
-import { computed, nextTick, onMounted, onUnmounted, reactive, ref } from 'vue';
+import { computed, onMounted, onUnmounted, reactive, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { ElMessage, ElMessageBox } from 'element-plus';
-import { ArrowLeft, ArrowRight, Check, Close, Delete, Flag, Grid, Link, List, Refresh, Upload } from '@element-plus/icons-vue';
+import { ArrowLeft, ArrowRight, Check, Close, Delete, Flag, Link, Refresh, Upload } from '@element-plus/icons-vue';
 import { api } from '../api';
+import CodeAnswerEditor from '../components/CodeAnswerEditor.vue';
+import FillBlankAnswerInputs from '../components/FillBlankAnswerInputs.vue';
 import MarkdownRenderer from '../components/MarkdownRenderer.vue';
 
 const route = useRoute();
@@ -280,7 +282,6 @@ const answers = reactive({});
 const flagged = reactive({});
 const codeSubmitLoading = reactive({});
 const codeSubmitFeedback = reactive({});
-const viewMode = ref('single');
 const currentIndex = ref(0);
 const autoSubmitting = ref(false);
 const submitted = ref(false);
@@ -288,6 +289,7 @@ const simulateStudentId = computed(() => String(route.query.simulateStudentId ||
 const isSimulating = computed(() => Boolean(simulateStudentId.value));
 let clockTimer = null;
 const warnedThresholds = new Set();
+const objectiveQuestionTypes = new Set(['single_choice', 'multiple_choice', 'true_false', 'fill_blank']);
 
 const flatQuestions = computed(() => {
   let index = 0;
@@ -303,7 +305,7 @@ const flatQuestions = computed(() => {
 const totalCount = computed(() => flatQuestions.value.length);
 const currentEntry = computed(() => flatQuestions.value[currentIndex.value] ?? null);
 const currentQuestionId = computed(() => currentEntry.value?.question.questionId ?? '');
-const visibleEntries = computed(() => (viewMode.value === 'all' ? flatQuestions.value : currentEntry.value ? [currentEntry.value] : []));
+const visibleEntries = computed(() => (currentEntry.value ? [currentEntry.value] : []));
 const answeredCount = computed(() => flatQuestions.value.filter((entry) => isAnswered(entry.question.questionId)).length);
 const flaggedCount = computed(() => flatQuestions.value.filter((entry) => isFlagged(entry.question.questionId)).length);
 const progressPercent = computed(() => (totalCount.value ? Math.round((answeredCount.value / totalCount.value) * 100) : 0));
@@ -364,6 +366,7 @@ function resetAnswers() {
   for (const entry of flatQuestions.value) {
     answers[entry.question.questionId] = {
       ...emptyAnswer(),
+      blanks: blankAnswerList(entry.question),
       language: languageOptionsFor(entry.question)[0] || 'cc.cc17o2',
     };
   }
@@ -376,12 +379,8 @@ function applySavedAnswers(savedAnswers) {
     answers[saved.questionId].selectedOptionIds = Array.isArray(answer.selectedOptionIds)
       ? answer.selectedOptionIds.filter(Boolean)
       : [];
-    answers[saved.questionId].blanks = Array.isArray(answer.blanks) && answer.blanks.length
-      ? answer.blanks.map((blank, index) => ({
-          index: blank.index ?? index + 1,
-          value: blank.value ?? '',
-        }))
-      : [{ index: 1, value: '' }];
+    const question = flatQuestions.value.find((entry) => entry.question.questionId === saved.questionId)?.question;
+    answers[saved.questionId].blanks = blankAnswerList(question, answer.blanks);
     answers[saved.questionId].text = typeof answer.text === 'string' ? answer.text : '';
     answers[saved.questionId].code = typeof answer.code === 'string' ? answer.code : typeof answer.text === 'string' ? answer.text : '';
     answers[saved.questionId].language = typeof answer.language === 'string' ? answer.language : 'cc.cc17o2';
@@ -442,6 +441,49 @@ function payloadFor(questionId) {
 function languageOptionsFor(question) {
   const languages = question.programmingRef?.languages || [];
   return languages.length ? languages : ['cc.cc17o2', 'py.py3', 'java'];
+}
+
+function isSplitQuestion(type) {
+  return !objectiveQuestionTypes.has(type);
+}
+
+function blankCountFor(question) {
+  const explicit = Number(question?.blankCount);
+  if (Number.isFinite(explicit) && explicit > 0) return Math.round(explicit);
+  const answerBlanks = question?.answer?.blanks;
+  if (Array.isArray(answerBlanks) && answerBlanks.length) return answerBlanks.length;
+  return Math.max(1, countBlankMarkers(question?.content));
+}
+
+function blankAnswerList(question, existing = []) {
+  const source = Array.isArray(existing) ? existing : [];
+  const count = Math.max(blankCountFor(question), ...source.map((blank) => Number(blank?.index) || 0), 1);
+  return Array.from({ length: count }, (_, index) => {
+    const blankIndex = index + 1;
+    const current = source.find((blank) => Number(blank?.index) === blankIndex);
+    return { index: blankIndex, value: current?.value ?? '' };
+  });
+}
+
+function countBlankMarkers(content) {
+  const matches = String(content || '').match(/_{3,}|\(\s*\)|（\s*）|\[\s*\]/g);
+  return matches?.length || 1;
+}
+
+function typeLabel(value) {
+  const map = {
+    single_choice: '单选题',
+    multiple_choice: '多选题',
+    true_false: '判断题',
+    fill_blank: '填空题',
+    short_answer: '简答题',
+    programming: '编程题',
+    material: '材料题',
+    file_upload: '文件上传题',
+    scratch_project: 'Scratch 项目题',
+    arduino_project: 'Arduino 项目题',
+  };
+  return map[value] ?? value;
 }
 
 function languageLabel(language) {
@@ -546,7 +588,12 @@ function buildSubmissionFeedback(result, fallbackType = 'info') {
 
 function clearAnswer(questionId) {
   if (!answers[questionId]) return;
-  Object.assign(answers[questionId], emptyAnswer());
+  const question = flatQuestions.value.find((entry) => entry.question.questionId === questionId)?.question;
+  Object.assign(answers[questionId], {
+    ...emptyAnswer(),
+    blanks: blankAnswerList(question),
+    language: question ? languageOptionsFor(question)[0] || 'cc.cc17o2' : 'cc.cc17o2',
+  });
   ElMessage.success('已清除答案');
 }
 
@@ -610,16 +657,9 @@ function numberTitle(entry) {
   return `第 ${entry.index + 1} 题：${status}${flag}`;
 }
 
-async function goQuestion(index) {
+function goQuestion(index) {
   if (index < 0 || index >= totalCount.value) return;
   currentIndex.value = index;
-  if (viewMode.value === 'all') {
-    await nextTick();
-    document.getElementById(`question-${flatQuestions.value[index].question.questionId}`)?.scrollIntoView({
-      behavior: 'smooth',
-      block: 'start',
-    });
-  }
 }
 
 async function saveAll(options = {}) {

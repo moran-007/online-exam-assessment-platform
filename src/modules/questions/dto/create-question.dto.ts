@@ -1,4 +1,4 @@
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import {
   IsArray,
   IsBoolean,
@@ -93,8 +93,15 @@ export class ProgrammingProblemRefDto {
 }
 
 export class CreateQuestionDto {
+  @IsOptional()
+  @Transform(({ value }) => value || undefined)
   @IsUUID()
-  courseId: string;
+  courseId?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(128)
+  courseName?: string;
 
   @IsString()
   type: string;
@@ -132,6 +139,12 @@ export class CreateQuestionDto {
 
   @IsOptional()
   @IsArray()
+  @IsString({ each: true })
+  @MaxLength(128, { each: true })
+  knowledgePointNames?: string[];
+
+  @IsOptional()
+  @IsArray()
   @IsUUID(undefined, { each: true })
   tagIds?: string[];
 
@@ -148,6 +161,10 @@ export class CreateQuestionDto {
   @IsOptional()
   @IsObject()
   scoringRule?: Record<string, unknown>;
+
+  @IsOptional()
+  @IsObject()
+  comparable?: Record<string, unknown>;
 
   @IsOptional()
   @ValidateNested()

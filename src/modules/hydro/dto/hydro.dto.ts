@@ -1,6 +1,7 @@
 import { Type } from 'class-transformer';
 import {
   IsArray,
+  IsBoolean,
   IsIn,
   IsInt,
   IsNumber,
@@ -119,6 +120,30 @@ export class BindHydroAccountDto {
   @IsOptional()
   @IsIn(['bound', 'disabled'])
   bindStatus?: string = 'bound';
+}
+
+export class SaveHydroPlatformDto {
+  @IsString()
+  @MaxLength(32)
+  code: string;
+
+  @IsString()
+  @MaxLength(64)
+  name: string;
+
+  @IsString()
+  @MaxLength(512)
+  baseUrl: string;
+
+  @IsOptional()
+  @IsBoolean()
+  enabled?: boolean;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  sortOrder?: number;
 }
 
 export class PullHydroProblemDto {

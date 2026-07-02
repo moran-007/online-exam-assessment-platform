@@ -7,8 +7,10 @@ import { AuditService } from '../audit/audit.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { BatchCreateStudentsDto, BatchCreateTeachersDto, CreateStudentDto } from './dto/batch-create-students.dto';
 import {
+  ChangeOwnPasswordDto,
   CreateManagedUserDto,
   ListManagedUsersQueryDto,
+  ResetManagedUserPasswordDto,
   SaveRoleDto,
   UpdateManagedUserDto,
   UpdateRolePermissionsDto,
@@ -297,6 +299,70 @@ export class UsersService {
     });
 
     return this.getManagedUserOrThrow(id);
+  }
+
+  async changeOwnPassword(dto: ChangeOwnPasswordDto, actor: RequestUser) {
+    const user = await this.prisma.user.findFirst({
+      where: { id: actor.id, deletedAt: null },
+      select: { id: true, passwordHash: true },
+    });
+
+    if (!user) {
+      throw new NotFoundException('用户不存在');
+    }
+
+    const passwordMatches = await bcrypt.compare(dto.currentPassword, user.passwordHash);
+    if (!passwordMatches) {
+      throw new BadRequestException('当前密码不正确');
+    }
+
+    await this.prisma.user.update({
+      where: { id: actor.id },
+      data: { passwordHash: await bcrypt.hash(dto.newPassword, 10) },
+    });
+
+    await this.audit.log({
+      userId: actor.id,
+      action: 'user:change-own-password',
+      module: 'user',
+      targetType: 'user',
+      targetId: actor.id,
+      afterData: { passwordChanged: true },
+    });
+
+    return true;
+  }
+
+  async resetManagedUserPassword(id: string, dto: ResetManagedUserPasswordDto, actor: RequestUser) {
+    const existing = await this.prisma.user.findFirst({
+      where: { id, deletedAt: null },
+      select: { id: true, username: true, userType: true, status: true },
+    });
+
+    if (!existing) {
+      throw new NotFoundException('用户不存在');
+    }
+
+    await this.prisma.user.update({
+      where: { id },
+      data: { passwordHash: await bcrypt.hash(dto.password, 10) },
+    });
+
+    await this.audit.log({
+      userId: actor.id,
+      action: 'user:reset-password',
+      module: 'user',
+      targetType: 'user',
+      targetId: id,
+      beforeData: {
+        username: existing.username,
+        userType: existing.userType,
+        status: existing.status,
+      },
+      afterData: { passwordChanged: true },
+    });
+
+    return true;
   }
 
   async listRoles() {

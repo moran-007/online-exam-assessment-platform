@@ -35,14 +35,20 @@ type ComparableQuestion = {
   index: number;
   id?: string;
   courseId: string;
+  courseKey: string;
   courseName?: string;
   title: string;
   type: string;
   status?: string;
   titleKey: string;
-  contentKey: string;
-  optionContentKey: string;
-  fullKey: string;
+  contentHash: string;
+  contentLength: number;
+  optionContentHash: string;
+  optionContentLength: number;
+  optionFullHash: string;
+  optionFullLength: number;
+  answerHash: string;
+  answerLength: number;
 };
 
 @Injectable()
@@ -199,6 +205,7 @@ export class QuestionsService {
       include: {
         course: true,
         options: { orderBy: { sortOrder: 'asc' } },
+        answer: { select: { answerJson: true } },
         tags: { include: { tag: true } },
       },
     });
@@ -216,6 +223,7 @@ export class QuestionsService {
       defaultScore: Number(question.defaultScore),
       courseName: question.course.name,
       tags: question.tags.map((relation) => relation.tag),
+      blankCount: this.blankCount(question.answer?.answerJson),
       options: question.options.map((option) => ({
         optionId: option.id,
         label: option.optionKey,
@@ -253,27 +261,16 @@ export class QuestionsService {
   }
 
   async checkDuplicates(questions: unknown[] = []) {
-    const incoming = questions.map((question, index) => this.toComparableQuestion(this.normalizeCheckQuestion(question), index));
+    const normalized = questions.map((question) => this.normalizeCheckQuestion(question));
+    await this.resolveCheckCourseIds(normalized);
+    const incoming = normalized.map((question, index) => this.toComparableQuestion(question, index));
     if (!incoming.length) {
       return { items: [], total: 0, duplicateCount: 0, conflictCount: 0, similarCount: 0 };
     }
 
     const courseIds = [...new Set(incoming.map((item) => item.courseId).filter(Boolean))];
     const titles = [...new Set(incoming.map((item) => item.title).filter(Boolean))];
-    const candidates = courseIds.length && titles.length
-      ? await this.prisma.question.findMany({
-          where: {
-            deletedAt: null,
-            courseId: { in: courseIds },
-            OR: titles.map((title) => ({ title: { equals: title, mode: 'insensitive' } })),
-          },
-          include: {
-            course: { select: { name: true } },
-            options: { orderBy: { sortOrder: 'asc' } },
-            answer: true,
-          },
-        })
-      : [];
+    const candidates = await this.findDuplicateCandidates(courseIds, titles);
     const existing = candidates.map((question, index) => this.toComparableQuestion(question, index, true));
 
     const items = incoming.map((item, index) => {
@@ -289,8 +286,8 @@ export class QuestionsService {
       }> = [];
 
       for (const previous of incoming.slice(0, index)) {
-        if (previous.courseId !== item.courseId || previous.type !== item.type) continue;
-        if (previous.fullKey === item.fullKey) {
+        if (previous.courseKey !== item.courseKey || previous.type !== item.type) continue;
+        if (this.hasSameQuestionBody(previous, item)) {
           matches.push({
             source: 'batch',
             title: previous.title,
@@ -310,7 +307,7 @@ export class QuestionsService {
           });
           continue;
         }
-        if (previous.contentKey && previous.contentKey === item.contentKey && previous.optionContentKey === item.optionContentKey) {
+        if (this.hasSameContentAndOptions(previous, item)) {
           matches.push({
             source: 'batch',
             title: previous.title,
@@ -322,8 +319,9 @@ export class QuestionsService {
       }
 
       for (const candidate of existing) {
-        if (candidate.courseId !== item.courseId || candidate.type !== item.type) continue;
+        if (candidate.courseKey !== item.courseKey || candidate.type !== item.type) continue;
         if (candidate.titleKey === item.titleKey) {
+          const isDuplicate = this.hasSameQuestionBody(candidate, item);
           matches.push({
             source: 'question_bank',
             id: candidate.id,
@@ -331,15 +329,15 @@ export class QuestionsService {
             type: candidate.type,
             status: candidate.status,
             courseName: candidate.courseName,
-            reason: candidate.fullKey === item.fullKey ? 'duplicate' : 'conflict',
+            reason: isDuplicate ? 'duplicate' : 'conflict',
             message:
-              candidate.fullKey === item.fullKey
+              isDuplicate
                 ? '题库中已有完全相同题目'
                 : '题库中已有同标题题目，但题干、选项或答案不一致',
           });
           continue;
         }
-        if (candidate.contentKey && candidate.contentKey === item.contentKey && candidate.optionContentKey === item.optionContentKey) {
+        if (this.hasSameContentAndOptions(candidate, item)) {
           matches.push({
             source: 'question_bank',
             id: candidate.id,
@@ -545,9 +543,16 @@ export class QuestionsService {
     this.validateQuestionInput(type, dto);
 
     const question = await this.prisma.$transaction(async (tx) => {
+      const courseId = await this.resolveCourseIdForQuestion(tx, dto, userId);
+      const knowledgePointIds = await this.resolveKnowledgePointIdsForQuestion(
+        tx,
+        courseId,
+        dto.knowledgePointIds,
+        dto.knowledgePointNames,
+      );
       const created = await tx.question.create({
         data: {
-          courseId: dto.courseId,
+          courseId,
           type,
           title: dto.title,
           content: dto.content,
@@ -570,7 +575,7 @@ export class QuestionsService {
           scoringRuleJson: (dto.scoringRule ?? { mode: 'strict' }) as Prisma.InputJsonObject,
         },
       });
-      await this.replaceRelations(tx, created.id, dto.knowledgePointIds, dto.tagIds);
+      await this.replaceRelations(tx, created.id, knowledgePointIds, dto.tagIds);
       await this.upsertProgrammingRef(tx, created.id, type, dto.programmingRef);
 
       const snapshot = await this.buildSnapshot(tx, created.id);
@@ -612,7 +617,7 @@ export class QuestionsService {
     const hasOptionsPatch = dto.options !== undefined;
     const hasAnswerPatch = dto.answer !== undefined;
     const hasScoringRulePatch = dto.scoringRule !== undefined;
-    const hasKnowledgePatch = dto.knowledgePointIds !== undefined;
+    const hasKnowledgePatch = dto.knowledgePointIds !== undefined || dto.knowledgePointNames !== undefined;
     const hasTagPatch = dto.tagIds !== undefined;
     const hasProgrammingRefPatch = dto.programmingRef !== undefined || type !== QuestionType.PROGRAMMING;
 
@@ -642,10 +647,31 @@ export class QuestionsService {
     }
 
     const updated = await this.prisma.$transaction(async (tx) => {
+      const courseId =
+        dto.courseId !== undefined || dto.courseName !== undefined
+          ? await this.resolveCourseIdForQuestion(
+              tx,
+              {
+                ...dto,
+                courseId: dto.courseName !== undefined && dto.courseId === undefined ? undefined : dto.courseId ?? current.courseId,
+                courseName: dto.courseName,
+              } as CreateQuestionDto,
+              userId,
+            )
+          : undefined;
+      const targetCourseId = courseId ?? current.courseId;
+      const knowledgePointIds = hasKnowledgePatch
+        ? await this.resolveKnowledgePointIdsForQuestion(
+            tx,
+            targetCourseId,
+            dto.knowledgePointIds,
+            dto.knowledgePointNames,
+          )
+        : undefined;
       const question = await tx.question.update({
         where: { id },
         data: {
-          courseId: dto.courseId,
+          courseId,
           type,
           title: dto.title,
           content: dto.content,
@@ -695,7 +721,7 @@ export class QuestionsService {
       }
 
       if (hasKnowledgePatch || hasTagPatch) {
-        await this.replaceRelations(tx, id, dto.knowledgePointIds, dto.tagIds);
+        await this.replaceRelations(tx, id, knowledgePointIds, dto.tagIds);
       }
 
       if (hasProgrammingRefPatch) {
@@ -1044,6 +1070,189 @@ export class QuestionsService {
     }
   }
 
+  private async resolveCourseIdForQuestion(
+    tx: Prisma.TransactionClient,
+    dto: Pick<CreateQuestionDto, 'courseId' | 'courseName'>,
+    userId: string,
+  ) {
+    const courseName = this.cleanName(dto.courseName);
+    if (dto.courseId) {
+      const exists = await tx.course.findFirst({
+        where: { id: dto.courseId, deletedAt: null },
+        select: { id: true },
+      });
+      if (exists) return exists.id;
+      if (!courseName) {
+        throw new BadRequestException('课程不存在，请选择有效课程或提供课程名称');
+      }
+    }
+
+    if (!courseName) {
+      throw new BadRequestException('请选择课程或填写课程名称');
+    }
+
+    const existing = await tx.course.findFirst({
+      where: {
+        deletedAt: null,
+        name: { equals: courseName, mode: 'insensitive' },
+      },
+      select: { id: true },
+    });
+    if (existing) return existing.id;
+
+    const code = await this.nextCourseCode(tx, courseName);
+    try {
+      const created = await tx.course.create({
+        data: {
+          name: courseName,
+          code,
+          description: '题目导入时自动创建',
+          createdBy: userId,
+        },
+        select: { id: true },
+      });
+      return created.id;
+    } catch (error) {
+      if (!this.isUniqueConflict(error)) throw error;
+      const raceCreated = await tx.course.findFirst({
+        where: {
+          deletedAt: null,
+          name: { equals: courseName, mode: 'insensitive' },
+        },
+        select: { id: true },
+      });
+      if (raceCreated) return raceCreated.id;
+      const created = await tx.course.create({
+        data: {
+          name: courseName,
+          code: await this.nextCourseCode(tx, `${courseName}-${Date.now().toString(36)}`),
+          description: '题目导入时自动创建',
+          createdBy: userId,
+        },
+        select: { id: true },
+      });
+      return created.id;
+    }
+  }
+
+  private async resolveKnowledgePointIdsForQuestion(
+    tx: Prisma.TransactionClient,
+    courseId: string,
+    ids?: string[],
+    names?: string[],
+  ) {
+    const result = new Set<string>();
+    const uniqueIds = [...new Set((ids ?? []).filter(Boolean))];
+    if (uniqueIds.length) {
+      const existing = await tx.knowledgePoint.findMany({
+        where: {
+          id: { in: uniqueIds },
+          courseId,
+          deletedAt: null,
+        },
+        select: { id: true },
+      });
+      existing.forEach((item) => result.add(item.id));
+    }
+
+    for (const name of this.cleanNameList(names)) {
+      const existing = await tx.knowledgePoint.findFirst({
+        where: {
+          courseId,
+          deletedAt: null,
+          name: { equals: name, mode: 'insensitive' },
+        },
+        select: { id: true },
+      });
+      if (existing) {
+        result.add(existing.id);
+        continue;
+      }
+
+      const created = await this.createKnowledgePointByName(tx, courseId, name);
+      result.add(created.id);
+    }
+
+    return [...result];
+  }
+
+  private async createKnowledgePointByName(tx: Prisma.TransactionClient, courseId: string, name: string) {
+    try {
+      return await tx.knowledgePoint.create({
+        data: {
+          courseId,
+          name,
+          code: await this.nextKnowledgePointCode(tx, courseId, name),
+          level: 1,
+          sortOrder: 0,
+        },
+        select: { id: true },
+      });
+    } catch (error) {
+      if (!this.isUniqueConflict(error)) throw error;
+      const existing = await tx.knowledgePoint.findFirst({
+        where: {
+          courseId,
+          deletedAt: null,
+          name: { equals: name, mode: 'insensitive' },
+        },
+        select: { id: true },
+      });
+      if (existing) return existing;
+      return tx.knowledgePoint.create({
+        data: {
+          courseId,
+          name,
+          code: await this.nextKnowledgePointCode(tx, courseId, `${name}-${Date.now().toString(36)}`),
+          level: 1,
+          sortOrder: 0,
+        },
+        select: { id: true },
+      });
+    }
+  }
+
+  private async resolveCheckCourseIds(questions: CreateQuestionDto[]) {
+    const existingIds = new Set<string>();
+    const courseIds = [...new Set(questions.map((question) => question.courseId).filter((id): id is string => Boolean(id)))];
+    for (const chunk of this.chunk(courseIds, 100)) {
+      const courses = await this.prisma.course.findMany({
+        where: { id: { in: chunk }, deletedAt: null },
+        select: { id: true },
+      });
+      courses.forEach((course) => existingIds.add(course.id));
+    }
+
+    const names = this.cleanNameList(questions.map((question) => question.courseName));
+    const unresolvedNames = names.filter((name) =>
+      questions.some((question) => (!question.courseId || !existingIds.has(question.courseId)) && this.sameName(question.courseName, name)),
+    );
+    if (!unresolvedNames.length) {
+      for (const question of questions) {
+        if (question.courseId && !existingIds.has(question.courseId)) question.courseId = '';
+      }
+      return;
+    }
+
+    const courseMap = new Map<string, string>();
+    for (const chunk of this.chunk(unresolvedNames, 100)) {
+      const courses = await this.prisma.course.findMany({
+        where: {
+          deletedAt: null,
+          OR: chunk.map((name) => ({ name: { equals: name, mode: 'insensitive' } })),
+        },
+        select: { id: true, name: true },
+      });
+      courses.forEach((course) => courseMap.set(this.nameKey(course.name), course.id));
+    }
+
+    for (const question of questions) {
+      if (question.courseId && existingIds.has(question.courseId)) continue;
+      const courseId = courseMap.get(this.nameKey(question.courseName));
+      question.courseId = courseId ?? '';
+    }
+  }
+
   private normalizeCheckQuestion(value: unknown): CreateQuestionDto {
     const record = this.toPlainRecord(this.parseJsonish(value));
     const importPayload = this.toPlainRecord(this.parseJsonish(record.importPayload));
@@ -1052,6 +1261,7 @@ export class QuestionsService {
 
     return {
       courseId: String(source.courseId ?? ''),
+      courseName: String(source.courseName ?? (this.toPlainRecord(source.course).name ?? '') ?? ''),
       type: String(source.type ?? 'single_choice'),
       title: String(source.title ?? '未命名题目'),
       content: String(source.contentMarkdown ?? source.content ?? ''),
@@ -1068,6 +1278,7 @@ export class QuestionsService {
       options,
       answer: this.toPlainRecord(this.parseJsonish(source.answerJson ?? source.answer)),
       scoringRule: this.toPlainRecord(this.parseJsonish(source.scoringRuleJson ?? source.scoringRule)),
+      comparable: this.toPlainRecord(source.comparable),
     };
   }
 
@@ -1087,36 +1298,37 @@ export class QuestionsService {
     const type = fromEntity
       ? toApiEnum(String((value as { type: string }).type))
       : toApiEnum(normalizeQuestionType(String((value as CreateQuestionDto).type || 'single_choice')));
+    const summary = this.toPlainRecord((value as { comparable?: unknown }).comparable);
     const title = String((value as { title?: string }).title ?? '').trim();
     const content = String((value as { content?: string }).content ?? '').trim();
     const options = this.comparableOptions(value);
     const answer = this.comparableAnswer(value, type);
-    const titleKey = this.normalizeComparableText(title);
+    const titleKey = typeof summary.titleKey === 'string' ? summary.titleKey : this.normalizeComparableText(title);
     const contentKey = this.normalizeComparableText(content);
     const optionContentKey = options.map((option) => this.normalizeComparableText(option.content)).join('|');
     const optionFullKey = options
       .map((option) => `${this.normalizeComparableText(option.content)}:${option.isCorrect ? '1' : '0'}`)
       .join('|');
+    const answerKey = this.stableStringify(answer);
 
     return {
       index,
       id: typeof (value as { id?: unknown }).id === 'string' ? ((value as { id: string }).id) : undefined,
       courseId: String((value as { courseId?: string }).courseId ?? ''),
-      courseName: (value as { course?: { name?: string } }).course?.name,
+      courseKey: this.comparableCourseKey(value),
+      courseName: (value as { course?: { name?: string }; courseName?: string }).course?.name ?? (value as { courseName?: string }).courseName,
       title,
       type,
       status: fromEntity ? toApiEnum(String((value as { status?: string }).status ?? '')) : undefined,
       titleKey,
-      contentKey,
-      optionContentKey,
-      fullKey: [
-        String((value as { courseId?: string }).courseId ?? ''),
-        type,
-        titleKey,
-        contentKey,
-        optionFullKey,
-        this.stableStringify(answer),
-      ].join('\n'),
+      contentHash: this.summaryHash(summary, 'contentHash', contentKey),
+      contentLength: this.summaryLength(summary, 'contentLength', contentKey),
+      optionContentHash: this.summaryHash(summary, 'optionContentHash', optionContentKey),
+      optionContentLength: this.summaryLength(summary, 'optionContentLength', optionContentKey),
+      optionFullHash: this.summaryHash(summary, 'optionFullHash', optionFullKey),
+      optionFullLength: this.summaryLength(summary, 'optionFullLength', optionFullKey),
+      answerHash: this.summaryHash(summary, 'answerHash', answerKey),
+      answerLength: this.summaryLength(summary, 'answerLength', answerKey),
     };
   }
 
@@ -1133,6 +1345,76 @@ export class QuestionsService {
       };
     });
     return options;
+  }
+
+  private async findDuplicateCandidates(courseIds: string[], titles: string[]) {
+    if (!courseIds.length || !titles.length) return [];
+
+    const result = new Map<string, Prisma.QuestionGetPayload<{
+      include: {
+        course: { select: { name: true } };
+        options: true;
+        answer: true;
+      };
+    }>>();
+
+    for (const courseChunk of this.chunk(courseIds, 100)) {
+      for (const titleChunk of this.chunk(titles, 100)) {
+        const questions = await this.prisma.question.findMany({
+          where: {
+            deletedAt: null,
+            courseId: { in: courseChunk },
+            OR: titleChunk.map((title) => ({ title: { equals: title, mode: 'insensitive' } })),
+          },
+          include: {
+            course: { select: { name: true } },
+            options: { orderBy: { sortOrder: 'asc' } },
+            answer: true,
+          },
+        });
+        questions.forEach((question) => result.set(question.id, question));
+      }
+    }
+
+    return [...result.values()];
+  }
+
+  private hasSameQuestionBody(left: ComparableQuestion, right: ComparableQuestion) {
+    return (
+      left.titleKey === right.titleKey &&
+      this.sameSignature(left.contentHash, left.contentLength, right.contentHash, right.contentLength) &&
+      this.sameSignature(left.optionFullHash, left.optionFullLength, right.optionFullHash, right.optionFullLength) &&
+      this.sameSignature(left.answerHash, left.answerLength, right.answerHash, right.answerLength)
+    );
+  }
+
+  private hasSameContentAndOptions(left: ComparableQuestion, right: ComparableQuestion) {
+    return (
+      left.contentLength > 0 &&
+      this.sameSignature(left.contentHash, left.contentLength, right.contentHash, right.contentLength) &&
+      this.sameSignature(left.optionContentHash, left.optionContentLength, right.optionContentHash, right.optionContentLength)
+    );
+  }
+
+  private sameSignature(leftHash: string, leftLength: number, rightHash: string, rightLength: number) {
+    return leftLength === rightLength && leftHash === rightHash;
+  }
+
+  private comparableCourseKey(value: { courseId?: string; courseName?: string; course?: { name?: string } }) {
+    const courseId = String(value.courseId ?? '').trim();
+    if (courseId) return `id:${courseId}`;
+    const courseName = this.nameKey(value.courseName ?? value.course?.name);
+    return courseName ? `name:${courseName}` : 'none';
+  }
+
+  private summaryHash(summary: Record<string, unknown>, key: string, fallback: string) {
+    const value = summary[key];
+    return typeof value === 'string' && value ? value : this.hashComparableText(fallback);
+  }
+
+  private summaryLength(summary: Record<string, unknown>, key: string, fallback: string) {
+    const value = Number(summary[key]);
+    return Number.isFinite(value) && value >= 0 ? value : fallback.length;
   }
 
   private parseJsonish(value: unknown): unknown {
@@ -1205,6 +1487,85 @@ export class QuestionsService {
       .replace(/\s+/g, ' ')
       .trim()
       .toLowerCase();
+  }
+
+  private hashComparableText(value: string) {
+    let hash = 0xcbf29ce484222325n;
+    const prime = 0x100000001b3n;
+    const mask = 0xffffffffffffffffn;
+    for (let index = 0; index < value.length; index += 1) {
+      hash ^= BigInt(value.charCodeAt(index));
+      hash = (hash * prime) & mask;
+    }
+    return hash.toString(16).padStart(16, '0');
+  }
+
+  private async nextCourseCode(tx: Prisma.TransactionClient, name: string) {
+    const base = this.codeBase(name, 'course');
+    return this.nextScopedCode((code) => tx.course.findUnique({ where: { code }, select: { id: true } }), base);
+  }
+
+  private async nextKnowledgePointCode(tx: Prisma.TransactionClient, courseId: string, name: string) {
+    const base = this.codeBase(name, 'kp');
+    return this.nextScopedCode(
+      (code) =>
+        tx.knowledgePoint.findFirst({
+          where: { courseId, code },
+          select: { id: true },
+        }),
+      base,
+    );
+  }
+
+  private async nextScopedCode(
+    exists: (code: string) => Promise<{ id: string } | null>,
+    base: string,
+  ) {
+    for (let index = 0; index < 50; index += 1) {
+      const suffix = index ? `_${index + 1}` : '';
+      const code = `${base.slice(0, 64 - suffix.length)}${suffix}`;
+      if (!(await exists(code))) return code;
+    }
+    const suffix = `_${Date.now().toString(36)}`;
+    return `${base.slice(0, 64 - suffix.length)}${suffix}`;
+  }
+
+  private codeBase(value: string, prefix: string) {
+    const cleaned = this.cleanName(value);
+    const ascii = cleaned
+      .normalize('NFKD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '_')
+      .replace(/^_+|_+$/g, '')
+      .slice(0, 30);
+    const hash = this.hashComparableText(cleaned).slice(0, 10);
+    return `${prefix}_${ascii || 'auto'}_${hash}`.slice(0, 64);
+  }
+
+  private cleanName(value: unknown) {
+    const text = String(value ?? '').trim().replace(/\s+/g, ' ');
+    return text && !['undefined', 'null', '-', '无'].includes(text.toLowerCase()) ? text : '';
+  }
+
+  private cleanNameList(values?: unknown[] | null) {
+    return [...new Set((values ?? []).map((value) => this.cleanName(value)).filter(Boolean))];
+  }
+
+  private nameKey(value: unknown) {
+    return this.cleanName(value).toLowerCase();
+  }
+
+  private sameName(left: unknown, right: unknown) {
+    return this.nameKey(left) === this.nameKey(right);
+  }
+
+  private chunk<T>(values: T[], size: number) {
+    const chunks: T[][] = [];
+    for (let index = 0; index < values.length; index += size) {
+      chunks.push(values.slice(index, index + size));
+    }
+    return chunks;
   }
 
   private extractResourceReferences(...values: unknown[]) {
@@ -1515,6 +1876,12 @@ export class QuestionsService {
         return `第 ${blank.index} 空：${rules.join('，')}`;
       })
       .join('\n');
+  }
+
+  private blankCount(answerJson: unknown) {
+    if (!answerJson || typeof answerJson !== 'object' || Array.isArray(answerJson)) return 1;
+    const blanks = (answerJson as QuestionAnswerJson).blanks;
+    return Array.isArray(blanks) && blanks.length ? blanks.length : 1;
   }
 
   private describeOption(

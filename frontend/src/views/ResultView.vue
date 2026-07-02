@@ -11,7 +11,14 @@
       <div class="metric"><span>总分</span><strong>{{ displayScore(result.totalScore) }}</strong></div>
       <div class="metric"><span>客观题</span><strong>{{ displayScore(result.objectiveScore) }}</strong></div>
       <div class="metric"><span>编程题</span><strong>{{ displayScore(result.judgeScore) }}</strong></div>
-      <div class="metric"><span>状态</span><strong>{{ result.status }}</strong></div>
+      <div class="metric">
+        <span>状态</span>
+        <div class="metric-status">
+          <el-tag :type="statusTagType('attempt', result.status)" effect="plain">
+            {{ statusLabel('attempt', result.status) }}
+          </el-tag>
+        </div>
+      </div>
       <div class="metric"><span>用时</span><strong>{{ result.durationSeconds || 0 }}s</strong></div>
     </div>
     <el-alert
@@ -92,6 +99,7 @@ import { Back } from '@element-plus/icons-vue';
 import { useRoute } from 'vue-router';
 import { api } from '../api';
 import MarkdownRenderer from '../components/MarkdownRenderer.vue';
+import { statusLabel, statusTagType } from '../statusMeta';
 
 const route = useRoute();
 const simulateStudentId = computed(() => String(route.query.simulateStudentId || ''));

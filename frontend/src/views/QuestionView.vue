@@ -372,26 +372,26 @@
           </el-table-column>
           <el-table-column label="操作" width="96" fixed="right">
             <template #default="{ row }">
-              <div class="question-actions">
-              <template v-if="!editMode">
-                <el-button size="small" :icon="View" @click.stop="openPracticeQuestion(row)">答题</el-button>
-              </template>
-              <template v-else>
-                <el-dropdown trigger="click" @command="(command) => handleQuestionCommand(row, command)">
-                  <el-button size="small" :icon="MoreFilled" @click.stop>操作</el-button>
-                  <template #dropdown>
-                    <el-dropdown-menu>
-                      <el-dropdown-item command="edit" :icon="Edit">编辑/复制</el-dropdown-item>
-                      <el-dropdown-item v-if="row.status !== 'published'" command="publish" :icon="Check">发布</el-dropdown-item>
-                      <el-dropdown-item v-if="row.status === 'published'" command="unpublish" :icon="Close">取消发布</el-dropdown-item>
-                      <el-dropdown-item v-if="row.status !== 'disabled'" command="hide" :icon="Hide">隐藏</el-dropdown-item>
-                      <el-dropdown-item v-if="row.status === 'disabled'" command="show" :icon="View">显示</el-dropdown-item>
-                      <el-dropdown-item command="download" :icon="Download">下载</el-dropdown-item>
-                      <el-dropdown-item command="delete" :icon="Delete" divided>删除</el-dropdown-item>
-                    </el-dropdown-menu>
-                  </template>
-                </el-dropdown>
-              </template>
+              <div class="question-actions row-action-cell" @click.stop @mousedown.stop>
+                <template v-if="!editMode">
+                  <el-button size="small" :icon="View" @click.stop="openPracticeQuestion(row)">答题</el-button>
+                </template>
+                <template v-else>
+                  <el-dropdown trigger="click" @command="(command) => handleQuestionCommand(row, command)">
+                    <el-button size="small" :icon="MoreFilled" @click.stop>操作</el-button>
+                    <template #dropdown>
+                      <el-dropdown-menu>
+                        <el-dropdown-item command="edit" :icon="Edit">编辑/复制</el-dropdown-item>
+                        <el-dropdown-item v-if="row.status !== 'published'" command="publish" :icon="Check">发布</el-dropdown-item>
+                        <el-dropdown-item v-if="row.status === 'published'" command="unpublish" :icon="Close">取消发布</el-dropdown-item>
+                        <el-dropdown-item v-if="row.status !== 'disabled'" command="hide" :icon="Hide">隐藏</el-dropdown-item>
+                        <el-dropdown-item v-if="row.status === 'disabled'" command="show" :icon="View">显示</el-dropdown-item>
+                        <el-dropdown-item command="download" :icon="Download">下载</el-dropdown-item>
+                        <el-dropdown-item command="delete" :icon="Delete" divided>删除</el-dropdown-item>
+                      </el-dropdown-menu>
+                    </template>
+                  </el-dropdown>
+                </template>
               </div>
             </template>
           </el-table-column>
@@ -469,12 +469,10 @@
                 </div>
                 <div v-if="practiceProgrammingResult.message" class="code-submit-message">{{ practiceProgrammingResult.message }}</div>
               </el-alert>
-              <el-input
+              <CodeAnswerEditor
                 v-model="practiceAnswer.code"
-                class="answer-input code-answer-input"
-                type="textarea"
+                :language="practiceAnswer.language"
                 :rows="18"
-                placeholder="在这里编写代码"
               />
             </div>
           </div>
@@ -505,7 +503,11 @@
             </el-checkbox>
           </el-checkbox-group>
 
-          <el-input v-else-if="practiceDetail.type === 'fill_blank'" v-model="practiceAnswer.blanks[0].value" placeholder="填写答案" />
+          <FillBlankAnswerInputs
+            v-else-if="practiceDetail.type === 'fill_blank'"
+            v-model="practiceAnswer.blanks"
+            :count="blankCountFor(practiceDetail)"
+          />
           <el-input v-else v-model="practiceAnswer.text" type="textarea" :rows="5" placeholder="填写答案" />
         </template>
 
@@ -599,6 +601,8 @@ import {
 } from '@element-plus/icons-vue';
 import { api, buildQuery } from '../api';
 import AnswerFeedback from '../components/AnswerFeedback.vue';
+import CodeAnswerEditor from '../components/CodeAnswerEditor.vue';
+import FillBlankAnswerInputs from '../components/FillBlankAnswerInputs.vue';
 import MarkdownRenderer from '../components/MarkdownRenderer.vue';
 import { useResponsiveColumns } from '../composables/useResponsiveColumns';
 
@@ -1446,21 +1450,18 @@ function openHydroProblem(question) {
   window.open(url, '_blank', 'noopener,noreferrer');
 }
 
-function emptyPracticeAnswer() {
+function emptyPracticeAnswer(question = null) {
   return {
     selectedOptionIds: [],
-    blanks: [{ index: 1, value: '' }],
+    blanks: blankAnswerList(question),
     text: '',
     code: '',
-    language: 'cc.cc17o2',
+    language: languageOptionsFor(question)[0] || 'cc.cc17o2',
   };
 }
 
 function clearPracticeAnswer() {
-  Object.assign(practiceAnswer, emptyPracticeAnswer());
-  if (practiceDetail.value?.type === 'programming') {
-    practiceAnswer.language = languageOptionsFor(practiceDetail.value)[0] || 'cc.cc17o2';
-  }
+  Object.assign(practiceAnswer, emptyPracticeAnswer(practiceDetail.value));
   practiceResult.value = null;
   practiceProgrammingResult.value = null;
 }
@@ -1483,6 +1484,29 @@ function payloadForPracticeAnswer() {
     };
   }
   return {};
+}
+
+function blankCountFor(question) {
+  const explicit = Number(question?.blankCount);
+  if (Number.isFinite(explicit) && explicit > 0) return Math.round(explicit);
+  const answerBlanks = question?.answer?.blanks;
+  if (Array.isArray(answerBlanks) && answerBlanks.length) return answerBlanks.length;
+  return Math.max(1, countBlankMarkers(question?.content));
+}
+
+function blankAnswerList(question, existing = []) {
+  const source = Array.isArray(existing) ? existing : [];
+  const count = Math.max(blankCountFor(question), ...source.map((blank) => Number(blank?.index) || 0), 1);
+  return Array.from({ length: count }, (_, index) => {
+    const blankIndex = index + 1;
+    const current = source.find((blank) => Number(blank?.index) === blankIndex);
+    return { index: blankIndex, value: current?.value ?? '' };
+  });
+}
+
+function countBlankMarkers(content) {
+  const matches = String(content || '').match(/_{3,}|\(\s*\)|（\s*）|\[\s*\]/g);
+  return matches?.length || 1;
 }
 
 function resetForm() {

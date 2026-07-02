@@ -2,7 +2,7 @@ import { IsArray, IsBoolean, IsDateString, IsIn, IsOptional, IsString, IsUUID } 
 
 export class CreateExportDto {
   @IsString()
-  @IsIn(['exam_results', 'grading', 'question_bank', 'papers', 'paper_document', 'wrong_questions', 'classes', 'statistics'])
+  @IsIn(['exam_results', 'grading', 'question_bank', 'papers', 'paper_document', 'wrong_questions', 'classes', 'statistics', 'full_archive'])
   type: string;
 
   @IsOptional()

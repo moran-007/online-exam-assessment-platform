@@ -16,6 +16,29 @@
       </el-descriptions>
     </div>
 
+    <div class="panel profile-panel">
+      <div class="paper-preview-head">
+        <div>
+          <h2>修改密码</h2>
+          <span class="muted">更新当前登录账号的密码</span>
+        </div>
+      </div>
+      <el-form label-width="112px" class="password-form">
+        <el-form-item label="当前密码">
+          <el-input v-model="passwordForm.currentPassword" type="password" show-password placeholder="请输入当前密码" />
+        </el-form-item>
+        <el-form-item label="新密码">
+          <el-input v-model="passwordForm.newPassword" type="password" show-password placeholder="至少 6 位" />
+        </el-form-item>
+        <el-form-item label="确认密码">
+          <el-input v-model="passwordForm.confirmPassword" type="password" show-password placeholder="再次输入新密码" />
+        </el-form-item>
+        <el-form-item label="操作">
+          <el-button type="primary" :loading="passwordSaving" @click="changePassword">保存新密码</el-button>
+        </el-form-item>
+      </el-form>
+    </div>
+
     <div v-if="user?.userType === 'STUDENT'" class="panel profile-panel hydro-account-panel">
       <div class="paper-preview-head">
         <div>
@@ -82,10 +105,11 @@
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="180" fixed="right">
+        <el-table-column label="操作" width="220" fixed="right">
           <template #default="{ row }">
             <el-button link type="primary" @click="editHydroAccount(row)">编辑</el-button>
             <el-button link type="primary" :loading="hydroTestingId === row.id" @click="testHydroAccount(row)">检测</el-button>
+            <el-button link type="danger" :icon="Delete" @click="deleteHydroAccount(row)">删除</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -95,13 +119,14 @@
 
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue';
-import { ElMessage } from 'element-plus';
-import { Link, Refresh } from '@element-plus/icons-vue';
+import { ElMessage, ElMessageBox } from 'element-plus';
+import { Delete, Link, Refresh } from '@element-plus/icons-vue';
 import { api, setSession } from '../api';
 
 const user = ref(null);
 const hydroAccounts = ref([]);
 const platforms = ref([]);
+const passwordSaving = ref(false);
 const hydroSaving = ref(false);
 const hydroTesting = ref(false);
 const hydroTestingId = ref('');
@@ -114,6 +139,11 @@ const hydroForm = reactive({
   hydroUserId: '',
   hydroUsername: '',
   bindStatus: 'bound',
+});
+const passwordForm = reactive({
+  currentPassword: '',
+  newPassword: '',
+  confirmPassword: '',
 });
 const roleName = computed(() => {
   const names = {
@@ -153,12 +183,46 @@ async function loadHydroAccounts() {
   }
 }
 
+async function changePassword() {
+  if (!passwordForm.currentPassword || !passwordForm.newPassword) {
+    ElMessage.warning('请填写当前密码和新密码');
+    return;
+  }
+  if (passwordForm.newPassword.length < 6) {
+    ElMessage.warning('新密码至少 6 位');
+    return;
+  }
+  if (passwordForm.newPassword !== passwordForm.confirmPassword) {
+    ElMessage.warning('两次输入的新密码不一致');
+    return;
+  }
+
+  passwordSaving.value = true;
+  try {
+    await api('/users/me/password', {
+      method: 'POST',
+      body: {
+        currentPassword: passwordForm.currentPassword,
+        newPassword: passwordForm.newPassword,
+      },
+    });
+    passwordForm.currentPassword = '';
+    passwordForm.newPassword = '';
+    passwordForm.confirmPassword = '';
+    ElMessage.success('密码已修改');
+  } catch (error) {
+    ElMessage.error(error.message || '密码修改失败');
+  } finally {
+    passwordSaving.value = false;
+  }
+}
+
 async function saveHydroAccount() {
   const loginUsername = hydroForm.loginUsername.trim();
   const hydroUsername = hydroForm.hydroUsername.trim();
   const hydroUserId = hydroForm.hydroUserId.trim() || hydroUsername;
-  if (!loginUsername || !hydroUsername) {
-    ElMessage.warning('请填写登录账号和 Hydro 用户名');
+  if (!hydroForm.platformCode || !hydroForm.platformBaseUrl.trim() || !loginUsername || !hydroUsername) {
+    ElMessage.warning('请填写接入平台、登录账号和 Hydro 用户名');
     return;
   }
   if (!hydroForm.id && !hydroForm.loginPassword.trim()) {
@@ -168,11 +232,13 @@ async function saveHydroAccount() {
 
   hydroSaving.value = true;
   try {
+    const platform = platforms.value.find((item) => item.code === hydroForm.platformCode);
     const saved = await api('/hydro/my/account', {
       method: 'PUT',
       body: {
         id: hydroForm.id || undefined,
         platformCode: hydroForm.platformCode,
+        platformName: platform?.name,
         platformBaseUrl: hydroForm.platformBaseUrl,
         loginUsername,
         loginPassword: hydroForm.loginPassword.trim() || undefined,
@@ -208,6 +274,23 @@ async function testHydroAccount(row = null) {
   } finally {
     hydroTesting.value = false;
     hydroTestingId.value = '';
+  }
+}
+
+async function deleteHydroAccount(row) {
+  try {
+    await ElMessageBox.confirm(`确认删除外部账号「${row.hydroUsername || row.loginUsername}」吗？`, '删除外部账号', {
+      type: 'warning',
+      confirmButtonText: '删除',
+      cancelButtonText: '取消',
+    });
+    await api(`/hydro/my/accounts/${row.id}`, { method: 'DELETE' });
+    await loadHydroAccounts();
+    ElMessage.success('外部账号已删除');
+  } catch (error) {
+    if (error !== 'cancel' && error !== 'close') {
+      ElMessage.error(error.message || '删除失败');
+    }
   }
 }
 

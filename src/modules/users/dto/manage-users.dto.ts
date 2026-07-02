@@ -91,6 +91,28 @@ export class UpdateManagedUserDto {
   roleIds?: string[];
 }
 
+export class ChangeOwnPasswordDto {
+  @IsString()
+  @MinLength(6)
+  @MaxLength(64)
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
+  currentPassword: string;
+
+  @IsString()
+  @MinLength(6)
+  @MaxLength(64)
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
+  newPassword: string;
+}
+
+export class ResetManagedUserPasswordDto {
+  @IsString()
+  @MinLength(6)
+  @MaxLength(64)
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
+  password: string;
+}
+
 export class SaveRoleDto {
   @IsString()
   @MinLength(1)

@@ -61,9 +61,9 @@
         </el-table-column>
         <el-table-column label="操作" width="100">
           <template #default="{ row }">
-            <div class="question-actions">
-              <el-dropdown trigger="click" @command="(command) => handleCourseCommand(row, command)" @click.stop>
-                <el-button size="small">操作</el-button>
+            <div class="question-actions row-action-cell" @click.stop @mousedown.stop>
+              <el-dropdown trigger="click" @command="(command) => handleCourseCommand(row, command)">
+                <el-button size="small" @click.stop>操作</el-button>
                 <template #dropdown>
                   <el-dropdown-menu>
                     <el-dropdown-item command="edit">编辑</el-dropdown-item>

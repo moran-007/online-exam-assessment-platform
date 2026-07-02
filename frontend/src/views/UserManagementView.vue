@@ -58,9 +58,10 @@
             <el-table-column prop="lastLoginAt" label="最近登录" width="170">
               <template #default="{ row }">{{ formatDateTime(row.lastLoginAt) }}</template>
             </el-table-column>
-            <el-table-column label="操作" width="120" fixed="right">
+            <el-table-column label="操作" width="190" fixed="right">
               <template #default="{ row }">
                 <el-button link type="primary" :icon="Edit" @click="openEditUserDialog(row)">编辑</el-button>
+                <el-button link type="primary" :icon="Key" @click="openResetPasswordDialog(row)">密码</el-button>
               </template>
             </el-table-column>
           </el-table>
@@ -176,6 +177,26 @@
       </template>
     </el-dialog>
 
+    <el-dialog v-model="resetPasswordDialogVisible" title="重置密码" width="460px" destroy-on-close>
+      <el-form :model="resetPasswordForm" label-width="96px">
+        <el-form-item label="用户">
+          <el-input :model-value="resetPasswordUser ? `${resetPasswordUser.realName || resetPasswordUser.username}（${resetPasswordUser.username}）` : ''" disabled />
+        </el-form-item>
+        <el-form-item label="新密码">
+          <el-input v-model="resetPasswordForm.password" type="password" show-password placeholder="至少 6 位" />
+        </el-form-item>
+        <el-form-item label="确认密码">
+          <el-input v-model="resetPasswordForm.confirmPassword" type="password" show-password placeholder="再次输入新密码" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="resetPasswordDialogVisible = false">取消</el-button>
+        <el-button type="primary" :icon="Key" :loading="savingResetPassword" @click="resetPassword">
+          保存新密码
+        </el-button>
+      </template>
+    </el-dialog>
+
     <el-dialog v-model="roleDialogVisible" :title="editingRoleId ? '编辑角色' : '新增角色'" width="560px" destroy-on-close>
       <el-form :model="roleForm" label-width="84px">
         <el-form-item label="名称">
@@ -240,12 +261,15 @@ const roleLoading = ref(false);
 const savingUser = ref(false);
 const savingRole = ref(false);
 const savingPermissions = ref(false);
+const savingResetPassword = ref(false);
 const userDialogVisible = ref(false);
+const resetPasswordDialogVisible = ref(false);
 const roleDialogVisible = ref(false);
 const permissionDrawerVisible = ref(false);
 const editingUserId = ref('');
 const editingRoleId = ref('');
 const selectedRole = ref(null);
+const resetPasswordUser = ref(null);
 const permissionTreeRef = ref(null);
 const permissionKeyword = ref('');
 const pageSizes = [20, 50, 100];
@@ -263,6 +287,10 @@ const userPagination = reactive({
 });
 const userForm = reactive(baseUserForm());
 const roleForm = reactive(baseRoleForm());
+const resetPasswordForm = reactive({
+  password: '',
+  confirmPassword: '',
+});
 
 const userTypeOptions = [
   { label: '超级管理员', value: 'SUPER_ADMIN' },
@@ -421,6 +449,13 @@ function openEditUserDialog(row) {
   userDialogVisible.value = true;
 }
 
+function openResetPasswordDialog(row) {
+  resetPasswordUser.value = row;
+  resetPasswordForm.password = '';
+  resetPasswordForm.confirmPassword = '';
+  resetPasswordDialogVisible.value = true;
+}
+
 function handleUserTypeChange(value) {
   if (!editingUserId.value || !userForm.roleIds.length) {
     applyDefaultRole(value, true);
@@ -479,6 +514,32 @@ async function saveUser() {
     ElMessage.error(error.message || '保存失败');
   } finally {
     savingUser.value = false;
+  }
+}
+
+async function resetPassword() {
+  if (!resetPasswordUser.value) return;
+  if (resetPasswordForm.password.length < 6) {
+    ElMessage.warning('新密码至少 6 位');
+    return;
+  }
+  if (resetPasswordForm.password !== resetPasswordForm.confirmPassword) {
+    ElMessage.warning('两次输入的新密码不一致');
+    return;
+  }
+
+  savingResetPassword.value = true;
+  try {
+    await api(`/users/${resetPasswordUser.value.id}/reset-password`, {
+      method: 'POST',
+      body: { password: resetPasswordForm.password },
+    });
+    ElMessage.success('密码已重置');
+    resetPasswordDialogVisible.value = false;
+  } catch (error) {
+    ElMessage.error(error.message || '重置失败');
+  } finally {
+    savingResetPassword.value = false;
   }
 }
 

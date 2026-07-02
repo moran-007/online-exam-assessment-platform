@@ -5,10 +5,10 @@
       <p class="muted" style="margin: 8px 0 20px 0">账号登录</p>
       <el-form :model="form" label-position="top" @submit.prevent="login">
         <el-form-item label="账号">
-          <el-input v-model="form.username" placeholder="admin / teacher001 / student001" />
+          <el-input v-model="form.username" placeholder="请输入账号" />
         </el-form-item>
         <el-form-item label="密码">
-          <el-input v-model="form.password" type="password" show-password />
+          <el-input v-model="form.password" type="password" show-password placeholder="请输入密码" />
         </el-form-item>
         <el-button type="primary" :loading="loading" style="width: 100%" @click="login">
           登录
@@ -27,8 +27,8 @@ import { api, setSession } from '../api';
 const router = useRouter();
 const loading = ref(false);
 const form = reactive({
-  username: 'admin',
-  password: '123456',
+  username: '',
+  password: '',
 });
 
 async function login() {

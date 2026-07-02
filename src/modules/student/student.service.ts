@@ -20,6 +20,7 @@ import {
   UserType,
   WrongQuestionSourceType,
 } from '@prisma/client';
+import { toPagination } from '../../common/dto/pagination-query.dto';
 import { toApiEnum } from '../../common/utils/enum-normalizer';
 import { RequestUser } from '../../common/interfaces/request-user.interface';
 import { AuditService } from '../audit/audit.service';
@@ -29,6 +30,7 @@ import {
   BatchWrongQuestionDto,
   GenerateWrongQuestionPaperDto,
   QueryStudentExamDto,
+  QueryStudentPaperDto,
   RecordWrongQuestionPracticeDto,
   SaveAnswerDto,
   SaveAnswersDto,
@@ -1304,15 +1306,56 @@ export class StudentService {
     return result;
   }
 
+  async studentPapers(user: RequestUser, query: QueryStudentPaperDto) {
+    this.ensureStudent(user);
+    const { page, pageSize, skip, take } = toPagination(query);
+    const where = this.studentPracticePaperWhere(query);
+
+    const [items, total] = await this.prisma.$transaction([
+      this.prisma.paper.findMany({
+        where,
+        include: {
+          course: { select: { name: true } },
+          _count: {
+            select: {
+              questions: true,
+              exams: { where: { deletedAt: null } },
+            },
+          },
+        },
+        orderBy: this.studentPaperOrderBy(query),
+        skip,
+        take,
+      }),
+      this.prisma.paper.count({ where }),
+    ]);
+
+    return {
+      items: items.map((paper) => ({
+        id: paper.id,
+        name: paper.name,
+        courseId: paper.courseId,
+        courseName: paper.course.name,
+        totalScore: Number(paper.totalScore),
+        durationMinutes: paper.durationMinutes,
+        type: toApiEnum(paper.type),
+        status: toApiEnum(paper.status),
+        questionCount: paper._count.questions,
+        examUsageCount: paper._count.exams,
+        examOccupied: paper._count.exams > 0,
+        createdAt: paper.createdAt,
+        updatedAt: paper.updatedAt,
+      })),
+      page,
+      pageSize,
+      total,
+    };
+  }
+
   async previewStudentPaper(user: RequestUser, paperId: string) {
     this.ensureStudent(user);
     const paper = await this.prisma.paper.findFirst({
-      where: {
-        id: paperId,
-        deletedAt: null,
-        createdBy: user.id,
-        type: PaperType.PRACTICE,
-      },
+      where: this.studentPracticePaperPreviewWhere(user.id, paperId),
       include: {
         course: true,
         sections: {
@@ -1328,7 +1371,7 @@ export class StudentService {
     });
 
     if (!paper) {
-      throw new NotFoundException('个人错题试卷不存在');
+      throw new NotFoundException('试卷不存在或暂不可练习');
     }
 
     return {
@@ -1348,6 +1391,40 @@ export class StudentService {
         ...question,
         score: Number(question.score),
       })),
+    };
+  }
+
+  private studentPracticePaperWhere(query?: Pick<QueryStudentPaperDto, 'courseId' | 'keyword'>): Prisma.PaperWhereInput {
+    return {
+      deletedAt: null,
+      status: PaperStatus.PUBLISHED,
+      type: { not: PaperType.PRACTICE },
+      courseId: query?.courseId,
+      exams: { none: { deletedAt: null } },
+      OR: query?.keyword
+        ? [
+            { name: { contains: query.keyword, mode: 'insensitive' } },
+            { course: { name: { contains: query.keyword, mode: 'insensitive' } } },
+          ]
+        : undefined,
+    };
+  }
+
+  private studentPracticePaperPreviewWhere(userId: string, paperId: string): Prisma.PaperWhereInput {
+    return {
+      id: paperId,
+      deletedAt: null,
+      OR: [
+        {
+          createdBy: userId,
+          type: PaperType.PRACTICE,
+        },
+        {
+          status: PaperStatus.PUBLISHED,
+          type: { not: PaperType.PRACTICE },
+          exams: { none: { deletedAt: null } },
+        },
+      ],
     };
   }
 
@@ -1665,6 +1742,7 @@ export class StudentService {
           title: paperQuestion.snapshot.title,
           content: paperQuestion.snapshot.content,
           score: paperQuestion.score,
+          blankCount: this.blankCount(paperQuestion.snapshot.answer),
           programmingRef: paperQuestion.snapshot.programmingRef
             ? {
                 ...paperQuestion.snapshot.programmingRef,
@@ -1681,6 +1759,12 @@ export class StudentService {
         })),
       })),
     };
+  }
+
+  private blankCount(answerJson: unknown) {
+    if (!answerJson || typeof answerJson !== 'object' || Array.isArray(answerJson)) return 1;
+    const blanks = (answerJson as { blanks?: unknown[] }).blanks;
+    return Array.isArray(blanks) && blanks.length ? blanks.length : 1;
   }
 
   private formatAttemptForStudent(
@@ -1786,6 +1870,19 @@ export class StudentService {
     };
     const primary = orderMap[query.sortBy || 'startTime'] ?? { startTime: 'desc' };
     return query.sortBy && query.sortBy !== 'createdAt' ? [primary, { createdAt: 'desc' }] : [primary];
+  }
+
+  private studentPaperOrderBy(query: QueryStudentPaperDto): Prisma.PaperOrderByWithRelationInput[] {
+    const direction = query.sortOrder === 'asc' ? 'asc' : 'desc';
+    const orderMap: Record<string, Prisma.PaperOrderByWithRelationInput> = {
+      createdAt: { createdAt: direction },
+      updatedAt: { updatedAt: direction },
+      name: { name: direction },
+      totalScore: { totalScore: direction },
+      durationMinutes: { durationMinutes: direction },
+    };
+    const primary = orderMap[query.sortBy || 'updatedAt'] ?? { updatedAt: 'desc' };
+    return query.sortBy && query.sortBy !== 'updatedAt' ? [primary, { updatedAt: 'desc' }] : [primary];
   }
 
   private gradeQuestion(paperQuestion: PaperSnapshotQuestion, answerJson: Record<string, unknown>) {

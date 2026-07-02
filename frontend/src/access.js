@@ -4,6 +4,7 @@ export const publicMenuItems = [
 
 export const studentMenuItems = [
   { path: '/question-bank', label: '题库', icon: 'EditPen' },
+  { path: '/student/papers', label: '试卷题库', icon: 'Document' },
   { path: '/student/exams', label: '我的考试', icon: 'Calendar' },
   { path: '/student/wrong-questions', label: '错题本', icon: 'Notebook' },
   { path: '/student/profile', label: '个人信息', icon: 'User' },
@@ -23,7 +24,8 @@ export const adminMenuItems = [
   { path: '/grading', label: '批改', icon: 'Checked', permissions: ['grading:read'] },
   { path: '/exports', label: '导出', icon: 'Download', permissions: ['exam:result:export'] },
   { path: '/statistics', label: '统计', icon: 'TrendCharts', permissions: ['statistics:read'] },
-  { path: '/external-accounts', label: '外部账号', icon: 'Link', permissions: ['class:read'], userTypes: ['SUPER_ADMIN', 'TEACHER'] },
+  { path: '/external-accounts', label: '外部账号', icon: 'Link', userTypes: ['SUPER_ADMIN', 'ADMIN', 'TEACHER', 'ASSISTANT'] },
+  { path: '/profile', label: '个人信息', icon: 'User' },
 ];
 
 export function isStudent(user) {

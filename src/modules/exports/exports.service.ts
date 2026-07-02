@@ -68,6 +68,13 @@ type QuestionExportEntity = Prisma.QuestionGetPayload<{
   };
 }>;
 
+type FullArchivePaper = Prisma.PaperGetPayload<{
+  include: {
+    course: true;
+    _count: { select: { sections: true; questions: true; exams: true } };
+  };
+}>;
+
 type ZipEntry = {
   name: string;
   data: Buffer;
@@ -125,8 +132,8 @@ export class ExportsService implements OnModuleInit {
   }
 
   async create(dto: CreateExportDto, user: RequestUser) {
-    const format =
-      dto.format ?? (['paper_document', 'wrong_questions'].includes(dto.type) ? 'pdf' : dto.type === 'question_bank' ? 'zip' : 'csv');
+    this.assertExportRequestAllowed(dto, user);
+    const format = this.defaultExportFormat(dto);
     const payload = this.withPermissionSnapshot({ ...dto, format }, user);
     const task = await this.prisma.exportTask.create({
       data: {
@@ -441,8 +448,7 @@ export class ExportsService implements OnModuleInit {
 
     const payload = this.toRecord(task.paramsJson);
     const dto = payload as unknown as CreateExportDto;
-    const format =
-      dto.format ?? (['paper_document', 'wrong_questions'].includes(dto.type) ? 'pdf' : dto.type === 'question_bank' ? 'zip' : 'csv');
+    const format = this.defaultExportFormat(dto);
     const user = this.userFromExportPayload(payload, task.createdBy ?? '');
 
     try {
@@ -513,6 +519,10 @@ export class ExportsService implements OnModuleInit {
   }
 
   private async writeExport(taskId: string, dto: CreateExportDto, format: string, user: RequestUser) {
+    if (dto.type === 'full_archive') {
+      return this.writeFullArchiveExport(taskId, { ...dto, format }, user);
+    }
+
     if (dto.type === 'paper_document') {
       if (format === 'csv' || format === 'json') {
         const rows = await this.paperDocumentRows(dto);
@@ -1164,6 +1174,27 @@ export class ExportsService implements OnModuleInit {
     }));
   }
 
+  private defaultExportFormat(dto: CreateExportDto) {
+    if (dto.format) return dto.format;
+    if (['full_archive', 'question_bank'].includes(dto.type)) return 'zip';
+    if (['paper_document', 'wrong_questions'].includes(dto.type)) return 'pdf';
+    return 'csv';
+  }
+
+  private assertExportRequestAllowed(dto: CreateExportDto, user: RequestUser) {
+    if (dto.type !== 'full_archive') return;
+    this.assertSuperAdmin(user);
+    if (dto.format && dto.format !== 'zip') {
+      throw new BadRequestException('全量导出仅支持 ZIP 格式');
+    }
+  }
+
+  private assertSuperAdmin(user: RequestUser) {
+    if (user.userType !== UserType.SUPER_ADMIN) {
+      throw new ForbiddenException('只有超级管理员可以一键导出全部资源');
+    }
+  }
+
   private withPermissionSnapshot(dto: CreateExportDto, user: RequestUser): Prisma.InputJsonObject {
     return {
       ...(dto as unknown as Record<string, unknown>),
@@ -1371,13 +1402,341 @@ export class ExportsService implements OnModuleInit {
     return `/uploads/exports/${fileName}`;
   }
 
+  private async writeFullArchiveExport(taskId: string, dto: CreateExportDto, user: RequestUser) {
+    this.assertExportRequestAllowed(dto, user);
+    await mkdir(this.exportDir, { recursive: true });
+
+    const exportedAt = new Date().toISOString();
+    const archiveDto: CreateExportDto = {
+      type: 'full_archive',
+      format: 'zip',
+      includeAnswers: dto.includeAnswers ?? true,
+      includeAnalysis: dto.includeAnalysis ?? true,
+      includeWrongInfo: dto.includeWrongInfo,
+    };
+    const questionDto: CreateExportDto = { ...archiveDto, type: 'question_bank' };
+
+    const [questionPackage, questionRows, papers, courses, knowledgePoints, tags, classes, exams] = await Promise.all([
+      this.buildQuestionPackageEntries(questionDto, true),
+      this.questionRows(questionDto),
+      this.prisma.paper.findMany({
+        where: { deletedAt: null },
+        include: {
+          course: true,
+          _count: { select: { sections: true, questions: true, exams: true } },
+        },
+        orderBy: { createdAt: 'desc' },
+      }),
+      this.fullArchiveCourseRows(),
+      this.fullArchiveKnowledgePointRows(),
+      this.fullArchiveTagRows(),
+      this.fullArchiveClassRows(),
+      this.fullArchiveExamRows(),
+    ]);
+
+    const entries: ZipEntry[] = [
+      ...this.prefixZipEntries('question_bank', questionPackage.entries),
+      this.csvZipEntry('question_bank/questions.csv', questionRows),
+    ];
+    const paperRows = this.fullArchivePaperRows(papers);
+    this.addRowsEntries(entries, 'courses', 'courses', courses, exportedAt);
+    this.addRowsEntries(entries, 'knowledge_points', 'knowledge_points', knowledgePoints, exportedAt);
+    this.addRowsEntries(entries, 'tags', 'tags', tags, exportedAt);
+    this.addRowsEntries(entries, 'classes', 'classes', classes, exportedAt);
+    this.addRowsEntries(entries, 'exams', 'exams', exams, exportedAt);
+    this.addRowsEntries(entries, 'papers', 'papers', paperRows, exportedAt);
+
+    let paperQuestionCount = 0;
+    let paperAssetCount = 0;
+    for (const paper of papers) {
+      const paperPackage = await this.buildPaperDocumentPackageEntries(
+        {
+          ...archiveDto,
+          type: 'paper_document',
+          paperId: paper.id,
+          template: 'teacher',
+        },
+        true,
+      );
+      paperQuestionCount += paperPackage.count;
+      paperAssetCount += paperPackage.assetCount;
+      entries.push(...this.prefixZipEntries(`papers/${this.safeArchiveFolderName(paper.name, paper.id)}`, paperPackage.entries));
+    }
+
+    entries.unshift(
+      this.jsonZipEntry('metadata.json', {
+        packageType: 'full_archive',
+        schemaVersion: 1,
+        exportedAt,
+        includeAnswers: archiveDto.includeAnswers,
+        includeAnalysis: archiveDto.includeAnalysis,
+        createdBy: {
+          id: user.id,
+          username: user.username,
+          realName: user.realName,
+          userType: user.userType,
+        },
+        counts: {
+          questions: questionPackage.count,
+          questionAssets: questionPackage.assetCount,
+          papers: papers.length,
+          paperQuestions: paperQuestionCount,
+          paperAssets: paperAssetCount,
+          courses: courses.length,
+          knowledgePoints: knowledgePoints.length,
+          tags: tags.length,
+          classes: classes.length,
+          exams: exams.length,
+        },
+      }),
+      this.textZipEntry(
+        'README.txt',
+        [
+          '平台全量资源导出包',
+          `导出时间：${exportedAt}`,
+          `题目数量：${questionPackage.count}`,
+          `试卷数量：${papers.length}`,
+          '',
+          'question_bank/ 保存完整题库迁移文件。',
+          'papers/ 下包含试卷清单，以及每张试卷的题目迁移目录。',
+          'courses/、knowledge_points/、tags/、classes/、exams/ 保存基础资源清单。',
+          '本导出包不包含用户密码、登录令牌或外部账号凭据。',
+        ].join('\n'),
+      ),
+    );
+
+    const fileName = `full_archive-${taskId}.zip`;
+    const filePath = join(this.exportDir, fileName);
+    await writeFile(filePath, this.createZip(entries));
+    return `/uploads/exports/${fileName}`;
+  }
+
+  private async fullArchiveCourseRows() {
+    const courses = await this.prisma.course.findMany({
+      where: { deletedAt: null },
+      include: {
+        _count: { select: { knowledgePoints: true, questions: true, papers: true, exams: true, classes: true } },
+      },
+      orderBy: [{ sortOrder: 'asc' }, { createdAt: 'desc' }],
+    });
+    return courses.map((course) => ({
+      id: course.id,
+      name: course.name,
+      code: course.code,
+      description: course.description ?? '',
+      status: toApiEnum(course.status),
+      sortOrder: course.sortOrder,
+      knowledgePointCount: course._count.knowledgePoints,
+      questionCount: course._count.questions,
+      paperCount: course._count.papers,
+      examCount: course._count.exams,
+      classCount: course._count.classes,
+      createdAt: course.createdAt.toISOString(),
+      updatedAt: course.updatedAt.toISOString(),
+    }));
+  }
+
+  private async fullArchiveKnowledgePointRows() {
+    const points = await this.prisma.knowledgePoint.findMany({
+      where: { deletedAt: null, course: { deletedAt: null } },
+      include: {
+        course: { select: { id: true, name: true, code: true } },
+        parent: { select: { id: true, name: true, code: true } },
+      },
+      orderBy: [{ courseId: 'asc' }, { level: 'asc' }, { sortOrder: 'asc' }],
+    });
+    return points.map((point) => ({
+      id: point.id,
+      courseId: point.courseId,
+      courseName: point.course.name,
+      courseCode: point.course.code,
+      parentId: point.parentId ?? '',
+      parentName: point.parent?.name ?? '',
+      name: point.name,
+      code: point.code,
+      level: point.level,
+      sortOrder: point.sortOrder,
+      status: toApiEnum(point.status),
+      createdAt: point.createdAt.toISOString(),
+      updatedAt: point.updatedAt.toISOString(),
+    }));
+  }
+
+  private async fullArchiveTagRows() {
+    const tags = await this.prisma.tag.findMany({
+      where: { deletedAt: null },
+      include: { _count: { select: { questions: true } } },
+      orderBy: { createdAt: 'desc' },
+    });
+    return tags.map((tag) => ({
+      id: tag.id,
+      name: tag.name,
+      code: tag.code,
+      type: toApiEnum(tag.type),
+      status: toApiEnum(tag.status),
+      questionCount: tag._count.questions,
+      createdAt: tag.createdAt.toISOString(),
+      updatedAt: tag.updatedAt.toISOString(),
+    }));
+  }
+
+  private async fullArchiveClassRows() {
+    const classes = await this.prisma.classGroup.findMany({
+      where: { deletedAt: null },
+      include: { course: true, _count: { select: { students: true, teachers: true } } },
+      orderBy: [{ sortOrder: 'asc' }, { createdAt: 'desc' }],
+    });
+    return classes.map((item) => ({
+      id: item.id,
+      name: item.name,
+      code: item.code,
+      courseId: item.courseId ?? '',
+      courseName: item.course?.name ?? '',
+      description: item.description ?? '',
+      status: item.status,
+      sortOrder: item.sortOrder,
+      studentCount: item._count.students,
+      teacherCount: item._count.teachers,
+      createdAt: item.createdAt.toISOString(),
+      updatedAt: item.updatedAt.toISOString(),
+    }));
+  }
+
+  private fullArchivePaperRows(papers: FullArchivePaper[]) {
+    return papers.map((paper) => ({
+      id: paper.id,
+      name: paper.name,
+      courseId: paper.courseId,
+      courseName: paper.course.name,
+      totalScore: Number(paper.totalScore),
+      durationMinutes: paper.durationMinutes,
+      type: toApiEnum(paper.type),
+      status: toApiEnum(paper.status),
+      shuffleQuestions: paper.shuffleQuestions,
+      shuffleOptions: paper.shuffleOptions,
+      sectionCount: paper._count.sections,
+      questionCount: paper._count.questions,
+      examCount: paper._count.exams,
+      createdBy: paper.createdBy ?? '',
+      createdAt: paper.createdAt.toISOString(),
+      updatedAt: paper.updatedAt.toISOString(),
+    }));
+  }
+
+  private async fullArchiveExamRows() {
+    const exams = await this.prisma.exam.findMany({
+      where: { deletedAt: null },
+      include: {
+        course: { select: { id: true, name: true, code: true } },
+        paper: { select: { id: true, name: true } },
+        _count: { select: { attempts: true, announcements: true } },
+      },
+      orderBy: { startTime: 'desc' },
+    });
+    const classIds = [...new Set(exams.map((exam) => exam.classId).filter((id): id is string => Boolean(id)))];
+    const classGroups = classIds.length
+      ? await this.prisma.classGroup.findMany({
+          where: { id: { in: classIds } },
+          select: { id: true, name: true, code: true },
+        })
+      : [];
+    const classMap = new Map(classGroups.map((item) => [item.id, item]));
+    return exams.map((exam) => {
+      const classGroup = exam.classId ? classMap.get(exam.classId) : undefined;
+      return {
+        id: exam.id,
+        name: exam.name,
+        paperId: exam.paperId,
+        paperName: exam.paper.name,
+        courseId: exam.courseId,
+        courseName: exam.course.name,
+        courseCode: exam.course.code,
+        classId: exam.classId ?? '',
+        className: classGroup?.name ?? '',
+        classCode: classGroup?.code ?? '',
+        startTime: exam.startTime.toISOString(),
+        endTime: exam.endTime.toISOString(),
+        durationMinutes: exam.durationMinutes,
+        attemptLimit: exam.attemptLimit,
+        showAnswerMode: toApiEnum(exam.showAnswerMode),
+        showScoreMode: toApiEnum(exam.showScoreMode),
+        status: toApiEnum(exam.status),
+        attemptCount: exam._count.attempts,
+        announcementCount: exam._count.announcements,
+        antiCheatConfigJson: JSON.stringify(exam.antiCheatConfigJson ?? {}),
+        createdBy: exam.createdBy ?? '',
+        createdAt: exam.createdAt.toISOString(),
+        updatedAt: exam.updatedAt.toISOString(),
+      };
+    });
+  }
+
+  private addRowsEntries(entries: ZipEntry[], folder: string, name: string, rows: Array<Record<string, unknown>>, exportedAt: string) {
+    entries.push(
+      this.csvZipEntry(`${folder}/${name}.csv`, rows),
+      this.jsonZipEntry(`${folder}/${name}.json`, {
+        schemaVersion: 1,
+        exportedAt,
+        count: rows.length,
+        items: rows,
+      }),
+    );
+  }
+
+  private prefixZipEntries(prefix: string, entries: ZipEntry[]) {
+    const normalizedPrefix = prefix.replace(/^\/+|\/+$/g, '');
+    return entries.map((entry) => ({
+      ...entry,
+      name: `${normalizedPrefix}/${entry.name.replace(/^\/+/, '')}`,
+    }));
+  }
+
+  private safeArchiveFolderName(name: string, id: string) {
+    const safeName = this.safeZipName(name) || 'paper';
+    const suffix = id.replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 8);
+    return suffix ? `${safeName}-${suffix}` : safeName;
+  }
+
+  private jsonZipEntry(name: string, value: unknown): ZipEntry {
+    return {
+      name,
+      data: Buffer.from(
+        JSON.stringify(
+          value,
+          (_key, item) => {
+            if (typeof item === 'bigint') return item.toString();
+            return item;
+          },
+          2,
+        ),
+        'utf8',
+      ),
+    };
+  }
+
+  private csvZipEntry(name: string, rows: Array<Record<string, unknown>>): ZipEntry {
+    return { name, data: Buffer.from(this.toCsv(rows), 'utf8') };
+  }
+
+  private textZipEntry(name: string, value: string): ZipEntry {
+    return { name, data: Buffer.from(value, 'utf8') };
+  }
+
   private async writeQuestionPackageExport(taskId: string, dto: CreateExportDto) {
+    const packageContent = await this.buildQuestionPackageEntries(dto);
+    await mkdir(this.exportDir, { recursive: true });
+    const fileName = `question_bank-${taskId}.zip`;
+    const filePath = join(this.exportDir, fileName);
+    await writeFile(filePath, this.createZip(packageContent.entries));
+    return `/uploads/exports/${fileName}`;
+  }
+
+  private async buildQuestionPackageEntries(dto: CreateExportDto, allowEmpty = false) {
     const questions = await this.loadQuestionExportItems(dto);
-    if (!questions.length) {
+    if (!questions.length && !allowEmpty) {
       throw new BadRequestException('没有可导出的题目');
     }
 
-    await mkdir(this.exportDir, { recursive: true });
     const assetMap = new Map<string, string>();
     for (const question of questions) {
       this.collectMarkdownUploads(assetMap, question.content, question.analysis ?? '');
@@ -1455,19 +1814,28 @@ export class ExportsService implements OnModuleInit {
       entries.push({ name: zipPath, data: await readFile(localPath) });
     }
 
-    const fileName = `question_bank-${taskId}.zip`;
-    const filePath = join(this.exportDir, fileName);
-    await writeFile(filePath, this.createZip(entries));
-    return `/uploads/exports/${fileName}`;
+    return {
+      entries,
+      count: questions.length,
+      assetCount: assetMap.size,
+    };
   }
 
   private async writePaperDocumentPackageExport(taskId: string, dto: CreateExportDto) {
+    const packageContent = await this.buildPaperDocumentPackageEntries(dto);
+    await mkdir(this.exportDir, { recursive: true });
+    const fileName = `paper_document-${taskId}.zip`;
+    const filePath = join(this.exportDir, fileName);
+    await writeFile(filePath, this.createZip(packageContent.entries));
+    return `/uploads/exports/${fileName}`;
+  }
+
+  private async buildPaperDocumentPackageEntries(dto: CreateExportDto, allowEmpty = false) {
     const content = await this.paperDocumentContent(dto);
-    if (!content.questions.length) {
+    if (!content.questions.length && !allowEmpty) {
       throw new BadRequestException('试卷内没有可导出的题目');
     }
 
-    await mkdir(this.exportDir, { recursive: true });
     const assetMap = new Map<string, string>();
     for (const question of content.questions) {
       this.collectExportQuestionUploads(assetMap, question);
@@ -1555,10 +1923,12 @@ export class ExportsService implements OnModuleInit {
       entries.push({ name: zipPath, data: await readFile(localPath) });
     }
 
-    const fileName = `paper_document-${taskId}.zip`;
-    const filePath = join(this.exportDir, fileName);
-    await writeFile(filePath, this.createZip(entries));
-    return `/uploads/exports/${fileName}`;
+    return {
+      entries,
+      count: content.questions.length,
+      assetCount: assetMap.size,
+      paperName: content.title,
+    };
   }
 
   private questionPackageRecord(question: QuestionExportEntity, assetMap: Map<string, string>, dto: CreateExportDto) {
@@ -1576,6 +1946,8 @@ export class ExportsService implements OnModuleInit {
         id: question.courseId,
         name: question.course.name,
       },
+      courseId: question.courseId,
+      courseName: question.course.name,
       contentMarkdown: this.rewriteMarkdownUploads(question.content, assetMap),
       options: question.options.map((option) => ({
         id: option.id,
@@ -1598,6 +1970,8 @@ export class ExportsService implements OnModuleInit {
       })),
       tagNames: question.tags.map((item) => item.tag.name),
       importPayload: {
+        courseId: question.courseId,
+        courseName: question.course.name,
         type: toApiEnum(question.type),
         title: question.title,
         content: this.rewriteMarkdownUploads(question.content, assetMap),
@@ -1666,6 +2040,8 @@ export class ExportsService implements OnModuleInit {
       tagNames: question.tagNames ?? [],
       allowOptionShuffle: question.allowOptionShuffle ?? false,
       importPayload: {
+        courseId: question.courseId ?? '',
+        courseName: question.courseName ?? '',
         type: question.type,
         title: question.title,
         content: this.rewriteMarkdownUploads(question.content, assetMap),
@@ -1971,6 +2347,7 @@ export class ExportsService implements OnModuleInit {
   private questionImportBlock(question: QuestionExportEntity, assetMap: Map<string, string>, includeAnalysis: boolean) {
     const lines = [
       `标题：${question.title}`,
+      `课程：${question.course.name}`,
       `题型：${this.typeLabel(toApiEnum(question.type))}`,
       `难度：${question.difficulty}`,
       `分值：${Number(question.defaultScore)}`,
@@ -1998,6 +2375,7 @@ export class ExportsService implements OnModuleInit {
   private exportQuestionImportBlock(question: ExportQuestion, assetMap: Map<string, string>, includeAnalysis: boolean) {
     const lines = [
       `标题：${question.title}`,
+      `课程：${question.courseName ?? ''}`,
       `题型：${this.typeLabel(question.type)}`,
       `难度：${question.difficulty ?? 1}`,
       `分值：${question.defaultScore ?? question.score}`,

@@ -162,12 +162,10 @@
                 </div>
                 <div v-if="programmingResult.message" class="code-submit-message">{{ programmingResult.message }}</div>
               </el-alert>
-              <el-input
+              <CodeAnswerEditor
                 v-model="answer.code"
-                class="answer-input code-answer-input"
-                type="textarea"
+                :language="answer.language"
                 :rows="18"
-                placeholder="在这里编写代码"
               />
             </div>
           </div>
@@ -198,7 +196,11 @@
             </el-checkbox>
           </el-checkbox-group>
 
-          <el-input v-else-if="detail.type === 'fill_blank'" v-model="answer.blanks[0].value" class="answer-input" placeholder="填写答案" />
+          <FillBlankAnswerInputs
+            v-else-if="detail.type === 'fill_blank'"
+            v-model="answer.blanks"
+            :count="blankCountFor(detail)"
+          />
           <el-input v-else v-model="answer.text" class="answer-input" type="textarea" :rows="5" placeholder="填写答案" />
 
           <el-alert
@@ -235,6 +237,8 @@ import { ElMessage } from 'element-plus';
 import { Check, Delete, Refresh, Search, View } from '@element-plus/icons-vue';
 import { api, buildQuery, getCurrentUser, getToken, onSessionChange } from '../api';
 import AnswerFeedback from '../components/AnswerFeedback.vue';
+import CodeAnswerEditor from '../components/CodeAnswerEditor.vue';
+import FillBlankAnswerInputs from '../components/FillBlankAnswerInputs.vue';
 import MarkdownRenderer from '../components/MarkdownRenderer.vue';
 import { useResponsiveColumns } from '../composables/useResponsiveColumns';
 
@@ -369,21 +373,18 @@ async function checkAnswer() {
   });
 }
 
-function emptyAnswer() {
+function emptyAnswer(question = null) {
   return {
     selectedOptionIds: [],
-    blanks: [{ index: 1, value: '' }],
+    blanks: blankAnswerList(question),
     text: '',
     code: '',
-    language: 'cc.cc17o2',
+    language: languageOptionsFor(question)[0] || 'cc.cc17o2',
   };
 }
 
 function clearAnswer() {
-  Object.assign(answer, emptyAnswer());
-  if (detail.value?.type === 'programming') {
-    answer.language = languageOptionsFor(detail.value)[0] || 'cc.cc17o2';
-  }
+  Object.assign(answer, emptyAnswer(detail.value));
   result.value = null;
   programmingResult.value = null;
 }
@@ -477,6 +478,29 @@ function typeLabel(value) {
     arduino_project: 'Arduino 项目题',
   };
   return map[value] ?? value;
+}
+
+function blankCountFor(question) {
+  const explicit = Number(question?.blankCount);
+  if (Number.isFinite(explicit) && explicit > 0) return Math.round(explicit);
+  const answerBlanks = question?.answer?.blanks;
+  if (Array.isArray(answerBlanks) && answerBlanks.length) return answerBlanks.length;
+  return Math.max(1, countBlankMarkers(question?.content));
+}
+
+function blankAnswerList(question, existing = []) {
+  const source = Array.isArray(existing) ? existing : [];
+  const count = Math.max(blankCountFor(question), ...source.map((blank) => Number(blank?.index) || 0), 1);
+  return Array.from({ length: count }, (_, index) => {
+    const blankIndex = index + 1;
+    const current = source.find((blank) => Number(blank?.index) === blankIndex);
+    return { index: blankIndex, value: current?.value ?? '' };
+  });
+}
+
+function countBlankMarkers(content) {
+  const matches = String(content || '').match(/_{3,}|\(\s*\)|（\s*）|\[\s*\]/g);
+  return matches?.length || 1;
 }
 
 onMounted(() => {
