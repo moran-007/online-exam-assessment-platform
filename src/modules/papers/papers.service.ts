@@ -56,7 +56,12 @@ export class PapersService {
         where,
         include: {
           course: { select: { name: true } },
-          _count: { select: { questions: true } },
+          _count: {
+            select: {
+              questions: true,
+              exams: { where: { deletedAt: null } },
+            },
+          },
         },
         orderBy: this.paperOrderBy(query),
         skip,
@@ -73,6 +78,8 @@ export class PapersService {
         totalScore: Number(paper.totalScore),
         courseName: paper.course.name,
         questionCount: paper._count.questions,
+        examUsageCount: paper._count.exams,
+        examOccupied: paper._count.exams > 0,
       })),
       page,
       pageSize,
@@ -228,6 +235,7 @@ export class PapersService {
           orderBy: { sortOrder: 'asc' },
         },
         rules: true,
+        _count: { select: { exams: { where: { deletedAt: null } } } },
       },
     });
 
@@ -1541,13 +1549,17 @@ export class PapersService {
       sections: { include: { questions: true } };
       questions: true;
       rules: true;
+      _count: { select: { exams: true } };
     };
   }>) {
+    const examUsageCount = paper._count.exams;
     return {
       ...paper,
       type: toApiEnum(paper.type),
       status: toApiEnum(paper.status),
       totalScore: Number(paper.totalScore),
+      examUsageCount,
+      examOccupied: examUsageCount > 0,
       sections: paper.sections.map((section) => ({
         ...section,
         score: Number(section.score),

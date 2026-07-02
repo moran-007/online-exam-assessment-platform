@@ -11,6 +11,7 @@ import {
   ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
+import { PaginationQueryDto } from '../../../common/dto/pagination-query.dto';
 
 export class SaveAnswerDto {
   @IsUUID()
@@ -44,6 +45,16 @@ export class QueryStudentExamDto {
   @IsOptional()
   @IsIn(['asc', 'desc'])
   sortOrder?: 'asc' | 'desc';
+}
+
+export class QueryStudentPaperDto extends PaginationQueryDto {
+  @IsOptional()
+  @IsString()
+  keyword?: string;
+
+  @IsOptional()
+  @IsUUID()
+  courseId?: string;
 }
 
 export class SimulateStudentDto {

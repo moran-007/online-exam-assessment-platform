@@ -3,12 +3,14 @@ import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Permissions } from '../../common/decorators/permissions.decorator';
 import { Public } from '../../common/decorators/public.decorator';
+import { Roles } from '../../common/decorators/roles.decorator';
 import { RequestUser } from '../../common/interfaces/request-user.interface';
 import {
   BindHydroAccountDto,
   BindHydroProblemDto,
   PullHydroProblemDto,
   QueryHydroSummaryDto,
+  SaveHydroPlatformDto,
   SubmitHydroCodeDto,
   WriteBackHydroResultDto,
 } from './dto/hydro.dto';
@@ -27,8 +29,30 @@ export class HydroController {
   }
 
   @Get('platforms')
-  platforms() {
-    return this.hydroService.platforms();
+  platforms(@Query('includeDisabled') includeDisabled: string | undefined, @CurrentUser() user: RequestUser) {
+    return this.hydroService.platforms(user, includeDisabled === 'true');
+  }
+
+  @Post('platforms')
+  @Roles('SUPER_ADMIN')
+  createPlatform(@Body() dto: SaveHydroPlatformDto, @CurrentUser() user: RequestUser) {
+    return this.hydroService.createPlatform(dto, user);
+  }
+
+  @Patch('platforms/:id')
+  @Roles('SUPER_ADMIN')
+  updatePlatform(
+    @Param('id') id: string,
+    @Body() dto: SaveHydroPlatformDto,
+    @CurrentUser() user: RequestUser,
+  ) {
+    return this.hydroService.updatePlatform(id, dto, user);
+  }
+
+  @Delete('platforms/:id')
+  @Roles('SUPER_ADMIN')
+  deletePlatform(@Param('id') id: string, @CurrentUser() user: RequestUser) {
+    return this.hydroService.deletePlatform(id, user);
   }
 
   @Get('problems')
@@ -87,6 +111,12 @@ export class HydroController {
     return this.hydroService.testAccount(accountId, user);
   }
 
+  @Delete('accounts/:accountId')
+  @Permissions('class:update')
+  deleteAccount(@Param('accountId') accountId: string, @CurrentUser() user: RequestUser) {
+    return this.hydroService.deleteAccount(accountId, user);
+  }
+
   @Get('my/accounts')
   myAccounts(@CurrentUser() user: RequestUser) {
     return this.hydroService.myAccounts(user);
@@ -105,6 +135,11 @@ export class HydroController {
   @Post('my/accounts/:accountId/test')
   testMyAccount(@Param('accountId') accountId: string, @CurrentUser() user: RequestUser) {
     return this.hydroService.testMyAccount(accountId, user);
+  }
+
+  @Delete('my/accounts/:accountId')
+  deleteMyAccount(@Param('accountId') accountId: string, @CurrentUser() user: RequestUser) {
+    return this.hydroService.deleteMyAccount(accountId, user);
   }
 
   @Post('attempts/:attemptId/questions/:questionId/submit-code')

@@ -6,8 +6,10 @@ import { Roles } from '../../common/decorators/roles.decorator';
 import { RequestUser } from '../../common/interfaces/request-user.interface';
 import { BatchCreateStudentsDto, BatchCreateTeachersDto, CreateStudentDto } from './dto/batch-create-students.dto';
 import {
+  ChangeOwnPasswordDto,
   CreateManagedUserDto,
   ListManagedUsersQueryDto,
+  ResetManagedUserPasswordDto,
   SaveRoleDto,
   UpdateManagedUserDto,
   UpdateRolePermissionsDto,
@@ -66,6 +68,17 @@ export class UsersController {
   @Roles('SUPER_ADMIN')
   createUser(@Body() dto: CreateManagedUserDto, @CurrentUser() user: RequestUser) {
     return this.usersService.createManagedUser(dto, user);
+  }
+
+  @Post('me/password')
+  changeOwnPassword(@Body() dto: ChangeOwnPasswordDto, @CurrentUser() user: RequestUser) {
+    return this.usersService.changeOwnPassword(dto, user);
+  }
+
+  @Post(':id/reset-password')
+  @Roles('SUPER_ADMIN')
+  resetPassword(@Param('id') id: string, @Body() dto: ResetManagedUserPasswordDto, @CurrentUser() user: RequestUser) {
+    return this.usersService.resetManagedUserPassword(id, dto, user);
   }
 
   @Patch(':id')

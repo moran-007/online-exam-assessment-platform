@@ -8,6 +8,7 @@ import {
   BatchWrongQuestionDto,
   GenerateWrongQuestionPaperDto,
   QueryStudentExamDto,
+  QueryStudentPaperDto,
   RecordWrongQuestionPracticeDto,
   SaveAnswerDto,
   SaveAnswersDto,
@@ -122,6 +123,11 @@ export class StudentController {
   @Post('wrong-questions/paper')
   generateWrongQuestionPaper(@Body() dto: GenerateWrongQuestionPaperDto, @CurrentUser() user: RequestUser) {
     return this.studentService.generateWrongQuestionPaper(user, dto);
+  }
+
+  @Get('papers')
+  papers(@CurrentUser() user: RequestUser, @Query() query: QueryStudentPaperDto) {
+    return this.studentService.studentPapers(user, query);
   }
 
   @Get('papers/:paperId/preview')

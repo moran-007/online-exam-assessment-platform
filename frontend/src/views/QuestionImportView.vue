@@ -21,7 +21,7 @@
     <section class="panel import-shared-panel">
       <el-form label-width="72px" class="import-shared-form">
         <el-form-item label="课程">
-          <el-select v-model="sharedCourseId" filterable style="width: 100%" @change="handleSharedCourseChange">
+          <el-select v-model="sharedCourseId" filterable clearable style="width: 100%" @change="handleSharedCourseChange">
             <el-option v-for="course in courses" :key="course.id" :label="course.name" :value="course.id" />
           </el-select>
         </el-form-item>
@@ -616,6 +616,7 @@ const tags = ref([]);
 const knowledgeTree = ref([]);
 const importMode = ref('single');
 const sharedCourseId = ref('');
+const sharedCourseTouched = ref(false);
 const sharedKnowledgePointIds = ref([]);
 const sharedTagNames = ref([]);
 const publishAfterImport = ref(true);
@@ -797,6 +798,7 @@ function handleSingleHydroAccountChange(accountId) {
 }
 
 async function handleSharedCourseChange() {
+  sharedCourseTouched.value = true;
   sharedKnowledgePointIds.value = [];
   await loadKnowledgeTree();
   refreshPreview();
@@ -820,6 +822,7 @@ function buildSinglePreview() {
     valid: true,
     number: 1,
     courseId: sharedCourseId.value,
+    courseName: selectedCourseName(sharedCourseId.value),
     knowledgePointIds: [...sharedKnowledgePointIds.value],
     knowledgePointNames: [...selectedKnowledgeNames.value],
     type: singleForm.type,
@@ -850,7 +853,7 @@ function buildSinglePreview() {
 async function importSingle() {
   singleSaving.value = true;
   try {
-    const { tagNames, knowledgePointNames, answerText, number, statusText, valid, ...payload } = buildSinglePreview();
+    const { tagNames, answerText, number, statusText, valid, ...payload } = buildSinglePreview();
     validatePayload(payload, '当前题目');
     const duplicateResult = await runSingleDuplicateCheck({ silent: true });
     if (duplicateResult && duplicateResult.status !== 'ok') {
@@ -1109,7 +1112,6 @@ async function importBatch() {
         statusText,
         valid,
         tagNames,
-        knowledgePointNames,
         conflictStatus,
         conflictMessage,
         conflictMatches,
@@ -1179,18 +1181,78 @@ async function runDuplicateCheck(options = {}) {
 function buildDuplicateCheckPayload(row) {
   return {
     courseId: row.courseId,
+    courseName: row.courseName,
     type: row.type,
     title: row.title,
-    content: row.content,
-    difficulty: row.difficulty,
-    defaultScore: row.defaultScore,
-    analysis: row.analysis,
-    allowOptionShuffle: row.allowOptionShuffle,
-    knowledgePointIds: row.knowledgePointIds ?? [],
-    options: row.options ?? [],
-    answer: row.answer,
-    scoringRule: row.scoringRule,
+    comparable: buildComparableSummary(row),
   };
+}
+
+function buildComparableSummary(row) {
+  const type = normalizeType(row.type || 'single_choice');
+  const titleKey = normalizeComparableText(row.title);
+  const contentKey = normalizeComparableText(row.content);
+  const options = comparableOptions(row.options ?? []);
+  const optionContentKey = options.map((option) => normalizeComparableText(option.content)).join('|');
+  const optionFullKey = options
+    .map((option) => `${normalizeComparableText(option.content)}:${option.isCorrect ? '1' : '0'}`)
+    .join('|');
+  const answerKey = stableStringify(isChoiceType(type) ? {} : row.answer ?? {});
+
+  return {
+    titleKey,
+    contentHash: hashComparableText(contentKey),
+    contentLength: contentKey.length,
+    optionContentHash: hashComparableText(optionContentKey),
+    optionContentLength: optionContentKey.length,
+    optionFullHash: hashComparableText(optionFullKey),
+    optionFullLength: optionFullKey.length,
+    answerHash: hashComparableText(answerKey),
+    answerLength: answerKey.length,
+  };
+}
+
+function comparableOptions(options) {
+  return [...(options ?? [])]
+    .sort((a, b) => Number(a.sortOrder ?? 0) - Number(b.sortOrder ?? 0) || String(a.optionKey ?? '').localeCompare(String(b.optionKey ?? '')))
+    .map((option, index) => ({
+      optionKey: String(option.optionKey ?? option.label ?? optionKeyForIndex(index)).trim(),
+      content: String(option.content ?? '').trim(),
+      isCorrect: Boolean(option.isCorrect),
+    }));
+}
+
+function normalizeComparableText(value) {
+  return String(value ?? '')
+    .replace(/!\[[^\]]*]\([^)]+\)/g, '![image]')
+    .replace(/\[[^\]]+]\([^)]+\)/g, '[link]')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+}
+
+function stableStringify(value) {
+  if (Array.isArray(value)) {
+    return `[${value.map((item) => stableStringify(item)).join(',')}]`;
+  }
+  if (value && typeof value === 'object') {
+    return `{${Object.keys(value)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${stableStringify(value[key])}`)
+      .join(',')}}`;
+  }
+  return JSON.stringify(value ?? null);
+}
+
+function hashComparableText(value) {
+  let hash = 0xcbf29ce484222325n;
+  const prime = 0x100000001b3n;
+  const mask = 0xffffffffffffffffn;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= BigInt(value.charCodeAt(index));
+    hash = (hash * prime) & mask;
+  }
+  return hash.toString(16).padStart(16, '0');
 }
 
 function shouldSkipBatchRow(row) {
@@ -1358,6 +1420,7 @@ function parseQuestionBlock(block, number, answerConfig) {
   const sections = { content: [], options: [], analysis: [] };
   const fieldMap = {
     标题: 'title',
+    课程: 'courseName',
     题型: 'type',
     难度: 'difficulty',
     分值: 'defaultScore',
@@ -1382,7 +1445,7 @@ function parseQuestionBlock(block, number, answerConfig) {
 
   for (const line of block.split('\n')) {
     const trimmed = line.trim();
-    const fieldMatch = trimmed.match(/^(标题|题型|难度|分值|标签|知识点|答案|Hydro\s*题目|Hydro\s*题号|hydroProblem|hydroProblemId|hydroProblemName|externalProblemId|Hydro\s*链接|Hydro\s*地址|hydroProblemUrl|externalProblemUrl|Hydro\s*语言|hydroLanguages)[:：]\s*(.*)$/i);
+    const fieldMatch = trimmed.match(/^(标题|课程|题型|难度|分值|标签|知识点|答案|Hydro\s*题目|Hydro\s*题号|hydroProblem|hydroProblemId|hydroProblemName|externalProblemId|Hydro\s*链接|Hydro\s*地址|hydroProblemUrl|externalProblemUrl|Hydro\s*语言|hydroLanguages)[:：]\s*(.*)$/i);
     if (!currentSection && fieldMatch) {
       const fieldKey = fieldMatch[1].replace(/\s+/g, '').toLowerCase();
       fields[fieldMap[fieldKey] ?? fieldMap[fieldMatch[1]]] = fieldMatch[2].trim();
@@ -1408,10 +1471,13 @@ function parseQuestionBlock(block, number, answerConfig) {
   const answerText = answerConfig.byIndex.get(number) ?? answerConfig.byTitle.get(title) ?? fields.answer ?? '';
   const answerKeys = parseAnswerKeys(answerText);
   const knowledgePointNames = parseTagNames(fields.knowledgePoints);
+  const courseName = normalizeCourseName(fields.courseName);
+  const courseId = courseName ? resolveCourseIdForImportedQuestion('', courseName) : sharedCourseId.value;
   const payload = {
     valid: true,
     number,
-    courseId: sharedCourseId.value,
+    courseId,
+    courseName: selectedCourseName(courseId) || courseName,
     knowledgePointIds: resolveKnowledgePointIdsByName(knowledgePointNames),
     knowledgePointNames,
     type,
@@ -1486,7 +1552,7 @@ function parseOptions(text, answerKeys, type) {
 }
 
 function validatePayload(payload, label) {
-  if (!payload.courseId) throw new Error(`${label}：请选择课程`);
+  if (!payload.courseId && !normalizeCourseName(payload.courseName)) throw new Error(`${label}：请选择课程或填写课程名称`);
   if (!payload.title?.trim()) throw new Error(`${label}：请填写标题`);
   if (!payload.content?.trim()) throw new Error(`${label}：请填写题干`);
   if (!Number.isFinite(Number(payload.difficulty)) || payload.difficulty < 1 || payload.difficulty > 5) {
@@ -1722,10 +1788,13 @@ function ensurePortableCsvRows(rows) {
 function buildPortablePreviewRow(question, index) {
   const number = index + 1;
   const knowledgePointNames = mergeTags(selectedKnowledgeNames.value, question.knowledgePointNames);
+  const courseName = normalizeCourseName(question.courseName ?? question.course?.name);
+  const courseId = resolveCourseIdForImportedQuestion(question.courseId, courseName);
   const payload = {
     valid: true,
     number,
-    courseId: sharedCourseId.value || question.courseId,
+    courseId,
+    courseName: selectedCourseName(courseId) || courseName,
     knowledgePointIds: mergeIds(sharedKnowledgePointIds.value, resolveKnowledgePointIdsByName(knowledgePointNames)),
     knowledgePointNames,
     type: normalizeType(question.type || 'single_choice'),
@@ -1989,6 +2058,7 @@ function normalizePortableQuestion(record) {
   const source = importPayload && typeof importPayload === 'object' && !Array.isArray(importPayload)
     ? { ...importPayload }
     : { ...record };
+  const course = source.course ?? record?.course ?? {};
   const tagNames = normalizeNameList(source.tagNames ?? record?.tagNames ?? record?.tags);
   const knowledgePointNames = normalizeNameList(source.knowledgePointNames ?? record?.knowledgePointNames ?? record?.knowledgePoints);
   const answer = normalizePortableJson(source.answerJson ?? source.answer ?? record?.answerJson ?? record?.answer);
@@ -2019,8 +2089,8 @@ function normalizePortableQuestion(record) {
     scoringRule,
     programmingRef,
     allowOptionShuffle: normalizeBoolean(source.allowOptionShuffle ?? record?.allowOptionShuffle),
-    courseId: source.courseId ?? record?.courseId,
-    courseName: source.courseName ?? record?.courseName,
+    courseId: source.courseId ?? record?.courseId ?? course?.id,
+    courseName: source.courseName ?? record?.courseName ?? course?.name,
   };
 }
 
@@ -2109,10 +2179,11 @@ function portableQuestionsToBatch(questions) {
 function portableQuestionBlock(question) {
   const lines = [
     `标题：${question.title}`,
+    question.courseName ? `课程：${question.courseName}` : '',
     `题型：${typeLabel(question.type)}`,
     `难度：${question.difficulty}`,
     `分值：${question.defaultScore}`,
-  ];
+  ].filter(Boolean);
   if (question.tagNames?.length) lines.push(`标签：${question.tagNames.join(',')}`);
   if (question.knowledgePointNames?.length) lines.push(`知识点：${question.knowledgePointNames.join(',')}`);
   if (question.type === 'programming' && question.programmingRef?.externalProblemId) {
@@ -2492,6 +2563,30 @@ function parseTagNames(value) {
     .split(/[,，、|/]+/)
     .map((item) => item.trim())
     .filter(isMeaningfulName);
+}
+
+function normalizeCourseName(value) {
+  const text = String(value ?? '').trim().replace(/\s+/g, ' ');
+  return isMeaningfulName(text) ? text : '';
+}
+
+function selectedCourseName(courseId) {
+  return courses.value.find((course) => course.id === courseId)?.name ?? '';
+}
+
+function resolveCourseIdByName(name) {
+  const key = normalizeCourseName(name).toLowerCase();
+  if (!key) return '';
+  return courses.value.find((course) => normalizeCourseName(course.name).toLowerCase() === key)?.id ?? '';
+}
+
+function resolveCourseIdForImportedQuestion(sourceCourseId, courseName) {
+  if (sharedCourseTouched.value && sharedCourseId.value) return sharedCourseId.value;
+  const matchedCourseId = resolveCourseIdByName(courseName);
+  if (matchedCourseId) return matchedCourseId;
+  const sourceId = String(sourceCourseId ?? '').trim();
+  if (sourceId && courses.value.some((course) => course.id === sourceId)) return sourceId;
+  return sharedCourseTouched.value ? sharedCourseId.value : '';
 }
 
 function resolveKnowledgePointIdsByName(names = []) {

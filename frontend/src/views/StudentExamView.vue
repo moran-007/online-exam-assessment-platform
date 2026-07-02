@@ -19,7 +19,13 @@
           <template #default="{ row }">
             <el-table :data="row.attempts || []" size="small">
               <el-table-column prop="attemptNo" label="次数" width="80" />
-              <el-table-column prop="status" label="状态" width="120" />
+              <el-table-column prop="status" label="状态" width="120">
+                <template #default="{ row: attempt }">
+                  <el-tag :type="statusTagType('attempt', attempt.status)" effect="plain">
+                    {{ statusLabel('attempt', attempt.status) }}
+                  </el-tag>
+                </template>
+              </el-table-column>
               <el-table-column prop="totalScore" label="分数" width="90" />
               <el-table-column prop="submittedAt" label="提交时间" min-width="180" />
               <el-table-column label="操作" width="100">
@@ -34,7 +40,13 @@
         </el-table-column>
         <el-table-column prop="name" label="考试" min-width="180" sortable="custom" />
         <el-table-column v-if="showMediumColumns" prop="courseName" label="课程" width="140" />
-        <el-table-column prop="status" label="状态" width="100" sortable="custom" />
+        <el-table-column prop="status" label="状态" width="110" sortable="custom">
+          <template #default="{ row }">
+            <el-tag :type="statusTagType('exam', row.status)" effect="plain">
+              {{ statusLabel('exam', row.status) }}
+            </el-tag>
+          </template>
+        </el-table-column>
         <el-table-column v-if="showLowColumns" prop="startTime" label="开始时间" width="170" sortable="custom">
           <template #default="{ row }">{{ formatDateTime(row.startTime) }}</template>
         </el-table-column>
@@ -46,7 +58,13 @@
             <el-tag :type="timeTagType(row)" effect="plain">{{ examTimeHint(row) }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="attemptStatus" label="作答" width="120" />
+        <el-table-column prop="attemptStatus" label="作答" width="120">
+          <template #default="{ row }">
+            <el-tag :type="statusTagType('attempt', row.attemptStatus)" effect="plain">
+              {{ statusLabel('attempt', row.attemptStatus) }}
+            </el-tag>
+          </template>
+        </el-table-column>
         <el-table-column label="次数" width="120">
           <template #default="{ row }">
             {{ row.attemptUsedCount || 0 }} / {{ row.attemptLimit || 1 }}
@@ -55,9 +73,9 @@
         <el-table-column v-if="showMediumColumns" prop="durationMinutes" label="时长" width="90" sortable="custom" />
         <el-table-column label="操作" width="100">
           <template #default="{ row }">
-            <div class="question-actions">
-              <el-dropdown trigger="click" @command="(command) => handleStudentExamCommand(row, command)" @click.stop>
-                <el-button size="small">操作</el-button>
+            <div class="question-actions row-action-cell" @click.stop @mousedown.stop>
+              <el-dropdown trigger="click" @command="(command) => handleStudentExamCommand(row, command)">
+                <el-button size="small" @click.stop>操作</el-button>
                 <template #dropdown>
                   <el-dropdown-menu>
                     <el-dropdown-item command="enter" :disabled="!canEnter(row)">{{ enterText(row) }}</el-dropdown-item>
@@ -111,6 +129,7 @@ import { DataAnalysis, Refresh } from '@element-plus/icons-vue';
 import { api, buildQuery } from '../api';
 import MarkdownRenderer from '../components/MarkdownRenderer.vue';
 import { useResponsiveColumns } from '../composables/useResponsiveColumns';
+import { statusLabel, statusTagType } from '../statusMeta';
 
 const router = useRouter();
 const { showMediumColumns, showLowColumns } = useResponsiveColumns();

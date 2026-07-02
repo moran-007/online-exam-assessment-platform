@@ -18,7 +18,7 @@
         </el-form-item>
         <el-form-item label="平台">
           <el-select v-model="filters.platformCode" clearable style="width: 180px">
-            <el-option v-for="platform in platforms" :key="platform.code" :label="platform.name" :value="platform.code" />
+            <el-option v-for="platform in selectablePlatforms" :key="platform.code" :label="platform.name" :value="platform.code" />
           </el-select>
         </el-form-item>
         <el-form-item label="站点">
@@ -28,6 +28,33 @@
           <el-button type="primary" @click="loadAccounts">查询</el-button>
         </el-form-item>
       </el-form>
+    </div>
+
+    <div v-if="isSuperAdmin" class="panel external-platform-panel">
+      <div class="paper-preview-head">
+        <div>
+          <h2>接入平台</h2>
+          <span class="muted">配置外部账号表单中的平台下拉选项</span>
+        </div>
+        <el-button type="primary" :icon="Plus" @click="openCreatePlatformDialog">新增平台</el-button>
+      </div>
+      <el-table :data="platforms" size="small">
+        <el-table-column prop="name" label="平台名称" min-width="140" />
+        <el-table-column prop="code" label="编码" width="120" />
+        <el-table-column prop="baseUrl" label="站点" min-width="220" />
+        <el-table-column prop="sortOrder" label="排序" width="80" />
+        <el-table-column label="状态" width="90">
+          <template #default="{ row }">
+            <el-tag :type="row.enabled === false ? 'info' : 'success'">{{ row.enabled === false ? '停用' : '启用' }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="操作" width="150" fixed="right">
+          <template #default="{ row }">
+            <el-button link type="primary" :icon="Edit" @click="openEditPlatformDialog(row)">编辑</el-button>
+            <el-button link type="danger" :icon="Delete" @click="deletePlatform(row)">删除</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
     </div>
 
     <div class="panel">
@@ -71,11 +98,12 @@
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="190" fixed="right">
+        <el-table-column label="操作" width="240" fixed="right">
           <template #default="{ row }">
             <el-button link type="primary" @click="openEditDialog(row)">编辑</el-button>
             <el-button link type="primary" :loading="testingId === row.id" @click="testAccount(row)">检测</el-button>
             <el-button link :icon="Link" @click="openOj(row)">打开</el-button>
+            <el-button link type="danger" :icon="Delete" @click="deleteAccount(row)">删除</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -106,7 +134,7 @@
         <el-form-item label="接入平台">
           <el-select v-model="accountForm.platformCode" style="width: 100%" @change="handlePlatformChange">
             <el-option
-              v-for="platform in platforms"
+              v-for="platform in selectablePlatforms"
               :key="platform.code"
               :label="`${platform.name}（${platform.baseUrl}）`"
               :value="platform.code"
@@ -143,13 +171,37 @@
         <el-button type="primary" :loading="saving" @click="saveAccount">保存</el-button>
       </template>
     </el-dialog>
+
+    <el-dialog v-model="platformDialogVisible" :title="platformForm.id ? '编辑接入平台' : '新增接入平台'" width="520px">
+      <el-form label-width="96px">
+        <el-form-item label="平台名称">
+          <el-input v-model="platformForm.name" placeholder="例如：Hydro / Tarjan OJ" />
+        </el-form-item>
+        <el-form-item label="平台编码">
+          <el-input v-model="platformForm.code" placeholder="例如：hydro" />
+        </el-form-item>
+        <el-form-item label="OJ站点">
+          <el-input v-model="platformForm.baseUrl" placeholder="http://moran007.top" />
+        </el-form-item>
+        <el-form-item label="排序">
+          <el-input-number v-model="platformForm.sortOrder" :min="0" :step="1" />
+        </el-form-item>
+        <el-form-item label="启用状态">
+          <el-segmented v-model="platformForm.enabled" :options="platformStatusOptions" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="platformDialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="platformSaving" @click="savePlatform">保存</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue';
-import { ElMessage } from 'element-plus';
-import { Link, Refresh } from '@element-plus/icons-vue';
+import { ElMessage, ElMessageBox } from 'element-plus';
+import { Delete, Edit, Link, Plus, Refresh } from '@element-plus/icons-vue';
 import { api, buildQuery, getCurrentUser } from '../api';
 
 const currentUser = getCurrentUser();
@@ -160,8 +212,10 @@ const teachers = ref([]);
 const accounts = ref([]);
 const loading = ref(false);
 const saving = ref(false);
+const platformSaving = ref(false);
 const testingId = ref('');
 const dialogVisible = ref(false);
+const platformDialogVisible = ref(false);
 const filters = reactive({
   keyword: '',
   platformCode: '',
@@ -184,16 +238,29 @@ const accountForm = reactive({
   hydroUserId: '',
   bindStatus: 'bound',
 });
+const platformForm = reactive({
+  id: '',
+  code: '',
+  name: '',
+  baseUrl: '',
+  enabled: true,
+  sortOrder: 0,
+});
 const statusOptions = [
   { label: '启用', value: 'bound' },
   { label: '停用', value: 'disabled' },
 ];
+const platformStatusOptions = [
+  { label: '启用', value: true },
+  { label: '停用', value: false },
+];
+const selectablePlatforms = computed(() => platforms.value.filter((platform) => platform.enabled !== false));
 const owners = computed(() => {
   if (!isSuperAdmin) {
     return currentUser ? [currentUser] : [];
   }
   const map = new Map();
-  [...students.value, ...teachers.value.filter((user) => user.userType === 'TEACHER')].forEach((user) =>
+  [...students.value, ...teachers.value].forEach((user) =>
     map.set(user.id, user),
   );
   return [...map.values()].sort((a, b) => String(a.realName || a.username).localeCompare(String(b.realName || b.username)));
@@ -202,7 +269,7 @@ const owners = computed(() => {
 async function load() {
   loading.value = true;
   try {
-    platforms.value = await api('/hydro/platforms');
+    await loadPlatforms();
     if (isSuperAdmin) {
       const [studentResult, teacherResult] = await Promise.all([api('/users/students'), api('/users/teachers')]);
       students.value = studentResult;
@@ -215,6 +282,10 @@ async function load() {
   } finally {
     loading.value = false;
   }
+}
+
+async function loadPlatforms() {
+  platforms.value = await api(`/hydro/platforms${isSuperAdmin ? '?includeDisabled=true' : ''}`);
 }
 
 async function loadAccounts() {
@@ -237,7 +308,7 @@ async function loadAccounts() {
 }
 
 function openCreateDialog() {
-  const platform = platforms.value[0];
+  const platform = selectablePlatforms.value[0];
   Object.assign(accountForm, {
     id: '',
     studentId: owners.value[0]?.id || currentUser?.id || '',
@@ -273,8 +344,8 @@ async function saveAccount() {
   if (!isSuperAdmin) {
     accountForm.studentId = currentUser?.id || '';
   }
-  if (!accountForm.studentId || !accountForm.loginUsername.trim() || !accountForm.hydroUsername.trim()) {
-    ElMessage.warning('请补全所属用户、登录账号和 Hydro 用户名');
+  if (!accountForm.studentId || !accountForm.platformCode || !accountForm.platformBaseUrl.trim() || !accountForm.loginUsername.trim() || !accountForm.hydroUsername.trim()) {
+    ElMessage.warning('请补全所属用户、接入平台、登录账号和 Hydro 用户名');
     return;
   }
   if (!accountForm.id && !accountForm.loginPassword.trim()) {
@@ -307,6 +378,74 @@ async function saveAccount() {
   }
 }
 
+function openCreatePlatformDialog() {
+  Object.assign(platformForm, {
+    id: '',
+    code: '',
+    name: '',
+    baseUrl: '',
+    enabled: true,
+    sortOrder: platforms.value.length + 1,
+  });
+  platformDialogVisible.value = true;
+}
+
+function openEditPlatformDialog(row) {
+  Object.assign(platformForm, {
+    id: row.id,
+    code: row.code,
+    name: row.name,
+    baseUrl: row.baseUrl,
+    enabled: row.enabled !== false,
+    sortOrder: row.sortOrder || 0,
+  });
+  platformDialogVisible.value = true;
+}
+
+async function savePlatform() {
+  if (!platformForm.name.trim() || !platformForm.code.trim() || !platformForm.baseUrl.trim()) {
+    ElMessage.warning('请填写平台名称、编码和站点');
+    return;
+  }
+  platformSaving.value = true;
+  try {
+    await api(platformForm.id ? `/hydro/platforms/${platformForm.id}` : '/hydro/platforms', {
+      method: platformForm.id ? 'PATCH' : 'POST',
+      body: {
+        code: platformForm.code.trim(),
+        name: platformForm.name.trim(),
+        baseUrl: platformForm.baseUrl.trim(),
+        enabled: platformForm.enabled,
+        sortOrder: platformForm.sortOrder,
+      },
+    });
+    platformDialogVisible.value = false;
+    await loadPlatforms();
+    ElMessage.success('接入平台已保存');
+  } catch (error) {
+    ElMessage.error(error.message || '保存失败');
+  } finally {
+    platformSaving.value = false;
+  }
+}
+
+async function deletePlatform(row) {
+  try {
+    await ElMessageBox.confirm(`确认删除接入平台「${row.name}」吗？已保存的账号绑定不会被清空。`, '删除接入平台', {
+      type: 'warning',
+      confirmButtonText: '删除',
+      cancelButtonText: '取消',
+    });
+    await api(`/hydro/platforms/${row.id}`, { method: 'DELETE' });
+    await loadPlatforms();
+    ElMessage.success('接入平台已删除');
+  } catch (error) {
+    if (error !== 'cancel' && error !== 'close') {
+      ElMessage.error(error.message || '删除失败');
+    }
+  }
+}
+
 async function testAccount(row) {
   testingId.value = row.id;
   try {
@@ -323,8 +462,25 @@ async function testAccount(row) {
   }
 }
 
+async function deleteAccount(row) {
+  try {
+    await ElMessageBox.confirm(`确认删除「${row.ownerName || row.studentName}」的外部账号绑定吗？`, '删除外部账号', {
+      type: 'warning',
+      confirmButtonText: '删除',
+      cancelButtonText: '取消',
+    });
+    await api(isSuperAdmin ? `/hydro/accounts/${row.id}` : `/hydro/my/accounts/${row.id}`, { method: 'DELETE' });
+    await loadAccounts();
+    ElMessage.success('外部账号已删除');
+  } catch (error) {
+    if (error !== 'cancel' && error !== 'close') {
+      ElMessage.error(error.message || '删除失败');
+    }
+  }
+}
+
 function handlePlatformChange(code) {
-  const platform = platforms.value.find((item) => item.code === code);
+  const platform = selectablePlatforms.value.find((item) => item.code === code);
   if (platform) {
     accountForm.platformBaseUrl = platform.baseUrl;
     accountForm.platformName = platform.name;

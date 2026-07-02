@@ -98,6 +98,7 @@ import { computed, onMounted, reactive, ref } from 'vue';
 import { Refresh } from '@element-plus/icons-vue';
 import { api } from '../api';
 import { useResponsiveColumns } from '../composables/useResponsiveColumns';
+import { statusLabel as entityStatusLabel, statusTagType } from '../statusMeta';
 
 const metrics = reactive({
   courses: 0,
@@ -132,15 +133,11 @@ async function load() {
 onMounted(load);
 
 function statusLabel(value) {
-  const map = { draft: '草稿', scheduled: '已安排', running: '进行中', ended: '已结束', archived: '已归档' };
-  return map[value] ?? value;
+  return entityStatusLabel('exam', value);
 }
 
 function statusType(value) {
-  if (value === 'running') return 'success';
-  if (value === 'ended' || value === 'archived') return 'info';
-  if (value === 'draft') return 'warning';
-  return 'primary';
+  return statusTagType('exam', value);
 }
 </script>
 

@@ -20,6 +20,7 @@ import ExamTakingView from './views/ExamTakingView.vue';
 import ResultView from './views/ResultView.vue';
 import WrongQuestionView from './views/WrongQuestionView.vue';
 import PublicQuestionView from './views/PublicQuestionView.vue';
+import StudentPaperBankView from './views/StudentPaperBankView.vue';
 import StudentProfileView from './views/StudentProfileView.vue';
 import ExternalAccountView from './views/ExternalAccountView.vue';
 import UserManagementView from './views/UserManagementView.vue';
@@ -46,13 +47,15 @@ const routes = [
   {
     path: '/external-accounts',
     component: ExternalAccountView,
-    meta: { adminOnly: true, permissions: ['class:read'], userTypes: ['SUPER_ADMIN', 'TEACHER'] },
+    meta: { adminOnly: true, userTypes: ['SUPER_ADMIN', 'ADMIN', 'TEACHER', 'ASSISTANT'] },
   },
   { path: '/student/exams', component: StudentExamView, meta: { studentOnly: true } },
   { path: '/student/exams/:examId', component: ExamTakingView, meta: { studentOnly: true } },
   { path: '/student/attempts/:attemptId/result', component: ResultView, meta: { studentOnly: true } },
+  { path: '/student/papers', component: StudentPaperBankView, meta: { studentOnly: true } },
   { path: '/student/wrong-questions', component: WrongQuestionView, meta: { studentOnly: true } },
   { path: '/student/profile', component: StudentProfileView, meta: { studentOnly: true } },
+  { path: '/profile', component: StudentProfileView },
 ];
 
 const router = createRouter({

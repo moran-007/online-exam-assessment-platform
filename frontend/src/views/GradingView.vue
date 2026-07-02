@@ -71,7 +71,9 @@
         <div class="detail-summary">
           <strong>{{ attemptDetail.student.name }}</strong>
           <span class="muted">{{ attemptDetail.student.username }} · {{ attemptDetail.exam.courseName }}</span>
-          <el-tag>{{ statusLabel(attemptDetail.status) }}</el-tag>
+          <el-tag :type="attemptStatusType(attemptDetail.status)" effect="plain">
+            {{ statusLabel(attemptDetail.status) }}
+          </el-tag>
         </div>
         <el-collapse v-model="activeQuestionIds">
           <el-collapse-item
@@ -127,6 +129,7 @@ import { Check, Edit, Refresh, Search } from '@element-plus/icons-vue';
 import { api, buildQuery } from '../api';
 import MarkdownRenderer from '../components/MarkdownRenderer.vue';
 import { useResponsiveColumns } from '../composables/useResponsiveColumns';
+import { statusLabel as attemptStatusLabel, statusTagType } from '../statusMeta';
 
 const filter = reactive({ keyword: '', examId: '', status: 'pending', sortBy: 'updatedAt', sortOrder: 'desc' });
 const pagination = reactive({ page: 1, pageSize: 20, total: 0 });
@@ -254,8 +257,11 @@ function isJudgeStatus(status) {
 }
 
 function statusLabel(status) {
-  const map = { grading: '批改中', graded: '已完成', submitted: '已提交' };
-  return map[status] ?? status;
+  return attemptStatusLabel('attempt', status);
+}
+
+function attemptStatusType(status) {
+  return statusTagType('attempt', status);
 }
 
 onMounted(load);

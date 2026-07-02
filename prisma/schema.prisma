@@ -894,6 +894,22 @@ model HydroAccount {
   @@map("hydro_accounts")
 }
 
+model ExternalOjPlatform {
+  id        String    @id @default(uuid()) @db.Uuid
+  code      String    @unique @db.VarChar(32)
+  name      String    @db.VarChar(64)
+  baseUrl   String    @map("base_url") @db.Text
+  enabled   Boolean   @default(true)
+  sortOrder Int       @default(0) @map("sort_order")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  @@index([enabled, sortOrder])
+  @@index([deletedAt])
+  @@map("external_oj_platforms")
+}
+
 model JudgeSubmission {
   id                   String    @id @default(uuid()) @db.Uuid
   attemptId            String    @map("attempt_id") @db.Uuid
