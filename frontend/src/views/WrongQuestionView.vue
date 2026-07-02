@@ -138,7 +138,7 @@
       </el-table>
     </div>
 
-    <el-dialog v-model="practiceVisible" title="错题练习" width="780px">
+    <el-dialog v-model="practiceVisible" title="错题练习" :width="isSplitPracticeQuestion(practice?.question?.type) ? '1180px' : '780px'">
       <template v-if="practice">
         <div class="paper-preview-head">
           <div>
@@ -147,36 +147,89 @@
           </div>
           <el-tag type="warning">个人错题</el-tag>
         </div>
-        <MarkdownRenderer :source="practice.question.content" />
 
-        <el-radio-group
-          v-if="['single_choice', 'true_false'].includes(practice.question.type)"
-          v-model="answer.selectedOptionIds[0]"
-          class="answer-options"
-        >
-          <el-radio v-for="option in practice.question.options || []" :key="option.optionId" :label="option.optionId" class="answer-option">
-            <span class="option-choice">
-              <strong>{{ option.label }}.</strong>
-              <MarkdownRenderer :source="option.content" />
-            </span>
-          </el-radio>
-        </el-radio-group>
+        <template v-if="isSplitPracticeQuestion(practice.question.type)">
+          <div class="programming-exam-split programming-practice-split">
+            <div class="programming-statement">
+              <MarkdownRenderer :source="practice.question.content" />
+            </div>
+            <div class="programming-code-panel">
+              <div v-if="practice.question.type === 'programming'" class="programming-answer">
+                <div class="programming-toolbar">
+                  <span class="programming-language-label">语言</span>
+                  <el-select v-model="answer.language" style="width: 170px">
+                    <el-option
+                      v-for="language in languageOptionsFor(practice.question)"
+                      :key="language"
+                      :label="languageLabel(language)"
+                      :value="language"
+                    />
+                  </el-select>
+                  <el-tag v-if="practice.question.programmingRef?.externalProblemId" type="success">
+                    {{ practice.question.programmingRef.externalProblemId }}
+                  </el-tag>
+                  <el-button
+                    :icon="Link"
+                    :disabled="!practice.question.programmingRef?.externalProblemUrl"
+                    @click="openHydroProblem(practice.question)"
+                  >
+                    打开 Hydro
+                  </el-button>
+                </div>
+                <CodeAnswerEditor
+                  v-model="answer.code"
+                  :language="answer.language"
+                  :rows="18"
+                />
+              </div>
+              <div v-else class="programming-answer">
+                <div class="programming-toolbar">
+                  <span class="programming-language-label">作答</span>
+                  <el-tag>{{ typeLabel(practice.question.type) }}</el-tag>
+                </div>
+                <el-input
+                  v-model="answer.text"
+                  class="answer-input subjective-answer-input"
+                  type="textarea"
+                  :rows="18"
+                  placeholder="填写答案"
+                />
+              </div>
+            </div>
+          </div>
+        </template>
 
-        <el-checkbox-group v-else-if="practice.question.type === 'multiple_choice'" v-model="answer.selectedOptionIds" class="answer-options">
-          <el-checkbox v-for="option in practice.question.options || []" :key="option.optionId" :label="option.optionId" class="answer-option">
-            <span class="option-choice">
-              <strong>{{ option.label }}.</strong>
-              <MarkdownRenderer :source="option.content" />
-            </span>
-          </el-checkbox>
-        </el-checkbox-group>
+        <template v-else>
+          <MarkdownRenderer :source="practice.question.content" />
 
-        <FillBlankAnswerInputs
-          v-else-if="practice.question.type === 'fill_blank'"
-          v-model="answer.blanks"
-          :count="blankCountFor(practice.question)"
-        />
-        <el-input v-else v-model="answer.text" class="answer-input" type="textarea" :rows="5" placeholder="填写答案" />
+          <el-radio-group
+            v-if="['single_choice', 'true_false'].includes(practice.question.type)"
+            v-model="answer.selectedOptionIds[0]"
+            class="answer-options"
+          >
+            <el-radio v-for="option in practice.question.options || []" :key="option.optionId" :label="option.optionId" class="answer-option">
+              <span class="option-choice">
+                <strong>{{ option.label }}.</strong>
+                <MarkdownRenderer :source="option.content" />
+              </span>
+            </el-radio>
+          </el-radio-group>
+
+          <el-checkbox-group v-else-if="practice.question.type === 'multiple_choice'" v-model="answer.selectedOptionIds" class="answer-options">
+            <el-checkbox v-for="option in practice.question.options || []" :key="option.optionId" :label="option.optionId" class="answer-option">
+              <span class="option-choice">
+                <strong>{{ option.label }}.</strong>
+                <MarkdownRenderer :source="option.content" />
+              </span>
+            </el-checkbox>
+          </el-checkbox-group>
+
+          <FillBlankAnswerInputs
+            v-else-if="practice.question.type === 'fill_blank'"
+            v-model="answer.blanks"
+            :count="blankCountFor(practice.question)"
+          />
+        </template>
 
         <div class="toolbar question-actions">
           <el-button type="primary" :icon="Check" @click="checkPractice">提交练习</el-button>
@@ -247,9 +300,10 @@
 import { onMounted, reactive, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { ElMessage, ElMessageBox } from 'element-plus';
-import { Aim, Check, Delete, Document, Download, Hide, Plus, Refresh, Search } from '@element-plus/icons-vue';
+import { Aim, Check, Delete, Document, Download, Hide, Link, Plus, Refresh, Search } from '@element-plus/icons-vue';
 import { api, buildQuery } from '../api';
 import AnswerFeedback from '../components/AnswerFeedback.vue';
+import CodeAnswerEditor from '../components/CodeAnswerEditor.vue';
 import FillBlankAnswerInputs from '../components/FillBlankAnswerInputs.vue';
 import MarkdownRenderer from '../components/MarkdownRenderer.vue';
 import { useResponsiveColumns } from '../composables/useResponsiveColumns';
@@ -280,6 +334,7 @@ const exportForm = reactive({
   includeAnalysis: true,
   includeWrongInfo: true,
 });
+const objectiveQuestionTypes = new Set(['single_choice', 'multiple_choice', 'true_false', 'fill_blank']);
 
 async function load() {
   const [wrongItems, insightData] = await Promise.all([
@@ -434,6 +489,8 @@ function emptyAnswer(question = null) {
     selectedOptionIds: [],
     blanks: blankAnswerList(question),
     text: '',
+    code: '',
+    language: languageOptionsFor(question)[0] || 'cc.cc17o2',
   };
 }
 
@@ -452,7 +509,56 @@ function payloadForAnswer() {
   if (String(answer.text ?? '').trim()) {
     return { text: answer.text };
   }
+  if (String(answer.code ?? '').trim()) {
+    return {
+      text: answer.code,
+      extra: {
+        code: answer.code,
+        language: answer.language || 'cc.cc17o2',
+      },
+    };
+  }
   return {};
+}
+
+function isSplitPracticeQuestion(type) {
+  return Boolean(type) && !objectiveQuestionTypes.has(type);
+}
+
+function languageOptionsFor(question) {
+  const languages = question?.programmingRef?.languages || [];
+  return languages.length ? languages : ['cc.cc17o2', 'py.py3', 'java'];
+}
+
+function languageLabel(language) {
+  const labels = {
+    'cc.cc17o2': 'C++17(O2)',
+    'cc.cc17': 'C++17',
+    'cc.cc14o2': 'C++14(O2)',
+    'cc.cc14': 'C++14',
+    'cc.cc11o2': 'C++11(O2)',
+    'cc.cc11': 'C++11',
+    'py.py3': 'Python 3',
+    'py.py2': 'Python 2',
+    'cc.cc20o2': 'C++20(O2)',
+    'cc.cc20': 'C++20',
+    cpp17: 'C++17',
+    python3: 'Python 3',
+    java: 'Java',
+    c: 'C',
+    cc: 'C++',
+    pas: 'Pascal',
+  };
+  return labels[language] ?? language;
+}
+
+function openHydroProblem(question) {
+  const url = question?.programmingRef?.externalProblemUrl;
+  if (!url) {
+    ElMessage.warning('该题尚未配置 Hydro 链接');
+    return;
+  }
+  window.open(url, '_blank', 'noopener,noreferrer');
 }
 
 function blankCountFor(question) {
