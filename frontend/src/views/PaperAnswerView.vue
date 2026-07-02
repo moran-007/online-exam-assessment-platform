@@ -67,27 +67,31 @@
               <template #answer>
                 <div class="question-answer-body">
                   <div v-if="entry.snapshot.type === 'programming'" class="programming-answer">
-                    <div class="programming-toolbar">
-                      <span class="programming-language-label">语言</span>
-                      <el-select v-model="answers[entry.question.questionId].language" style="width: 170px">
-                        <el-option
-                          v-for="language in languageOptionsFor(entry.snapshot)"
-                          :key="language"
-                          :label="languageLabel(language)"
-                          :value="language"
-                        />
-                      </el-select>
-                      <el-tag v-if="entry.snapshot.programmingRef?.externalProblemId" type="success">
-                        {{ entry.snapshot.programmingRef.externalProblemId }}
-                      </el-tag>
-                      <el-button
-                        v-if="entry.snapshot.programmingRef?.externalProblemUrl"
-                        :icon="Link"
-                        @click="openHydroProblem(entry.snapshot)"
-                      >
-                        打开 Hydro
-                      </el-button>
-                    </div>
+                    <ProgrammingToolbarShell :summary="languageLabel(answers[entry.question.questionId].language)">
+                      <template #default="{ close }">
+                      <div class="programming-toolbar">
+                        <span class="programming-language-label">语言</span>
+                        <el-select v-model="answers[entry.question.questionId].language" style="width: 170px" @change="close">
+                          <el-option
+                            v-for="language in languageOptionsFor(entry.snapshot)"
+                            :key="language"
+                            :label="languageLabel(language)"
+                            :value="language"
+                          />
+                        </el-select>
+                        <el-tag v-if="entry.snapshot.programmingRef?.externalProblemId" type="success">
+                          {{ entry.snapshot.programmingRef.externalProblemId }}
+                        </el-tag>
+                        <el-button
+                          v-if="entry.snapshot.programmingRef?.externalProblemUrl"
+                          :icon="Link"
+                          @click="close(); openHydroProblem(entry.snapshot)"
+                        >
+                          打开 Hydro
+                        </el-button>
+                      </div>
+                      </template>
+                    </ProgrammingToolbarShell>
                     <CodeAnswerEditor
                       v-model="answers[entry.question.questionId].code"
                       :language="answers[entry.question.questionId].language"
@@ -223,6 +227,7 @@ import { api, getCurrentUser } from '../api';
 import CodeAnswerEditor from '../components/CodeAnswerEditor.vue';
 import FillBlankAnswerInputs from '../components/FillBlankAnswerInputs.vue';
 import MarkdownRenderer from '../components/MarkdownRenderer.vue';
+import ProgrammingToolbarShell from '../components/ProgrammingToolbarShell.vue';
 import QuestionAnswerLayout from '../components/QuestionAnswerLayout.vue';
 
 const route = useRoute();
