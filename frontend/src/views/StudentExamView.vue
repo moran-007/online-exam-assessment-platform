@@ -6,6 +6,11 @@
         <el-button :icon="Refresh" @click="load">刷新</el-button>
       </div>
     </div>
+    <el-tabs v-model="examTab" class="page-tabs" @tab-change="load">
+      <el-tab-pane label="进行中" name="running" />
+      <el-tab-pane label="即将开始" name="scheduled" />
+      <el-tab-pane label="考试历史" name="ended" />
+    </el-tabs>
     <div class="panel library-table-panel student-exam-table-panel">
       <el-table
         :data="items"
@@ -135,6 +140,7 @@ const router = useRouter();
 const { showMediumColumns, showLowColumns } = useResponsiveColumns();
 const items = ref([]);
 const filter = reactive({ sortBy: 'startTime', sortOrder: 'desc' });
+const examTab = ref('running');
 const announcementVisible = ref(false);
 const announcementRead = ref(false);
 const selectedExam = ref(null);
@@ -145,7 +151,7 @@ let timer = null;
 const rankingTitle = computed(() => (rankingData.value ? `排名：${rankingData.value.examName}` : '排名'));
 
 async function load() {
-  items.value = await api(`/student/exams${buildQuery(filter)}`);
+  items.value = await api(`/student/exams${buildQuery({ ...filter, status: examTab.value })}`);
 }
 
 function handleStudentExamSortChange({ prop, order }) {

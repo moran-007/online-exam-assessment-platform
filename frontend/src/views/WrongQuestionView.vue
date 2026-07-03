@@ -3,12 +3,16 @@
     <div class="page-head">
       <h1 class="page-title">错题本</h1>
       <div class="toolbar">
-        <el-button type="primary" :icon="Aim" :disabled="!items.length" @click="pickRandom">随机抽题</el-button>
-        <el-button type="success" :icon="Document" :disabled="!items.length" @click="generateWrongPaper">错题组卷</el-button>
-        <el-button :icon="Download" :disabled="!items.length" @click="exportVisible = true">导出错题</el-button>
+        <el-button type="primary" :icon="Aim" :disabled="!canUseActiveActions" @click="pickRandom">随机抽题</el-button>
+        <el-button type="success" :icon="Document" :disabled="!canUseActiveActions" @click="generateWrongPaper">错题组卷</el-button>
+        <el-button :icon="Download" :disabled="!canUseActiveActions" @click="exportVisible = true">导出错题</el-button>
         <el-button :icon="Refresh" @click="load">刷新</el-button>
       </div>
     </div>
+    <el-tabs v-model="wrongTab" class="page-tabs" @tab-change="load">
+      <el-tab-pane label="未掌握" name="active" />
+      <el-tab-pane label="已掌握" name="mastered" />
+    </el-tabs>
 
     <div class="panel wrong-add-panel">
       <div class="toolbar">
@@ -128,6 +132,8 @@
                   <el-dropdown-menu>
                     <el-dropdown-item command="practice">作答</el-dropdown-item>
                     <el-dropdown-item command="events">来源记录</el-dropdown-item>
+                    <el-dropdown-item v-if="row.masteryStatus !== 'mastered'" command="master">标记掌握</el-dropdown-item>
+                    <el-dropdown-item v-else command="review">继续复习</el-dropdown-item>
                     <el-dropdown-item command="hide">移出</el-dropdown-item>
                   </el-dropdown-menu>
                 </template>
@@ -248,6 +254,7 @@
         <div class="toolbar question-actions">
           <el-button type="primary" :icon="Check" @click="checkPractice">提交练习</el-button>
           <el-button :icon="Delete" @click="clearPracticeAnswer">清空答案</el-button>
+          <el-button v-if="practice.masteryStatus !== 'mastered'" :icon="Check" @click="markCurrentMastered">标记掌握</el-button>
           <el-button :icon="Hide" @click="hideCurrent">移出错题本</el-button>
         </div>
 
@@ -327,6 +334,7 @@ import { useResponsiveColumns } from '../composables/useResponsiveColumns';
 const items = ref([]);
 const router = useRouter();
 const { showMediumColumns, showLowColumns } = useResponsiveColumns();
+const wrongTab = ref('active');
 const candidates = ref([]);
 const candidateKeyword = ref('');
 const selectedCandidateId = ref('');
@@ -353,10 +361,11 @@ const exportForm = reactive({
 });
 const objectiveQuestionTypes = new Set(['single_choice', 'multiple_choice', 'true_false', 'fill_blank']);
 const practiceDialogWidth = computed(() => (answerLayout.value === 'side' ? '1180px' : '860px'));
+const canUseActiveActions = computed(() => wrongTab.value === 'active' && items.value.length > 0);
 
 async function load() {
   const [wrongItems, insightData] = await Promise.all([
-    api('/student/wrong-questions'),
+    api(`/student/wrong-questions${buildQuery({ mastery: wrongTab.value })}`),
     api('/student/wrong-questions/insights'),
   ]);
   items.value = wrongItems;
@@ -387,7 +396,7 @@ async function addWrongQuestion() {
 }
 
 async function generateWrongPaper() {
-  if (!items.value.length) return;
+  if (!canUseActiveActions.value) return;
   await ElMessageBox.confirm(`将使用当前 ${items.value.length} 道错题生成个人练习卷，生成后可直接试答。`, '错题组卷', {
     type: 'info',
     confirmButtonText: '生成试卷',
@@ -421,7 +430,7 @@ async function exportWrongQuestions() {
 }
 
 function pickRandom() {
-  if (!items.value.length) return;
+  if (!canUseActiveActions.value) return;
   openPractice(items.value[Math.floor(Math.random() * items.value.length)]);
 }
 
@@ -434,12 +443,13 @@ function openPractice(row) {
 async function checkPractice() {
   if (!practice.value) return;
   const payload = payloadForAnswer();
+  let recordedResult = null;
   practiceResult.value = await api(`/questions/${practice.value.question.id}/check-answer`, {
     method: 'POST',
     body: payload,
   });
   if (practiceResult.value?.isCorrect !== null && practiceResult.value?.isCorrect !== undefined) {
-    await api(`/student/wrong-questions/${practice.value.question.id}/practice-result`, {
+    recordedResult = await api(`/student/wrong-questions/${practice.value.question.id}/practice-result`, {
       method: 'POST',
       body: {
         answer: payload,
@@ -450,12 +460,14 @@ async function checkPractice() {
     });
   }
   if (practiceResult.value?.isCorrect) {
-    const questionId = practice.value.question.id;
-    items.value = items.value.filter((item) => item.question.id !== questionId);
-    practice.value = null;
-    practiceVisible.value = false;
     await load();
-    ElMessage.success('回答正确，已自动从错题本隐藏');
+    if (recordedResult?.mastered) {
+      ElMessage.success('已达到掌握规则，题目已进入已掌握');
+      practiceVisible.value = false;
+      practice.value = null;
+    } else {
+      ElMessage.success('已记录本次正确练习，后续仍会按复习规则出现');
+    }
   } else if (practiceResult.value?.isCorrect === false) {
     await load();
     ElMessage.warning('已记录本次错题练习');
@@ -470,6 +482,8 @@ async function hideWrongQuestion(row) {
 function handleWrongCommand(row, command) {
   if (command === 'practice') return openPractice(row);
   if (command === 'events') return showEvents(row);
+  if (command === 'master') return markWrongQuestionMastered(row);
+  if (command === 'review') return updateWrongQuestionStatus(row, 'reviewing');
   if (command === 'hide') return hideWrongQuestion(row);
 }
 
@@ -487,6 +501,16 @@ async function showEvents(row) {
 async function hideCurrent() {
   if (!practice.value) return;
   await hideWrongQuestion(practice.value);
+}
+
+async function markCurrentMastered() {
+  if (!practice.value) return;
+  await markWrongQuestionMastered(practice.value);
+}
+
+async function markWrongQuestionMastered(row) {
+  await updateWrongQuestionStatus(row, 'mastered');
+  ElMessage.success('已标记为掌握');
 }
 
 async function updateWrongQuestionStatus(row, masteryStatus) {

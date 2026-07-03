@@ -28,9 +28,6 @@
         <el-select v-model="filter.tagId" clearable filterable placeholder="标签" style="width: 170px" @change="loadFirstPage">
           <el-option v-for="tag in tags" :key="tag.id" :label="tag.name" :value="tag.id" />
         </el-select>
-        <el-select v-model="filter.status" clearable placeholder="状态" style="width: 130px" @change="loadFirstPage">
-          <el-option v-for="status in statusOptions" :key="status.value" :label="status.label" :value="status.value" />
-        </el-select>
         <el-select v-model="filter.type" clearable placeholder="题型" style="width: 130px" @change="loadFirstPage">
           <el-option v-for="type in typeOptions" :key="type.value" :label="type.label" :value="type.value" />
         </el-select>
@@ -78,6 +75,11 @@
     </div>
 
     <div class="question-list-only">
+      <el-tabs v-model="questionScope" class="page-tabs" @tab-change="loadFirstPage">
+        <el-tab-pane label="考试中" name="occupied" />
+        <el-tab-pane label="已公开" name="published" />
+        <el-tab-pane label="草稿" name="draft" />
+      </el-tabs>
       <el-dialog v-model="editorVisible" :title="editorTitle" width="980px" destroy-on-close @closed="resetForm">
         <div class="question-editor-dialog">
           <el-alert
@@ -528,17 +530,20 @@
                 <el-alert
                   v-if="practiceProgrammingResult"
                   class="code-submit-feedback"
-                  :type="practiceProgrammingResult.status === 'accepted' ? 'success' : 'info'"
+                  :type="programmingFeedbackType(practiceProgrammingResult)"
                   :closable="false"
                   show-icon
                 >
-                  <template #title>{{ practiceProgrammingResult.status === 'accepted' ? '判题通过' : 'Hydro 结果' }}</template>
+                  <template #title>{{ programmingFeedbackTitle(practiceProgrammingResult) }}</template>
                   <div class="code-submit-meta">
                     <span>状态：{{ practiceProgrammingResult.status || '-' }}</span>
                     <span>语言：{{ languageLabel(practiceProgrammingResult.language || practiceAnswer.language) }}</span>
                     <span v-if="practiceProgrammingResult.externalSubmissionId">Hydro提交：{{ practiceProgrammingResult.externalSubmissionId }}</span>
                     <span v-if="practiceProgrammingResult.score !== null && practiceProgrammingResult.score !== undefined">
-                      得分：{{ practiceProgrammingResult.score }}
+                      得分：{{ practiceProgrammingResult.score }} / {{ practiceProgrammingResult.maxScore || practiceDetail.defaultScore || '-' }}
+                    </span>
+                    <span v-if="practiceProgrammingResult.totalTestCaseCount">
+                      测试点：{{ practiceProgrammingResult.passedTestCaseCount }} / {{ practiceProgrammingResult.totalTestCaseCount }}
                     </span>
                   </div>
                   <div v-if="practiceProgrammingResult.message" class="code-submit-message">{{ practiceProgrammingResult.message }}</div>
@@ -722,7 +727,7 @@ const typeOptions = [
 const statusOptions = [
   { label: '草稿', value: 'draft' },
   { label: '待审核', value: 'pending_review' },
-  { label: '已发布', value: 'published' },
+  { label: '已公开', value: 'published' },
   { label: '已隐藏', value: 'disabled' },
 ];
 const statusSegmentOptions = statusOptions.map((item) => ({ label: item.label, value: item.value }));
@@ -749,11 +754,11 @@ const editingId = ref('');
 const editMode = ref(false);
 const editorVisible = ref(false);
 const selectedQuestionRows = ref([]);
+const questionScope = ref('published');
 const filter = reactive({
   courseId: '',
   knowledgePointId: '',
   tagId: '',
-  status: '',
   type: '',
   keyword: '',
   sortBy: 'createdAt',
@@ -878,6 +883,35 @@ function languageLabel(language) {
   };
   return labels[language] ?? language;
 }
+
+function programmingFeedbackType(result) {
+  if (!isProgrammingFinal(result)) return 'info';
+  return isFullProgrammingScore(result) ? 'success' : 'error';
+}
+
+function programmingFeedbackTitle(result) {
+  if (!isProgrammingFinal(result)) return '等待 Hydro 评测';
+  return isFullProgrammingScore(result) ? '全部测试点通过' : '部分测试点未通过';
+}
+
+function isProgrammingFinal(result) {
+  return Boolean(result) && !['pending', 'judging'].includes(result.status);
+}
+
+function isFullProgrammingScore(result) {
+  const passed = Number(result?.passedTestCaseCount);
+  const total = Number(result?.totalTestCaseCount);
+  if (Number.isFinite(total) && total > 0 && Number.isFinite(passed)) return passed === total;
+  const rate = Number(result?.scoreRate);
+  if (Number.isFinite(rate)) return rate >= 1;
+  const score = Number(result?.score);
+  const maxScore = Number(result?.maxScore);
+  if (Number.isFinite(score) && Number.isFinite(maxScore) && maxScore > 0) return score >= maxScore;
+  if (result?.isCorrect === true) return true;
+  if (result?.isCorrect === false) return false;
+  return result?.status === 'accepted';
+}
+
 const practiceOptions = computed(() =>
   (practiceDetail.value?.options ?? []).map((option, index) => ({
     optionId: option.id ?? option.optionId,
@@ -1095,7 +1129,7 @@ async function load() {
       courseId: filter.courseId,
       tagId: filter.tagId,
       knowledgePointId: filter.knowledgePointId,
-      status: filter.status,
+      scope: questionScope.value,
       type: filter.type,
       keyword: filter.keyword,
       sortBy: filter.sortBy,
@@ -1301,6 +1335,7 @@ async function saveQuestion(shouldPublish) {
   saving.value = true;
   try {
     const payload = await buildQuestionPayload();
+    const targetScope = shouldPublish ? 'published' : questionScopeForStatus(payload.status ?? form.status);
     const result = isEditing.value
       ? await api(`/questions/${editingId.value}`, { method: 'PATCH', body: payload })
       : await api('/questions', { method: 'POST', body: payload });
@@ -1311,6 +1346,7 @@ async function saveQuestion(shouldPublish) {
     }
 
     ElMessage.success(shouldPublish ? '已保存并发布' : isEditing.value ? '已保存修改' : '已创建');
+    questionScope.value = targetScope;
     editorVisible.value = false;
     resetForm();
     await refreshAll();
@@ -1319,6 +1355,10 @@ async function saveQuestion(shouldPublish) {
   } finally {
     saving.value = false;
   }
+}
+
+function questionScopeForStatus(status) {
+  return status === 'published' ? 'published' : 'draft';
 }
 
 async function editQuestion(row) {

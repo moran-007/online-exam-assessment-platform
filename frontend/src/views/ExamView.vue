@@ -17,9 +17,6 @@
         <el-select v-model="examFilter.classId" clearable placeholder="班级" style="width: 150px" @change="loadFirstExamPage">
           <el-option v-for="item in classes" :key="item.id" :label="item.name" :value="item.id" />
         </el-select>
-        <el-select v-model="examFilter.status" clearable placeholder="状态" style="width: 130px" @change="loadFirstExamPage">
-          <el-option v-for="status in statusOptions" :key="status.value" :label="status.label" :value="status.value" />
-        </el-select>
         <el-button :icon="Search" @click="loadFirstExamPage">查询</el-button>
         <el-button type="primary" :icon="Plus" @click="openCreateExam">创建考试</el-button>
         <el-button :icon="DataAnalysis" :disabled="!selectedExam && !exams.length" @click="openRanking()">查看排名</el-button>
@@ -35,6 +32,13 @@
         考试与试卷关系：创建考试只能选择“已公开”试卷；进行中/已结束考试默认锁定核心配置，管理员可兜底调整。
       </div>
     </div>
+    <el-tabs v-model="examStatusTab" class="page-tabs" @tab-change="loadFirstExamPage">
+      <el-tab-pane label="正在进行中" name="running" />
+      <el-tab-pane label="即将开始" name="scheduled" />
+      <el-tab-pane label="历史考试" name="ended" />
+      <el-tab-pane label="已归档" name="archived" />
+      <el-tab-pane label="草稿" name="draft" />
+    </el-tabs>
     <div class="exam-admin-grid">
       <div class="panel library-table-panel exam-table-panel">
         <div class="toolbar exam-sim-toolbar">
@@ -178,7 +182,7 @@
             <el-date-picker v-model="form.startTime" type="datetime" style="width: 100%" />
           </el-form-item>
           <el-form-item label="结束">
-            <el-date-picker v-model="form.endTime" type="datetime" style="width: 100%" />
+            <el-date-picker v-model="form.endTime" type="datetime" style="width: 100%" disabled />
           </el-form-item>
           <el-form-item label="时长">
             <el-input-number v-model="form.durationMinutes" :min="1" />
@@ -377,7 +381,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue';
+import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { Check, Close, DataAnalysis, Delete, Edit, Plus, Refresh, Search, User, View } from '@element-plus/icons-vue';
@@ -418,10 +422,10 @@ const examFilter = reactive({
   keyword: '',
   courseId: '',
   classId: '',
-  status: '',
   sortBy: 'createdAt',
   sortOrder: 'desc',
 });
+const examStatusTab = ref('running');
 const examPagination = reactive({ page: 1, pageSize: 20, total: 0 });
 const pageSizes = [20, 50, 100];
 const now = new Date();
@@ -446,14 +450,15 @@ const selectedExamStatusDescription = computed(() =>
 
 function baseForm() {
   const current = new Date();
+  const durationMinutes = 30;
   return {
     name: '',
     courseId: '',
     classId: '',
     paperId: '',
     startTime: current,
-    endTime: new Date(current.getTime() + 24 * 60 * 60 * 1000),
-    durationMinutes: 30,
+    endTime: examEndFrom(current, durationMinutes),
+    durationMinutes,
     attemptLimit: 1,
     announcement: '',
     resultVisibility: defaultResultVisibility(),
@@ -484,7 +489,7 @@ async function loadAll() {
         keyword: examFilter.keyword,
         courseId: examFilter.courseId,
         classId: examFilter.classId,
-        status: examFilter.status,
+        status: examStatusTab.value,
         sortBy: examFilter.sortBy,
         sortOrder: examFilter.sortOrder,
       })}`,
@@ -504,6 +509,7 @@ async function loadAll() {
   form.paperId = form.paperId || papers.value[0]?.id || '';
   if (!editingId.value && selectedPaper.value && form.durationMinutes === 30) {
     form.durationMinutes = selectedPaper.value.durationMinutes || form.durationMinutes;
+    alignExamEndTime();
   }
 
   const focusExamId = String(route.query.focusExamId || '');
@@ -512,8 +518,9 @@ async function loadAll() {
     if (focusExam) {
       previewExam(focusExam);
       ElMessage.info('已定位到相关考试');
-    } else if (examPagination.pageSize < 100 || examFilter.keyword || examFilter.courseId || examFilter.classId || examFilter.status) {
-      Object.assign(examFilter, { keyword: '', courseId: '', classId: '', status: '', sortBy: 'createdAt', sortOrder: 'desc' });
+    } else if (examPagination.pageSize < 100 || examFilter.keyword || examFilter.courseId || examFilter.classId || examStatusTab.value !== 'running') {
+      Object.assign(examFilter, { keyword: '', courseId: '', classId: '', sortBy: 'createdAt', sortOrder: 'desc' });
+      examStatusTab.value = 'running';
       Object.assign(examPagination, { page: 1, pageSize: 100 });
       await loadAll();
     }
@@ -543,6 +550,8 @@ function handleExamCurrentChange(page) {
 }
 
 async function saveExam() {
+  alignExamEndTime();
+  const targetTab = editingId.value ? examTabForStatus(form.status, form.startTime, form.endTime) : 'draft';
   const payload = {
     ...form,
     startTime: form.startTime.toISOString(),
@@ -562,6 +571,7 @@ async function saveExam() {
       body: payload,
     });
     ElMessage.success(editingId.value ? '考试已保存' : '已创建');
+    examStatusTab.value = targetTab;
     examFormVisible.value = false;
     resetForm();
     await loadAll();
@@ -580,7 +590,7 @@ function editExam(row) {
     classId: row.classId || '',
     paperId: row.paperId,
     startTime: new Date(row.startTime),
-    endTime: new Date(row.endTime),
+    endTime: examEndFrom(row.startTime, row.durationMinutes),
     durationMinutes: row.durationMinutes,
     attemptLimit: row.attemptLimit,
     announcement: row.announcement || '',
@@ -594,20 +604,46 @@ function resetForm() {
   editingId.value = '';
   editingOriginalStatus.value = '';
   const firstPaper = papers.value[0] ?? null;
-  Object.assign(form, baseForm(), {
+  const nextForm = {
+    ...baseForm(),
     courseId: courses.value[0]?.id || '',
     classId: '',
     paperId: firstPaper?.id || '',
     durationMinutes: firstPaper?.durationMinutes || baseForm().durationMinutes,
     resultVisibility: defaultResultVisibility(),
-  });
+  };
+  nextForm.endTime = examEndFrom(nextForm.startTime, nextForm.durationMinutes);
+  Object.assign(form, nextForm);
 }
 
 function handlePaperChange() {
   if (editingId.value) return;
   if (selectedPaper.value?.durationMinutes) {
     form.durationMinutes = selectedPaper.value.durationMinutes;
+    alignExamEndTime();
   }
+}
+
+function examEndFrom(startTime, durationMinutes) {
+  const start = startTime instanceof Date ? startTime : new Date(startTime || Date.now());
+  const safeStart = Number.isNaN(start.getTime()) ? new Date() : start;
+  const duration = Math.max(1, Math.round(Number(durationMinutes) || 1));
+  return new Date(safeStart.getTime() + duration * 60 * 1000);
+}
+
+function alignExamEndTime() {
+  form.endTime = examEndFrom(form.startTime, form.durationMinutes);
+}
+
+function examTabForStatus(status, startTime, endTime) {
+  if (status === 'draft' || status === 'archived') return status;
+  const nowTime = Date.now();
+  const start = new Date(startTime || nowTime).getTime();
+  const end = new Date(endTime || nowTime).getTime();
+  if (status === 'ended' || end <= nowTime) return 'ended';
+  if (status === 'scheduled' && start > nowTime) return 'scheduled';
+  if (status === 'running' || status === 'scheduled') return 'running';
+  return 'running';
 }
 
 function closeExamForm() {
@@ -915,6 +951,13 @@ function formatDateTime(value) {
   if (!value) return '-';
   return new Date(value).toLocaleString('zh-CN', { hour12: false });
 }
+
+watch(
+  () => [form.startTime, form.durationMinutes],
+  () => {
+    if (examFormVisible.value) alignExamEndTime();
+  },
+);
 
 onMounted(loadAll);
 </script>

@@ -81,10 +81,10 @@ export class ReviewRulesService {
 
   private normalizeMasteryRule(value?: Record<string, unknown>) {
     const source = value ?? {};
-    const correctStreak = Number(source.correctStreak ?? 2);
+    const correctStreak = Number(source.correctStreak ?? 3);
     const reviewingIntervalDays = Number(source.reviewingIntervalDays ?? 3);
     return {
-      correctStreak: Number.isFinite(correctStreak) && correctStreak > 0 ? Math.min(Math.round(correctStreak), 20) : 2,
+      correctStreak: Number.isFinite(correctStreak) && correctStreak > 0 ? Math.min(Math.round(correctStreak), 20) : 3,
       reviewingIntervalDays:
         Number.isFinite(reviewingIntervalDays) && reviewingIntervalDays > 0
           ? Math.min(Math.round(reviewingIntervalDays), 365)

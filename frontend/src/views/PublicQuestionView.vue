@@ -183,16 +183,21 @@
                 <el-alert
                   v-if="programmingResult"
                   class="code-submit-feedback"
-                  :type="programmingResult.status === 'accepted' ? 'success' : 'info'"
+                  :type="programmingFeedbackType(programmingResult)"
                   :closable="false"
                   show-icon
                 >
-                  <template #title>{{ programmingResult.status === 'accepted' ? '判题通过' : 'Hydro 结果' }}</template>
+                  <template #title>{{ programmingFeedbackTitle(programmingResult) }}</template>
                   <div class="code-submit-meta">
                     <span>状态：{{ programmingResult.status }}</span>
                     <span>语言：{{ languageLabel(programmingResult.language) }}</span>
                     <span v-if="programmingResult.externalSubmissionId">Hydro提交：{{ programmingResult.externalSubmissionId }}</span>
-                    <span v-if="programmingResult.score !== null && programmingResult.score !== undefined">得分：{{ programmingResult.score }}</span>
+                    <span v-if="programmingResult.score !== null && programmingResult.score !== undefined">
+                      得分：{{ programmingResult.score }} / {{ programmingResult.maxScore || detail.defaultScore || '-' }}
+                    </span>
+                    <span v-if="programmingResult.totalTestCaseCount">
+                      测试点：{{ programmingResult.passedTestCaseCount }} / {{ programmingResult.totalTestCaseCount }}
+                    </span>
                   </div>
                   <div v-if="programmingResult.message" class="code-submit-message">{{ programmingResult.message }}</div>
                 </el-alert>
@@ -518,6 +523,34 @@ function languageLabel(language) {
     pas: 'Pascal',
   };
   return labels[language] ?? language;
+}
+
+function programmingFeedbackType(result) {
+  if (!isProgrammingFinal(result)) return 'info';
+  return isFullProgrammingScore(result) ? 'success' : 'error';
+}
+
+function programmingFeedbackTitle(result) {
+  if (!isProgrammingFinal(result)) return '等待 Hydro 评测';
+  return isFullProgrammingScore(result) ? '全部测试点通过' : '部分测试点未通过';
+}
+
+function isProgrammingFinal(result) {
+  return Boolean(result) && !['pending', 'judging'].includes(result.status);
+}
+
+function isFullProgrammingScore(result) {
+  const passed = Number(result?.passedTestCaseCount);
+  const total = Number(result?.totalTestCaseCount);
+  if (Number.isFinite(total) && total > 0 && Number.isFinite(passed)) return passed === total;
+  const rate = Number(result?.scoreRate);
+  if (Number.isFinite(rate)) return rate >= 1;
+  const score = Number(result?.score);
+  const maxScore = Number(result?.maxScore);
+  if (Number.isFinite(score) && Number.isFinite(maxScore) && maxScore > 0) return score >= maxScore;
+  if (result?.isCorrect === true) return true;
+  if (result?.isCorrect === false) return false;
+  return result?.status === 'accepted';
 }
 
 function openHydroProblem(question) {

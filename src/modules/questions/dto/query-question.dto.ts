@@ -16,6 +16,10 @@ export class QueryQuestionDto extends PaginationQueryDto {
   status?: string;
 
   @IsOptional()
+  @IsString()
+  scope?: string;
+
+  @IsOptional()
   @IsUUID()
   courseId?: string;
 

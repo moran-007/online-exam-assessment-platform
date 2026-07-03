@@ -95,6 +95,12 @@ export class BatchWrongQuestionDto {
   items: AddWrongQuestionDto[];
 }
 
+export class QueryWrongQuestionDto {
+  @IsOptional()
+  @IsIn(['active', 'mastered'])
+  mastery?: 'active' | 'mastered';
+}
+
 export class UpdateWrongQuestionStatusDto {
   @IsIn(['unmastered', 'reviewing', 'mastered', 'ignored'])
   masteryStatus: string;

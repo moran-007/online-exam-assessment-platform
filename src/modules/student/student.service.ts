@@ -29,6 +29,7 @@ import {
   AddWrongQuestionDto,
   BatchWrongQuestionDto,
   GenerateWrongQuestionPaperDto,
+  QueryWrongQuestionDto,
   QueryStudentExamDto,
   QueryStudentPaperDto,
   RecordWrongQuestionPracticeDto,
@@ -72,6 +73,11 @@ type QuestionSnapshot = {
     memoryLimit?: number | null;
     judgeConfig?: Prisma.JsonValue | null;
   } | null;
+};
+
+type SnapshotNormalizationResult = {
+  snapshot: PaperSnapshot;
+  changed: boolean;
 };
 
 type PaperSnapshotQuestion = {
@@ -430,9 +436,14 @@ export class StudentService {
         },
       });
 
-      const paperSnapshot = existingInstance
-        ? (existingInstance.paperSnapshotJson as unknown as PaperSnapshot)
-        : await this.buildPaperSnapshot(tx, exam.paper);
+      const normalizedExisting = existingInstance
+        ? this.normalizePaperSnapshot(existingInstance.paperSnapshotJson)
+        : null;
+      const shouldRebuild = normalizedExisting ? !this.hasRenderableQuestions(normalizedExisting.snapshot) : false;
+      const paperSnapshot =
+        normalizedExisting && !shouldRebuild
+          ? normalizedExisting.snapshot
+          : await this.buildPaperSnapshot(tx, exam.paper);
 
       const paperInstance =
         existingInstance ??
@@ -448,6 +459,20 @@ export class StudentService {
             optionOrderJson: this.extractOptionOrder(paperSnapshot) as unknown as Prisma.InputJsonObject,
           },
         }));
+
+      if (existingInstance && (normalizedExisting?.changed || shouldRebuild)) {
+        await tx.paperInstance.update({
+          where: { id: existingInstance.id },
+          data: {
+            paperSnapshotJson: paperSnapshot as unknown as Prisma.InputJsonObject,
+            questionOrderJson: paperSnapshot.sections.map((section) => ({
+              sectionId: section.id,
+              questionIds: section.questions.map((question) => question.questionId),
+            })) as unknown as Prisma.InputJsonArray,
+            optionOrderJson: this.extractOptionOrder(paperSnapshot) as unknown as Prisma.InputJsonObject,
+          },
+        });
+      }
 
       const attempt =
         activeAttempt ??
@@ -500,7 +525,7 @@ export class StudentService {
       throw new NotFoundException('答题记录不存在');
     }
 
-    const paperSnapshot = attempt.paperInstance.paperSnapshotJson as unknown as PaperSnapshot;
+    const paperSnapshot = this.normalizePaperSnapshot(attempt.paperInstance.paperSnapshotJson).snapshot;
 
     return {
       attemptId: attempt.id,
@@ -568,7 +593,7 @@ export class StudentService {
     }>,
     dto: SaveAnswerDto,
   ) {
-    const paperSnapshot = attempt.paperInstance.paperSnapshotJson as unknown as PaperSnapshot;
+    const paperSnapshot = this.normalizePaperSnapshot(attempt.paperInstance.paperSnapshotJson).snapshot;
     const paperQuestion = this.assertQuestionInPaper(paperSnapshot, dto.questionId);
     const existing = await this.prisma.answerRecord.findUnique({
       where: {
@@ -636,7 +661,7 @@ export class StudentService {
 
     const submittedAt = new Date();
     const timedOut = this.attemptDeadline(attempt) <= submittedAt;
-    const paperSnapshot = attempt.paperInstance.paperSnapshotJson as unknown as PaperSnapshot;
+    const paperSnapshot = this.normalizePaperSnapshot(attempt.paperInstance.paperSnapshotJson).snapshot;
     const answerMap = new Map(attempt.answers.map((answer) => [answer.questionId, answer]));
     let objectiveScore = 0;
     let subjectiveScore = 0;
@@ -703,6 +728,8 @@ export class StudentService {
               },
             },
             update: {
+              sourceType: WrongQuestionSourceType.EXAM,
+              sourceId: attempt.examId,
               wrongAnswerJson: answerJson as Prisma.InputJsonObject,
               correctAnswerJson: (paperQuestion.snapshot.answer ?? {}) as Prisma.InputJsonObject,
               score: grading.score,
@@ -791,7 +818,7 @@ export class StudentService {
       throw new NotFoundException('答题记录不存在');
     }
 
-    const paperSnapshot = attempt.paperInstance.paperSnapshotJson as unknown as PaperSnapshot;
+    const paperSnapshot = this.normalizePaperSnapshot(attempt.paperInstance.paperSnapshotJson).snapshot;
     const answerMap = new Map(attempt.answers.map((answer) => [answer.questionId, answer]));
     const attemptUsedCount = await this.prisma.examAttempt.count({
       where: {
@@ -847,13 +874,17 @@ export class StudentService {
     };
   }
 
-  async wrongQuestions(user: RequestUser) {
+  async wrongQuestions(user: RequestUser, query: QueryWrongQuestionDto = {}) {
     this.ensureStudent(user);
+    const masteryStatuses =
+      query.mastery === 'mastered'
+        ? [MasteryStatus.MASTERED]
+        : [MasteryStatus.UNMASTERED, MasteryStatus.REVIEWING];
     const items = await this.prisma.wrongQuestion.findMany({
       where: {
         studentId: user.id,
-        masteryStatus: { in: [MasteryStatus.UNMASTERED, MasteryStatus.REVIEWING] },
-        question: { deletedAt: null },
+        masteryStatus: { in: masteryStatuses },
+        question: { deletedAt: null, status: QuestionStatus.PUBLISHED },
       },
       include: {
         events: {
@@ -1042,12 +1073,11 @@ export class StudentService {
   ) {
     this.ensureStudent(user);
     const masteryStatus = this.normalizeMasteryStatus(dto.masteryStatus);
-    const item = await this.prisma.wrongQuestion.findUnique({
+    const item = await this.prisma.wrongQuestion.findFirst({
       where: {
-        studentId_questionId: {
-          studentId: user.id,
-          questionId,
-        },
+        studentId: user.id,
+        questionId,
+        question: { deletedAt: null, status: QuestionStatus.PUBLISHED },
       },
     });
 
@@ -1091,22 +1121,65 @@ export class StudentService {
 
   async recordWrongQuestionPractice(user: RequestUser, questionId: string, dto: RecordWrongQuestionPracticeDto) {
     this.ensureStudent(user);
-    const item = await this.prisma.wrongQuestion.findUnique({
+    const item = await this.prisma.wrongQuestion.findFirst({
       where: {
-        studentId_questionId: {
-          studentId: user.id,
-          questionId,
+        studentId: user.id,
+        questionId,
+        question: { deletedAt: null, status: QuestionStatus.PUBLISHED },
+      },
+      include: {
+        events: {
+          orderBy: { happenedAt: 'desc' },
+          take: 20,
+        },
+        question: {
+          include: {
+            answer: true,
+            knowledgePoints: { select: { knowledgePointId: true } },
+          },
         },
       },
-      include: { question: { include: { answer: true } } },
     });
     if (!item) throw new NotFoundException('错题不存在');
 
-    const masteryStatus = dto.isCorrect ? MasteryStatus.MASTERED : MasteryStatus.UNMASTERED;
+    const now = new Date();
+    let masteryStatus: MasteryStatus = MasteryStatus.UNMASTERED;
+    let correctStreak = 0;
+    let requiredCorrectStreak = 0;
+    let matchedReviewRule:
+      | {
+          intervalsJson: Prisma.JsonValue;
+          masteryRuleJson: Prisma.JsonValue | null;
+        }
+      | undefined;
+
+    if (dto.isCorrect) {
+      const classIds = await this.resolveStudentClassIds(user.id);
+      const reviewRules = await this.prisma.reviewReminderRule.findMany({
+        where: { enabled: true },
+        orderBy: [{ updatedAt: 'desc' }],
+      });
+      matchedReviewRule = this.matchReviewRule(item.question, reviewRules, classIds);
+      const masteryRule = this.reviewMasteryRule(matchedReviewRule?.masteryRuleJson);
+      requiredCorrectStreak = masteryRule.correctStreak;
+      correctStreak = 1;
+      for (const event of item.events) {
+        if (event.isCorrect === true) {
+          correctStreak += 1;
+          continue;
+        }
+        if (event.isCorrect === false) break;
+      }
+      masteryStatus = correctStreak >= requiredCorrectStreak ? MasteryStatus.MASTERED : MasteryStatus.REVIEWING;
+    }
+
     const updated = await this.prisma.wrongQuestion.update({
       where: { id: item.id },
       data: dto.isCorrect
-        ? { masteryStatus }
+        ? {
+            masteryStatus,
+            lastWrongAt: masteryStatus === MasteryStatus.REVIEWING ? now : item.lastWrongAt,
+          }
         : {
             sourceType: WrongQuestionSourceType.PRACTICE,
             sourceId: questionId,
@@ -1115,7 +1188,7 @@ export class StudentService {
             score: dto.score ?? 0,
             masteryStatus,
             wrongCount: { increment: 1 },
-            lastWrongAt: new Date(),
+            lastWrongAt: now,
           },
     });
 
@@ -1133,22 +1206,30 @@ export class StudentService {
         eventJson: {
           answer: dto.answer ?? {},
           totalScore: dto.totalScore ?? null,
+          correctStreak: dto.isCorrect ? correctStreak : 0,
+          requiredCorrectStreak: dto.isCorrect ? requiredCorrectStreak : null,
         } as Prisma.InputJsonObject,
       },
     });
 
     return {
-      mastered: dto.isCorrect,
+      mastered: masteryStatus === MasteryStatus.MASTERED,
       masteryStatus: toApiEnum(updated.masteryStatus),
       wrongCount: updated.wrongCount,
-      nextReviewAt: this.nextReviewAt(updated.lastWrongAt, updated.wrongCount, updated.masteryStatus).nextReviewAt,
+      correctStreak,
+      requiredCorrectStreak,
+      nextReviewAt: this.nextReviewAt(updated.lastWrongAt, updated.wrongCount, updated.masteryStatus, matchedReviewRule).nextReviewAt,
     };
   }
 
   async wrongQuestionEvents(user: RequestUser, questionId: string) {
     this.ensureStudent(user);
-    const exists = await this.prisma.wrongQuestion.findUnique({
-      where: { studentId_questionId: { studentId: user.id, questionId } },
+    const exists = await this.prisma.wrongQuestion.findFirst({
+      where: {
+        studentId: user.id,
+        questionId,
+        question: { deletedAt: null, status: QuestionStatus.PUBLISHED },
+      },
       select: { id: true },
     });
     if (!exists) throw new NotFoundException('错题不存在');
@@ -1176,7 +1257,7 @@ export class StudentService {
     const classIds = await this.resolveStudentClassIds(user.id);
     const [items, events, reviewRules] = await this.prisma.$transaction([
       this.prisma.wrongQuestion.findMany({
-        where: { studentId: user.id, question: { deletedAt: null } },
+        where: { studentId: user.id, question: { deletedAt: null, status: QuestionStatus.PUBLISHED } },
         include: {
           question: {
             select: {
@@ -1191,7 +1272,7 @@ export class StudentService {
         orderBy: { lastWrongAt: 'desc' },
       }),
       this.prisma.wrongQuestionEvent.findMany({
-        where: { studentId: user.id },
+        where: { studentId: user.id, question: { deletedAt: null, status: QuestionStatus.PUBLISHED } },
         include: { question: { select: { id: true, title: true } } },
         orderBy: { happenedAt: 'asc' },
         take: 500,
@@ -1276,7 +1357,6 @@ export class StudentService {
       include: { question: true },
       orderBy: [{ wrongCount: 'desc' }, { lastWrongAt: 'desc' }],
     });
-
     const selected = (dto.random ? this.pickRandom(wrongItems, dto.count ?? wrongItems.length) : wrongItems)
       .slice(0, dto.count ?? wrongItems.length);
 
@@ -1590,7 +1670,7 @@ export class StudentService {
       throw new NotFoundException('答题记录不存在');
     }
 
-    const paperSnapshot = attempt.paperInstance.paperSnapshotJson as unknown as PaperSnapshot;
+    const paperSnapshot = this.normalizePaperSnapshot(attempt.paperInstance.paperSnapshotJson).snapshot;
     const answerMap = new Map(attempt.answers.map((answer) => [answer.questionId, answer]));
     let objectiveScore = 0;
     let subjectiveScore = 0;
@@ -1926,6 +2006,163 @@ export class StudentService {
     return value === null ? Prisma.JsonNull : value === undefined ? undefined : (value as Prisma.InputJsonValue);
   }
 
+  private normalizePaperSnapshot(value: unknown): SnapshotNormalizationResult {
+    const source = this.plainRecord(value);
+    const fallbackSection = Array.isArray(source.questions)
+      ? [{ id: null, title: source.name ?? '题目', sortOrder: 1, questions: source.questions }]
+      : [];
+    const rawSections = Array.isArray(source.sections) ? source.sections : fallbackSection;
+    let changed = !Array.isArray(source.sections);
+
+    const sections = rawSections
+      .map((rawSection, sectionIndex) => {
+        const section = this.plainRecord(rawSection);
+        const questions = (Array.isArray(section.questions) ? section.questions : [])
+          .map((rawQuestion, questionIndex) => this.normalizePaperQuestion(rawQuestion, sectionIndex, questionIndex))
+          .filter((question): question is PaperSnapshotQuestion => Boolean(question));
+
+        return {
+          id: this.optionalString(section.id),
+          title: this.firstString(section.title, section.name, `第 ${sectionIndex + 1} 部分`),
+          sortOrder: this.numberValue(section.sortOrder, sectionIndex + 1),
+          questions,
+        };
+      })
+      .filter((section) => section.questions.length);
+
+    const snapshot: PaperSnapshot = {
+      id: this.firstString(source.id, source.paperId),
+      name: this.firstString(source.name, source.title, '试卷'),
+      totalScore: this.numberValue(
+        source.totalScore,
+        sections.flatMap((section) => section.questions).reduce((sum, question) => sum + question.score, 0),
+      ),
+      durationMinutes: Math.max(1, Math.round(this.numberValue(source.durationMinutes, 60))),
+      sections,
+    };
+
+    changed ||= JSON.stringify(snapshot) !== JSON.stringify(value);
+    return { snapshot, changed };
+  }
+
+  private normalizePaperQuestion(rawQuestion: unknown, sectionIndex: number, questionIndex: number) {
+    const source = this.plainRecord(rawQuestion);
+    const nestedQuestion = this.plainRecordOrNull(source.question);
+    const snapshotSource = this.plainRecord(
+      source.snapshot ?? source.questionSnapshot ?? source.questionSnapshotJson ?? nestedQuestion ?? source,
+    );
+    const questionId = this.firstString(source.questionId, snapshotSource.id, source.id);
+    if (!questionId) return null;
+    const score = this.numberValue(source.score, this.numberValue(snapshotSource.defaultScore, 0));
+
+    return {
+      paperQuestionId: this.firstString(
+        source.paperQuestionId,
+        source.paperQuestionID,
+        source.id,
+        `${questionId}:${sectionIndex + 1}:${questionIndex + 1}`,
+      ),
+      questionId,
+      score,
+      sortOrder: this.numberValue(source.sortOrder, questionIndex + 1),
+      snapshot: this.normalizeQuestionSnapshot(snapshotSource, questionId, score),
+    };
+  }
+
+  private normalizeQuestionSnapshot(source: Record<string, unknown>, questionId: string, score: number): QuestionSnapshot {
+    const answer = this.plainRecordOrNull(source.answer ?? source.answerJson);
+    const options = (Array.isArray(source.options) ? source.options : []).map((rawOption, index) => {
+      const option = this.plainRecord(rawOption);
+      const optionKey = this.firstString(option.optionKey, option.label, option.key, String.fromCharCode(65 + index));
+      return {
+        id: this.firstString(option.id, option.optionId, option.value, `${questionId}:${optionKey}`),
+        optionKey,
+        content: this.firstString(option.content, option.text, option.label),
+        isCorrect: Boolean(option.isCorrect),
+        sortOrder: this.numberValue(option.sortOrder, index + 1),
+      };
+    });
+    const programmingRef = this.plainRecordOrNull(source.programmingRef ?? source.programming);
+
+    return {
+      id: questionId,
+      type: this.apiQuestionType(source.type),
+      title: this.firstString(source.title, source.name, `第 ${questionId} 题`),
+      content: this.firstString(source.content, source.description, source.statement),
+      analysis: this.optionalString(source.analysis),
+      defaultScore: this.numberValue(source.defaultScore, score),
+      allowOptionShuffle: source.allowOptionShuffle === undefined ? true : Boolean(source.allowOptionShuffle),
+      options,
+      answer: answer
+        ? ({
+            ...answer,
+            correctOptionIds: this.correctOptionIds(answer, options),
+          } as QuestionSnapshot['answer'])
+        : null,
+      programmingRef: programmingRef
+        ? ({
+            ...programmingRef,
+            judgeProvider: this.firstString(programmingRef.judgeProvider, programmingRef.provider, 'hydro'),
+            externalProblemId: this.firstString(programmingRef.externalProblemId, programmingRef.problemId),
+            externalProblemUrl: this.optionalString(programmingRef.externalProblemUrl ?? programmingRef.problemUrl),
+            languages: Array.isArray(programmingRef.languages) ? programmingRef.languages.map(String).filter(Boolean) : [],
+          } as QuestionSnapshot['programmingRef'])
+        : null,
+    };
+  }
+
+  private hasRenderableQuestions(snapshot: PaperSnapshot) {
+    return this.flattenPaperQuestions(snapshot).some(
+      (question) => Boolean(question.questionId && question.snapshot.title !== undefined && question.snapshot.content !== undefined),
+    );
+  }
+
+  private correctOptionIds(
+    answer: Record<string, unknown>,
+    options: Array<{ id: string; optionKey: string; isCorrect?: boolean }>,
+  ) {
+    const explicit = answer.correctOptionIds;
+    if (Array.isArray(explicit)) return explicit.map(String).filter(Boolean);
+    const keys = answer.correctOptionKeys ?? answer.correctOptions;
+    if (Array.isArray(keys)) {
+      const keySet = new Set(keys.map(String));
+      return options.filter((option) => keySet.has(option.optionKey) || keySet.has(option.id)).map((option) => option.id);
+    }
+    return options.filter((option) => option.isCorrect).map((option) => option.id);
+  }
+
+  private apiQuestionType(value: unknown) {
+    const raw = String(value || 'short_answer').trim();
+    return raw.replace(/-/g, '_').toLowerCase();
+  }
+
+  private plainRecord(value: unknown): Record<string, unknown> {
+    return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+  }
+
+  private plainRecordOrNull(value: unknown): Record<string, unknown> | null {
+    const record = this.plainRecord(value);
+    return Object.keys(record).length ? record : null;
+  }
+
+  private firstString(...values: unknown[]) {
+    for (const value of values) {
+      const text = String(value ?? '').trim();
+      if (text) return text;
+    }
+    return '';
+  }
+
+  private optionalString(value: unknown) {
+    const text = String(value ?? '').trim();
+    return text || null;
+  }
+
+  private numberValue(value: unknown, fallback: number) {
+    const number = Number(value);
+    return Number.isFinite(number) ? number : fallback;
+  }
+
   private async buildPaperSnapshot(
     tx: Prisma.TransactionClient,
     paper: Prisma.PaperGetPayload<{
@@ -2122,7 +2359,7 @@ export class StudentService {
         title: section.title,
         questions: section.questions.map((paperQuestion) => ({
           questionId: paperQuestion.questionId,
-          type: paperQuestion.snapshot.type,
+          type: this.apiQuestionType(paperQuestion.snapshot.type),
           title: paperQuestion.snapshot.title,
           content: paperQuestion.snapshot.content,
           score: paperQuestion.score,
@@ -2402,12 +2639,12 @@ export class StudentService {
 
   private reviewMasteryRule(value: Prisma.JsonValue | null | undefined) {
     if (!value || typeof value !== 'object' || Array.isArray(value)) {
-      return { reviewingIntervalDays: 3, correctStreak: 2 };
+      return { reviewingIntervalDays: 3, correctStreak: 3 };
     }
     const source = value as Record<string, unknown>;
     return {
       reviewingIntervalDays: Number(source.reviewingIntervalDays) > 0 ? Math.round(Number(source.reviewingIntervalDays)) : 3,
-      correctStreak: Number(source.correctStreak) > 0 ? Math.round(Number(source.correctStreak)) : 2,
+      correctStreak: Number(source.correctStreak) > 0 ? Math.round(Number(source.correctStreak)) : 3,
     };
   }
 

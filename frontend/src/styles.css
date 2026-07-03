@@ -164,6 +164,20 @@ body {
   flex: 0 0 auto;
 }
 
+.page-tabs {
+  flex: 0 0 auto;
+  margin: -2px 0 12px;
+}
+
+.page-tabs .el-tabs__header {
+  margin-bottom: 0;
+}
+
+.page-tabs .el-tabs__nav-wrap::after {
+  height: 1px;
+  background-color: var(--el-border-color-lighter);
+}
+
 .page-title {
   flex: 0 0 auto;
   margin: 0;

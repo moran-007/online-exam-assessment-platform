@@ -1,5 +1,5 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException, OnModuleInit } from '@nestjs/common';
-import { ExportStatus, MasteryStatus, Prisma, UserType, WrongQuestionSourceType } from '@prisma/client';
+import { ExportStatus, MasteryStatus, Prisma, QuestionStatus, UserType, WrongQuestionSourceType } from '@prisma/client';
 import {
   AlignmentType,
   Document,
@@ -789,7 +789,7 @@ export class ExportsService implements OnModuleInit {
       where: {
         studentId: userId,
         masteryStatus: { in: [MasteryStatus.UNMASTERED, MasteryStatus.REVIEWING] },
-        question: { deletedAt: null },
+        question: { deletedAt: null, status: QuestionStatus.PUBLISHED },
       },
       include: {
         question: {

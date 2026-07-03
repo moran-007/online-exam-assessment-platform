@@ -7,6 +7,7 @@ import {
   AddWrongQuestionDto,
   BatchWrongQuestionDto,
   GenerateWrongQuestionPaperDto,
+  QueryWrongQuestionDto,
   QueryStudentExamDto,
   QueryStudentPaperDto,
   RecordWrongQuestionPracticeDto,
@@ -78,8 +79,8 @@ export class StudentController {
   }
 
   @Get('wrong-questions')
-  wrongQuestions(@CurrentUser() user: RequestUser) {
-    return this.studentService.wrongQuestions(user);
+  wrongQuestions(@CurrentUser() user: RequestUser, @Query() query: QueryWrongQuestionDto) {
+    return this.studentService.wrongQuestions(user, query);
   }
 
   @Get('wrong-questions/insights')

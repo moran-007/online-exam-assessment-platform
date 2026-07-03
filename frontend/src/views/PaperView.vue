@@ -14,9 +14,6 @@
         <el-select v-model="paperFilter.courseId" clearable placeholder="课程" style="width: 170px" @change="loadFirstPaperPage">
           <el-option v-for="course in courses" :key="course.id" :label="course.name" :value="course.id" />
         </el-select>
-        <el-select v-model="paperFilter.status" clearable placeholder="状态" style="width: 130px" @change="loadFirstPaperPage">
-          <el-option v-for="status in paperStatusOptions" :key="status.value" :label="status.label" :value="status.value" />
-        </el-select>
         <el-button type="primary" :icon="Plus" @click="createPaperVisible = true">新建试卷</el-button>
         <el-upload
           :key="paperImportUploadKey"
@@ -44,13 +41,20 @@
       </div>
     </div>
 
+    <el-tabs v-model="paperScope" class="page-tabs" @tab-change="loadFirstPaperPage">
+      <el-tab-pane label="考试中" name="occupied" />
+      <el-tab-pane label="已公开" name="published" />
+      <el-tab-pane label="草稿" name="draft" />
+      <el-tab-pane label="已归档" name="archived" />
+    </el-tabs>
+
     <div class="paper-layout">
       <main class="paper-main">
         <div class="panel library-table-panel paper-library-panel">
           <div class="paper-library-head">
             <div>
               <h3>试卷库</h3>
-              <span class="muted">使用上方课程筛选选择试卷分类；新建试卷默认按录入时间排在最前。</span>
+              <span class="muted">使用上方标签查看试卷分类；新建试卷默认按录入时间排在最前。</span>
             </div>
           </div>
           <el-table
@@ -617,7 +621,8 @@ const snapshotSaving = ref(false);
 const paperImporting = ref(false);
 const paperImportUploadKey = ref(0);
 const openPaperGroups = ref([]);
-const paperFilter = reactive({ keyword: '', courseId: '', status: '', sortBy: 'createdAt', sortOrder: 'desc' });
+const paperScope = ref('published');
+const paperFilter = reactive({ keyword: '', courseId: '', sortBy: 'createdAt', sortOrder: 'desc' });
 const paperPagination = reactive({ page: 1, pageSize: 20, total: 0 });
 const pageSizes = [20, 50, 100];
 const form = reactive({ name: '', courseId: '', durationMinutes: 60, type: 'fixed' });
@@ -708,7 +713,7 @@ async function loadAll() {
         pageSize: paperPagination.pageSize,
         keyword: paperFilter.keyword,
         courseId: paperFilter.courseId,
-        status: paperFilter.status,
+        scope: paperScope.value,
         sortBy: paperFilter.sortBy,
         sortOrder: paperFilter.sortOrder,
       })}`,
@@ -728,7 +733,10 @@ async function loadAll() {
   bulkForm.courseId = bulkForm.courseId || form.courseId || '';
   addForm.questionId = addForm.questionId || questions.value[0]?.id || '';
   syncSelectedQuestionScore();
-  selectedPaperId.value = selectedPaperId.value || papers.value[0]?.id || '';
+  if (!papers.value.some((paper) => paper.id === selectedPaperId.value)) {
+    selectedPaperId.value = papers.value[0]?.id || '';
+    detail.value = null;
+  }
   openPaperGroups.value = openPaperGroups.value.length ? openPaperGroups.value : paperGroups.value.slice(0, 3).map((group) => group.key);
   if (selectedPaperId.value) await loadDetail();
   await loadBulkKnowledgeTree();
@@ -765,6 +773,7 @@ async function createPaper() {
   ElMessage.success('已创建');
   form.name = '';
   createPaperVisible.value = false;
+  paperScope.value = 'draft';
   paperFilter.sortBy = 'createdAt';
   paperFilter.sortOrder = 'desc';
   paperPagination.page = 1;
@@ -802,6 +811,7 @@ async function handlePaperImportChange(uploadFile) {
     });
     ElMessage.success(`已导入试卷：${result.questionCount} 题，复用 ${result.reusedCount} 题`);
     paperFilter.courseId = courseId;
+    paperScope.value = 'draft';
     paperFilter.sortBy = 'createdAt';
     paperFilter.sortOrder = 'desc';
     paperPagination.page = 1;
@@ -927,6 +937,7 @@ async function generateWrongFrequencyPaper() {
   });
   ElMessage.success(`已按错题频次生成 ${result.questionCount} 道题`);
   wrongFrequencyVisible.value = false;
+  paperScope.value = 'draft';
   paperFilter.sortBy = 'createdAt';
   paperFilter.sortOrder = 'desc';
   paperPagination.page = 1;
@@ -990,6 +1001,7 @@ async function copyPaperAsDraft(row) {
     });
     const created = await api(`/papers/${sourceId}/copy`, { method: 'POST' });
     ElMessage.success('已复制为草稿试卷');
+    paperScope.value = 'draft';
     paperFilter.sortBy = 'createdAt';
     paperFilter.sortOrder = 'desc';
     paperPagination.page = 1;
@@ -1207,6 +1219,11 @@ function paperStatusActionText(currentStatus, targetStatus) {
   return map[key] ?? `设为${statusLabel('paper', targetStatus)}`;
 }
 
+function paperScopeForStatus(status) {
+  if (status === 'draft' || status === 'archived') return status;
+  return 'published';
+}
+
 async function changePaperStatus(row, targetStatus) {
   const paperId = row?.id || selectedPaperId.value;
   const currentStatus = row?.status || detail.value?.status;
@@ -1228,6 +1245,7 @@ async function changePaperStatus(row, targetStatus) {
     }
 
     ElMessage.success(`试卷状态已更新为${statusLabel('paper', targetStatus)}`);
+    paperScope.value = paperScopeForStatus(targetStatus);
     selectedPaperId.value = paperId;
     await refreshSelectedPaper();
   } catch (error) {

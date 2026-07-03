@@ -45,10 +45,12 @@ export class PapersService {
   async list(query: QueryPaperDto) {
     const { page, pageSize, skip, take } = toPagination(query);
     const now = new Date();
+    const scopeWhere = this.paperScopeWhere(query.scope, now);
     const where: Prisma.PaperWhereInput = {
       deletedAt: null,
       courseId: query.courseId,
       status: query.status ? normalizePaperStatus(query.status) : undefined,
+      AND: [scopeWhere],
       OR: query.keyword ? [{ name: { contains: query.keyword, mode: 'insensitive' } }] : undefined,
     };
 
@@ -93,6 +95,32 @@ export class PapersService {
       pageSize,
       total,
     };
+  }
+
+  private paperScopeWhere(scope: string | undefined, now = new Date()): Prisma.PaperWhereInput {
+    const value = String(scope || '').trim().toLowerCase();
+    const activeExam: Prisma.ExamWhereInput = {
+      deletedAt: null,
+      status: { in: [ExamStatus.SCHEDULED, ExamStatus.RUNNING] },
+      startTime: { lte: now },
+      endTime: { gt: now },
+    };
+    if (value === 'occupied') {
+      return { exams: { some: activeExam } };
+    }
+    if (value === 'published') {
+      return {
+        status: PaperStatus.PUBLISHED,
+        exams: { none: activeExam },
+      };
+    }
+    if (value === 'draft') {
+      return { status: PaperStatus.DRAFT };
+    }
+    if (value === 'archived') {
+      return { status: PaperStatus.ARCHIVED };
+    }
+    return {};
   }
 
   async create(dto: CreatePaperDto, userId: string) {

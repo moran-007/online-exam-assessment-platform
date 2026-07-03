@@ -12,5 +12,9 @@ export class QueryPaperDto extends PaginationQueryDto {
 
   @IsOptional()
   @IsString()
+  scope?: string;
+
+  @IsOptional()
+  @IsString()
   keyword?: string;
 }

@@ -47,9 +47,9 @@ export class ExamsService {
     const where: Prisma.ExamWhereInput = {
       deletedAt: null,
       courseId: query.courseId,
-      status: query.status ? normalizeExamStatus(query.status) : undefined,
       AND: [
         scopeWhere,
+        this.examStatusWhere(query.status),
         query.keyword ? { OR: [{ name: { contains: query.keyword, mode: 'insensitive' } }] } : {},
       ],
     };
@@ -110,9 +110,10 @@ export class ExamsService {
       throw new BadRequestException('只能基于已发布试卷创建考试');
     }
 
-    const startTime = new Date(dto.startTime);
-    const endTime = new Date(dto.endTime);
-    if (Number.isNaN(startTime.getTime()) || Number.isNaN(endTime.getTime()) || endTime <= startTime) {
+    const startTime = this.parseExamTime(dto.startTime);
+    const durationMinutes = dto.durationMinutes ?? paper.durationMinutes;
+    const endTime = this.examEndTime(startTime, durationMinutes);
+    if (Number.isNaN(startTime.getTime()) || durationMinutes < 1) {
       throw new BadRequestException('考试时间不合法');
     }
 
@@ -125,7 +126,7 @@ export class ExamsService {
           classId: dto.classId,
           startTime,
           endTime,
-          durationMinutes: dto.durationMinutes ?? paper.durationMinutes,
+          durationMinutes,
           attemptLimit: dto.attemptLimit ?? 1,
           showAnswerMode: this.normalizeShowAnswerMode(dto.showAnswerMode ?? 'after_exam_end'),
           showScoreMode: this.normalizeShowScoreMode(dto.showScoreMode ?? 'after_submit'),
@@ -214,13 +215,10 @@ export class ExamsService {
       }
     }
 
-    const nextStartTime = dto.startTime ? new Date(dto.startTime) : current.startTime;
-    const nextEndTime = dto.endTime ? new Date(dto.endTime) : current.endTime;
-    if (
-      Number.isNaN(nextStartTime.getTime()) ||
-      Number.isNaN(nextEndTime.getTime()) ||
-      nextEndTime <= nextStartTime
-    ) {
+    const nextStartTime = dto.startTime ? this.parseExamTime(dto.startTime) : current.startTime;
+    const nextDurationMinutes = dto.durationMinutes ?? current.durationMinutes;
+    const nextEndTime = this.examEndTime(nextStartTime, nextDurationMinutes);
+    if (Number.isNaN(nextStartTime.getTime()) || nextDurationMinutes < 1) {
       throw new BadRequestException('考试时间不合法');
     }
 
@@ -237,7 +235,7 @@ export class ExamsService {
           courseId: dto.courseId,
           classId: dto.classId,
           startTime: dto.startTime ? nextStartTime : undefined,
-          endTime: dto.endTime ? nextEndTime : undefined,
+          endTime: dto.startTime !== undefined || dto.durationMinutes !== undefined || dto.endTime !== undefined ? nextEndTime : undefined,
           durationMinutes: dto.durationMinutes,
           attemptLimit: dto.attemptLimit,
           status: dto.status ? normalizeExamStatus(dto.status) : undefined,
@@ -828,6 +826,48 @@ export class ExamsService {
     if (exam.status === ExamStatus.ENDED || exam.endTime <= now) return ExamStatus.ENDED;
     if (exam.status === ExamStatus.RUNNING || exam.startTime <= now) return ExamStatus.RUNNING;
     return ExamStatus.SCHEDULED;
+  }
+
+  private examStatusWhere(status?: string): Prisma.ExamWhereInput {
+    if (!status) return {};
+    const normalized = normalizeExamStatus(status);
+    const now = new Date();
+    if (normalized === ExamStatus.SCHEDULED) {
+      return {
+        status: ExamStatus.SCHEDULED,
+        startTime: { gt: now },
+      };
+    }
+    if (normalized === ExamStatus.RUNNING) {
+      return {
+        OR: [
+          { status: ExamStatus.RUNNING, endTime: { gt: now } },
+          { status: ExamStatus.SCHEDULED, startTime: { lte: now }, endTime: { gt: now } },
+        ],
+      };
+    }
+    if (normalized === ExamStatus.ENDED) {
+      return {
+        OR: [
+          { status: ExamStatus.ENDED },
+          { status: { in: [ExamStatus.SCHEDULED, ExamStatus.RUNNING] }, endTime: { lte: now } },
+        ],
+      };
+    }
+    return { status: normalized };
+  }
+
+  private parseExamTime(value: string) {
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) {
+      throw new BadRequestException('考试时间不合法');
+    }
+    return parsed;
+  }
+
+  private examEndTime(startTime: Date, durationMinutes: number) {
+    const duration = Math.max(1, Math.round(Number(durationMinutes) || 1));
+    return new Date(startTime.getTime() + duration * 60_000);
   }
 
   private canOverrideLockedExam(user: RequestUser) {

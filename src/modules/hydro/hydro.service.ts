@@ -1204,6 +1204,9 @@ export class HydroService implements OnModuleInit, OnModuleDestroy {
       submission.questionId,
     );
     const maxScore = Number(snapshot?.score ?? 0);
+    const storedScore = submission.score === null ? null : Number(submission.score);
+    const scoreBreakdown =
+      storedScore === null ? null : this.storedJudgeScoreBreakdown(maxScore, submission.status, storedScore, result);
     return {
       submissionId: submission.id,
       attemptId: submission.attemptId,
@@ -1216,13 +1219,13 @@ export class HydroService implements OnModuleInit, OnModuleDestroy {
       externalProblemUrl: submission.question.programmingRef?.externalProblemUrl ?? '',
       language: submission.language,
       status: submission.status,
-      score: submission.score === null ? null : Number(submission.score),
+      score: scoreBreakdown?.score ?? null,
       maxScore,
-      isCorrect: submission.score === null ? null : Number(submission.score) >= maxScore,
-      remoteScore: result.remoteScore ?? null,
-      passedTestCaseCount: result.passedTestCaseCount ?? null,
-      totalTestCaseCount: result.totalTestCaseCount ?? null,
-      scoreRate: result.scoreRate ?? null,
+      isCorrect: scoreBreakdown?.isFullScore ?? null,
+      remoteScore: result.remoteScore ?? scoreBreakdown?.remoteScore ?? null,
+      passedTestCaseCount: result.passedTestCaseCount ?? scoreBreakdown?.passedTestCaseCount ?? null,
+      totalTestCaseCount: result.totalTestCaseCount ?? scoreBreakdown?.totalTestCaseCount ?? null,
+      scoreRate: result.scoreRate ?? scoreBreakdown?.scoreRate ?? null,
       message: String(result.message ?? ''),
       mode: String(result.mode ?? ''),
       problemUrl: String(result.problemUrl ?? ''),
@@ -3030,16 +3033,21 @@ export class HydroService implements OnModuleInit, OnModuleDestroy {
 
   private normalizeJudgeStatus(status: string) {
     const value = status.trim().toLowerCase().replace(/\s+/g, '_');
-    const accepted = new Set(['accepted', 'accept', 'ac', 'ok', 'success', 'pass', 'passed']);
-    if (accepted.has(value) || /通过|正确/.test(status)) return 'accepted';
     if (['pending', 'queued', 'waiting', 'wait', 'waiting_judge'].includes(value) || /等待|排队/.test(status)) return 'pending';
-    if (['judging', 'running', 'compiling', 'fetched'].includes(value) || /评测|运行|编译/.test(status)) return 'judging';
     if (['compile_error', 'ce', 'compile_error_'].includes(value) || /编译错误/i.test(status)) return 'compile_error';
-    if (['wrong_answer', 'wa'].includes(value) || /答案错误|wrong answer/i.test(status)) return 'wrong_answer';
     if (['runtime_error', 're'].includes(value) || /运行错误|runtime/i.test(status)) return 'runtime_error';
     if (['time_limit_exceeded', 'time_limit_exceed', 'tle'].includes(value) || /时间超限|time limit/i.test(status)) return 'time_limit_exceeded';
     if (['memory_limit_exceeded', 'memory_limit_exceed', 'mle'].includes(value) || /内存超限|memory limit/i.test(status)) return 'memory_limit_exceeded';
     if (['system_error', 'se', 'failed', 'error', 'unknown'].includes(value) || /系统错误|system/i.test(status)) return 'system_error';
+    if (
+      ['wrong_answer', 'wa', 'partial_accepted', 'partially_accepted', 'partial'].includes(value) ||
+      /答案错误|部分|未通过|不通过|wrong answer/i.test(status)
+    ) {
+      return 'wrong_answer';
+    }
+    if (['judging', 'running', 'compiling', 'fetched'].includes(value) || /评测中|运行中|编译中/.test(status)) return 'judging';
+    const accepted = new Set(['accepted', 'accept', 'ac', 'ok', 'success', 'pass', 'passed']);
+    if (accepted.has(value) || /通过|正确/.test(status)) return 'accepted';
     return value || 'unknown';
   }
 
@@ -3075,15 +3083,23 @@ export class HydroService implements OnModuleInit, OnModuleDestroy {
     const accepted = normalizedStatus === 'accepted';
     const passedTestCaseCount = this.toNonNegativeInteger(result.passedTestCaseCount);
     const totalTestCaseCount = this.toNonNegativeInteger(result.totalTestCaseCount);
+    const explicitScoreRate = this.toScoreRate(result.scoreRate);
     const numericRemoteScore = Number(remoteScore ?? result.remoteScore ?? result.score);
     const normalizedRemoteScore = Number.isFinite(numericRemoteScore) ? Math.min(Math.max(numericRemoteScore, 0), 100) : null;
-    const scoreRate = accepted
-      ? 1
-      : totalTestCaseCount && passedTestCaseCount !== null
+    const testCaseScoreRate =
+      totalTestCaseCount && passedTestCaseCount !== null
         ? Math.min(passedTestCaseCount, totalTestCaseCount) / totalTestCaseCount
+        : null;
+    const scoreRate =
+      testCaseScoreRate !== null
+        ? testCaseScoreRate
+        : explicitScoreRate !== null
+          ? explicitScoreRate
         : normalizedRemoteScore !== null
           ? normalizedRemoteScore / 100
-          : 0;
+          : accepted
+            ? 1
+            : 0;
     const safeMaxScore = Number.isFinite(maxScore) ? Math.max(maxScore, 0) : 0;
     const score = final ? Math.round(safeMaxScore * scoreRate * 100) / 100 : 0;
     return {
@@ -3093,13 +3109,70 @@ export class HydroService implements OnModuleInit, OnModuleDestroy {
       passedTestCaseCount,
       totalTestCaseCount,
       final,
-      isFullScore: accepted || (safeMaxScore > 0 && score >= safeMaxScore),
+      isFullScore:
+        final &&
+        safeMaxScore > 0 &&
+        score >= safeMaxScore &&
+        (!totalTestCaseCount || passedTestCaseCount === totalTestCaseCount),
+    };
+  }
+
+  private storedJudgeScoreBreakdown(maxScore: number, status: string, storedScore: number, result: Record<string, unknown>) {
+    const safeMaxScore = Number.isFinite(maxScore) ? Math.max(maxScore, 0) : 0;
+    const hasTestCaseRatio =
+      Boolean(this.toNonNegativeInteger(result.totalTestCaseCount)) &&
+      this.toNonNegativeInteger(result.passedTestCaseCount) !== null;
+    const hasExplicitRate = this.toScoreRate(result.scoreRate) !== null;
+    const resultRemoteScore = Number(result.remoteScore ?? result.score);
+    const storedLooksLikeRemoteScore = safeMaxScore > 0 && storedScore > safeMaxScore;
+
+    if (hasTestCaseRatio || hasExplicitRate || Number.isFinite(resultRemoteScore) || storedLooksLikeRemoteScore) {
+      const remoteScore = Number.isFinite(resultRemoteScore)
+        ? resultRemoteScore
+        : storedLooksLikeRemoteScore
+          ? storedScore
+          : null;
+      return this.hydroScoreBreakdown(safeMaxScore, status, remoteScore, result);
+    }
+
+    const score = Number.isFinite(storedScore) ? Math.max(storedScore, 0) : 0;
+    return {
+      score,
+      scoreRate: safeMaxScore > 0 ? Math.min(score / safeMaxScore, 1) : null,
+      remoteScore: null,
+      passedTestCaseCount: null,
+      totalTestCaseCount: null,
+      final: !['pending', 'judging'].includes(this.normalizeJudgeStatus(status)),
+      isFullScore: this.isFullJudgeScore(safeMaxScore, score, result),
     };
   }
 
   private toNonNegativeInteger(value: unknown) {
     const numeric = Number(value);
     return Number.isInteger(numeric) && numeric >= 0 ? numeric : null;
+  }
+
+  private toScoreRate(value: unknown) {
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric) || numeric < 0) return null;
+    return Math.min(numeric > 1 ? numeric / 100 : numeric, 1);
+  }
+
+  private isFullJudgeScore(maxScore: number, score: number, result: Record<string, unknown>) {
+    const totalTestCaseCount = this.toNonNegativeInteger(result.totalTestCaseCount);
+    const passedTestCaseCount = this.toNonNegativeInteger(result.passedTestCaseCount);
+    if (totalTestCaseCount && passedTestCaseCount !== null) {
+      return passedTestCaseCount === totalTestCaseCount;
+    }
+
+    const scoreRate = this.toScoreRate(result.scoreRate);
+    if (scoreRate !== null) return scoreRate >= 1;
+
+    const remoteScore = Number(result.remoteScore ?? result.score);
+    if (Number.isFinite(remoteScore)) return remoteScore >= 100;
+
+    const safeMaxScore = Number.isFinite(maxScore) ? Math.max(maxScore, 0) : 0;
+    return safeMaxScore > 0 && Number.isFinite(score) && score >= safeMaxScore;
   }
 
   private attemptDeadline(attempt: { startedAt: Date; exam: { durationMinutes: number; endTime: Date } }) {

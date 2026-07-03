@@ -296,15 +296,22 @@
                 style="width: 100%"
               />
             </el-form-item>
+            <el-form-item label="规则模板">
+              <el-segmented v-model="reviewRuleForm.preset" :options="reviewPresetOptions" @change="applyReviewPreset" />
+            </el-form-item>
             <el-form-item label="间隔天数">
               <el-input v-model="reviewRuleForm.intervalsText" placeholder="例如：1,3,7,14,30" />
             </el-form-item>
-            <el-form-item label="掌握规则">
+            <el-form-item label="掌握规则" class="review-rule-wide">
               <div class="review-mastery-grid">
-                <el-input-number v-model="reviewRuleForm.correctStreak" :min="1" :max="20" />
-                <span class="muted">连续答对次数</span>
-                <el-input-number v-model="reviewRuleForm.reviewingIntervalDays" :min="1" :max="365" />
-                <span class="muted">掌握前复习间隔</span>
+                <div class="review-mastery-item">
+                  <el-input-number v-model="reviewRuleForm.correctStreak" :min="1" :max="20" />
+                  <span class="muted">连续答对次数</span>
+                </div>
+                <div class="review-mastery-item">
+                  <el-input-number v-model="reviewRuleForm.reviewingIntervalDays" :min="1" :max="365" />
+                  <span class="muted">掌握前复习间隔</span>
+                </div>
               </div>
             </el-form-item>
             <el-form-item label="启用">
@@ -332,7 +339,7 @@
             </el-table-column>
             <el-table-column label="掌握" min-width="160" show-overflow-tooltip>
               <template #default="{ row }">
-                连续 {{ row.masteryRule?.correctStreak || 2 }} 次，{{ row.masteryRule?.reviewingIntervalDays || 3 }} 天复习
+                连续 {{ row.masteryRule?.correctStreak || 3 }} 次，{{ row.masteryRule?.reviewingIntervalDays || 3 }} 天复习
               </template>
             </el-table-column>
             <el-table-column label="状态" width="90">
@@ -407,13 +414,25 @@ const reviewRuleSaving = ref(false);
 const reviewRules = ref([]);
 const reviewKnowledgeTree = ref([]);
 const reviewKnowledgeMap = ref(new Map());
+const reviewPresetOptions = [
+  { label: '标准', value: 'standard' },
+  { label: '强化', value: 'intensive' },
+  { label: '长期', value: 'long_term' },
+  { label: '手动', value: 'custom' },
+];
+const reviewPresetMap = {
+  standard: { intervalsText: '1,3,7,14,30', correctStreak: 3, reviewingIntervalDays: 3 },
+  intensive: { intervalsText: '1,2,4,7,15', correctStreak: 3, reviewingIntervalDays: 2 },
+  long_term: { intervalsText: '1,4,8,16,32,64', correctStreak: 4, reviewingIntervalDays: 5 },
+};
 const reviewRuleForm = reactive({
   id: '',
   courseId: '',
   classId: '',
   knowledgePointId: '',
+  preset: 'standard',
   intervalsText: '1,3,7,14,30',
-  correctStreak: 2,
+  correctStreak: 3,
   reviewingIntervalDays: 3,
   enabled: true,
 });
@@ -748,8 +767,9 @@ function editReviewRule(row) {
     courseId: row.courseId || '',
     classId: row.classId || '',
     knowledgePointId: row.knowledgePointId || '',
+    preset: presetFromRule(row),
     intervalsText: (row.intervalsDays || []).join(','),
-    correctStreak: Number(row.masteryRule?.correctStreak || 2),
+    correctStreak: Number(row.masteryRule?.correctStreak || 3),
     reviewingIntervalDays: Number(row.masteryRule?.reviewingIntervalDays || 3),
     enabled: Boolean(row.enabled),
   });
@@ -762,8 +782,9 @@ function resetReviewRuleForm() {
     courseId: '',
     classId: '',
     knowledgePointId: '',
+    preset: 'standard',
     intervalsText: '1,3,7,14,30',
-    correctStreak: 2,
+    correctStreak: 3,
     reviewingIntervalDays: 3,
     enabled: true,
   });
@@ -785,7 +806,7 @@ async function saveReviewRule() {
       knowledgePointId: reviewRuleForm.knowledgePointId || null,
       intervalsDays,
       masteryRule: {
-        correctStreak: Number(reviewRuleForm.correctStreak || 2),
+        correctStreak: Number(reviewRuleForm.correctStreak || 3),
         reviewingIntervalDays: Number(reviewRuleForm.reviewingIntervalDays || 3),
       },
       enabled: reviewRuleForm.enabled,
@@ -824,6 +845,23 @@ async function deleteReviewRule(row) {
   } catch (error) {
     ElMessage.error(error.message || '删除复习规则失败');
   }
+}
+
+function applyReviewPreset(value) {
+  const preset = reviewPresetMap[value];
+  if (!preset) return;
+  Object.assign(reviewRuleForm, preset);
+}
+
+function presetFromRule(row) {
+  const intervalsText = (row.intervalsDays || []).join(',');
+  const correctStreak = Number(row.masteryRule?.correctStreak || 3);
+  const reviewingIntervalDays = Number(row.masteryRule?.reviewingIntervalDays || 3);
+  return Object.entries(reviewPresetMap).find(([, preset]) =>
+    preset.intervalsText === intervalsText &&
+    preset.correctStreak === correctStreak &&
+    preset.reviewingIntervalDays === reviewingIntervalDays
+  )?.[0] || 'custom';
 }
 
 function reviewRuleScope(row) {
@@ -1055,6 +1093,7 @@ onMounted(load);
   gap: 0 12px;
 }
 
+.review-rule-form .review-rule-wide,
 .review-rule-form .el-form-item:nth-last-child(-n + 2) {
   grid-column: 1 / -1;
 }
@@ -1062,9 +1101,27 @@ onMounted(load);
 .review-mastery-grid {
   width: 100%;
   display: grid;
-  grid-template-columns: auto minmax(70px, 1fr) auto minmax(70px, 1fr);
-  gap: 8px;
+  grid-template-columns: repeat(2, minmax(220px, 1fr));
+  gap: 10px 16px;
   align-items: center;
+}
+
+.review-mastery-item {
+  min-width: 0;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.review-mastery-item :deep(.el-input-number) {
+  flex: 0 0 120px;
+  width: 120px;
+}
+
+.review-mastery-item .muted {
+  min-width: 0;
+  line-height: 1.4;
+  white-space: normal;
 }
 
 .review-rule-list {
@@ -1114,7 +1171,10 @@ onMounted(load);
 }
 
 @media (max-width: 760px) {
-  .review-rule-form,
+  .review-rule-form {
+    grid-template-columns: 1fr;
+  }
+
   .review-mastery-grid {
     grid-template-columns: 1fr;
   }

@@ -82,6 +82,7 @@ export class QuestionsService {
 
   async list(query: QueryQuestionDto) {
     const { page, pageSize, skip, take } = toPagination(query);
+    const scopeWhere = this.questionScopeWhere(query.scope);
     const where: Prisma.QuestionWhereInput = {
       deletedAt: null,
       courseId: query.courseId,
@@ -90,6 +91,7 @@ export class QuestionsService {
       difficulty: query.difficulty,
       tags: query.tagId ? { some: { tagId: query.tagId } } : undefined,
       knowledgePoints: query.knowledgePointId ? { some: { knowledgePointId: query.knowledgePointId } } : undefined,
+      AND: [scopeWhere],
       OR: query.keyword
         ? [
             { title: { contains: query.keyword, mode: 'insensitive' } },
@@ -143,6 +145,37 @@ export class QuestionsService {
       pageSize,
       total,
     };
+  }
+
+  private questionScopeWhere(scope?: string): Prisma.QuestionWhereInput {
+    const value = String(scope || '').trim().toLowerCase();
+    const now = new Date();
+    const activeOccupation: Prisma.PaperQuestionWhereInput = {
+      paper: {
+        exams: {
+          some: {
+            status: { in: [ExamStatus.SCHEDULED, ExamStatus.RUNNING] },
+            startTime: { lte: now },
+            endTime: { gt: now },
+          },
+        },
+      },
+    };
+    if (value === 'occupied') {
+      return { paperQuestions: { some: activeOccupation } };
+    }
+    if (value === 'published') {
+      return {
+        status: QuestionStatus.PUBLISHED,
+        paperQuestions: { none: activeOccupation },
+      };
+    }
+    if (value === 'draft') {
+      return {
+        status: { in: [QuestionStatus.DRAFT, QuestionStatus.PENDING_REVIEW, QuestionStatus.DISABLED] },
+      };
+    }
+    return {};
   }
 
   async publicList(query: QueryQuestionDto) {

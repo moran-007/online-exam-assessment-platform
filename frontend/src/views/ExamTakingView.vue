@@ -27,7 +27,7 @@
         class="exam-main"
         :class="{ 'is-programming-main': visibleEntries[0]?.question.type === 'programming' }"
       >
-        <template v-if="visibleEntries.length">
+        <template v-if="visibleEntries.length && visibleEntriesReady">
           <section
             v-for="entry in visibleEntries"
             :id="`question-${entry.question.questionId}`"
@@ -37,7 +37,7 @@
             <div class="question-title">
               <div>
                 <span>第 {{ entry.index + 1 }} 题</span>
-                <span class="muted">{{ entry.sectionTitle }}</span>
+                <span class="muted">{{ questionMetaLabel(entry) }}</span>
               </div>
               <div class="toolbar">
                 <el-tag :type="isAnswered(entry.question.questionId) ? 'success' : 'info'">
@@ -253,7 +253,7 @@
           </section>
         </template>
 
-        <el-empty v-else description="暂无题目" />
+        <el-empty v-else-if="!visibleEntries.length" description="暂无题目" />
 
       </main>
 
@@ -377,6 +377,9 @@ const totalCount = computed(() => flatQuestions.value.length);
 const currentEntry = computed(() => flatQuestions.value[currentIndex.value] ?? null);
 const currentQuestionId = computed(() => currentEntry.value?.question.questionId ?? '');
 const visibleEntries = computed(() => (currentEntry.value ? [currentEntry.value] : []));
+const visibleEntriesReady = computed(() =>
+  visibleEntries.value.every((entry) => Boolean(answers[entry.question.questionId])),
+);
 const answeredCount = computed(() => flatQuestions.value.filter((entry) => isAnswered(entry.question.questionId)).length);
 const flaggedCount = computed(() => flatQuestions.value.filter((entry) => isFlagged(entry.question.questionId)).length);
 const progressPercent = computed(() => (totalCount.value ? Math.round((answeredCount.value / totalCount.value) * 100) : 0));
@@ -425,10 +428,11 @@ async function load() {
   exam.value = data.exam;
   attemptStartedAt.value = data.attemptStartedAt || data.exam?.serverTime || new Date().toISOString();
   serverOffsetMs.value = Date.now() - new Date(data.exam?.serverTime || Date.now()).getTime();
-  paper.sections = data.paper.sections;
+  const nextSections = Array.isArray(data.paper?.sections) ? data.paper.sections : [];
   await loadHydroAccounts();
   answersHydrating = true;
   try {
+    paper.sections = nextSections;
     resetAnswers();
     applySavedAnswers(data.answers ?? []);
   } finally {
@@ -477,21 +481,27 @@ function applySavedAnswers(savedAnswers) {
     answers[saved.questionId].blanks = blankAnswerList(question, answer.blanks);
     answers[saved.questionId].text = typeof answer.text === 'string' ? answer.text : '';
     answers[saved.questionId].code = typeof answer.code === 'string' ? answer.code : typeof answer.text === 'string' ? answer.text : '';
-    answers[saved.questionId].language = typeof answer.language === 'string' ? answer.language : 'cc.cc17o2';
+    answers[saved.questionId].language =
+      typeof answer.language === 'string' ? answer.language : question ? languageOptionsFor(question)[0] || 'cc.cc17o2' : 'cc.cc17o2';
     if (['judge_pending', 'judge_done'].includes(saved.status) || saved.autoResult?.latestSubmissionId) {
       codeSubmitFeedback[saved.questionId] = buildSubmissionFeedback(
         {
           submissionId: saved.autoResult?.latestSubmissionId || answer.hydro?.submissionId || '',
           externalSubmissionId: saved.autoResult?.externalSubmissionId || answer.hydro?.externalSubmissionId || '',
           status: saved.autoResult?.status || (saved.status === 'judge_done' ? 'accepted' : 'pending'),
+          isCorrect: saved.isCorrect,
           score: saved.score,
+          maxScore: question?.score ?? saved.autoResult?.maxScore ?? 0,
+          passedTestCaseCount: saved.autoResult?.passedTestCaseCount,
+          totalTestCaseCount: saved.autoResult?.totalTestCaseCount,
+          scoreRate: saved.autoResult?.scoreRate,
           language: answers[saved.questionId].language,
           mode: answer.hydro?.mode || saved.autoResult?.mode || 'direct',
           problemUrl: saved.autoResult?.problemUrl || answer.hydro?.problemUrl || '',
           recordUrl: saved.autoResult?.recordUrl || saved.autoResult?.result?.recordUrl || '',
           message: saved.autoResult?.message || (saved.status === 'judge_done' ? '判题结果已同步' : '等待 Hydro 判题结果'),
         },
-        saved.autoResult?.status === 'accepted' ? 'success' : 'info',
+        saved.isCorrect === true ? 'success' : 'info',
       );
     }
   }
@@ -513,6 +523,7 @@ function isFlagged(questionId) {
 
 function payloadFor(questionId) {
   const answer = answers[questionId];
+  if (!answer) return {};
   if (answer.selectedOptionIds?.filter(Boolean).length) {
     return { selectedOptionIds: answer.selectedOptionIds.filter(Boolean) };
   }
@@ -578,6 +589,14 @@ function typeLabel(value) {
     arduino_project: 'Arduino 项目题',
   };
   return map[value] ?? value;
+}
+
+function questionMetaLabel(entry) {
+  const questionType = typeLabel(entry.question.type);
+  const sectionTitle = String(entry.sectionTitle || '').trim();
+  if (!sectionTitle || sectionTitle === questionType) return questionType;
+  if (['客观题', '主观题'].includes(sectionTitle)) return questionType;
+  return `${questionType} · ${sectionTitle}`;
 }
 
 function languageLabel(language) {
@@ -731,7 +750,7 @@ async function refreshSubmission(questionId) {
   codeSubmitLoading[questionId] = true;
   try {
     const detail = await api(`/hydro/submissions/${feedback.submissionId}`);
-    codeSubmitFeedback[questionId] = buildSubmissionFeedback(detail, detail.status === 'accepted' ? 'success' : 'info');
+    codeSubmitFeedback[questionId] = buildSubmissionFeedback(detail, detail.isCorrect === true ? 'success' : 'info');
     ElMessage.success('判题结果已刷新');
   } catch (error) {
     ElMessage.error(error.message || '刷新失败');
@@ -743,24 +762,56 @@ async function refreshSubmission(questionId) {
 function buildSubmissionFeedback(result, fallbackType = 'info') {
   const status = result.status || '';
   const final = !['pending', 'judging'].includes(status);
-  const accepted = result.isCorrect === true || status === 'accepted';
   const detail = result.result || {};
+  const passedTestCaseCount = result.passedTestCaseCount ?? detail.passedTestCaseCount ?? null;
+  const totalTestCaseCount = result.totalTestCaseCount ?? detail.totalTestCaseCount ?? null;
+  const score = result.score ?? null;
+  const maxScore = result.maxScore ?? 0;
+  const scoreRate = result.scoreRate ?? detail.scoreRate ?? null;
+  const isFullScore = isFullProgrammingScore({
+    isCorrect: result.isCorrect,
+    score,
+    maxScore,
+    passedTestCaseCount,
+    totalTestCaseCount,
+    scoreRate,
+    status,
+  });
   return {
-    type: accepted ? 'success' : final ? 'error' : fallbackType,
-    title: result.mode === 'manual' ? '本地提交已记录' : accepted ? '全部测试点通过' : final ? '部分测试点未通过' : '等待 Hydro 评测',
+    type: isFullScore ? 'success' : final ? 'error' : fallbackType,
+    title: result.mode === 'manual' ? '本地提交已记录' : isFullScore ? '全部测试点通过' : final ? '部分测试点未通过' : '等待 Hydro 评测',
     message: result.message || '',
     status,
     language: result.language || '',
     externalSubmissionId: result.externalSubmissionId || '',
-    score: result.score ?? null,
-    maxScore: result.maxScore ?? 0,
-    passedTestCaseCount: result.passedTestCaseCount ?? detail.passedTestCaseCount ?? null,
-    totalTestCaseCount: result.totalTestCaseCount ?? detail.totalTestCaseCount ?? null,
-    scoreRate: result.scoreRate ?? detail.scoreRate ?? null,
+    score,
+    maxScore,
+    passedTestCaseCount,
+    totalTestCaseCount,
+    scoreRate,
+    isCorrect: final ? isFullScore : null,
     submissionId: result.submissionId || '',
     problemUrl: result.problemUrl || '',
     recordUrl: result.recordUrl || '',
   };
+}
+
+function isFullProgrammingScore(result) {
+  const passed = Number(result.passedTestCaseCount);
+  const total = Number(result.totalTestCaseCount);
+  if (Number.isFinite(total) && total > 0 && Number.isFinite(passed)) {
+    return passed === total;
+  }
+  const rate = Number(result.scoreRate);
+  if (Number.isFinite(rate)) return rate >= 1;
+  const score = Number(result.score);
+  const maxScore = Number(result.maxScore);
+  if (Number.isFinite(score) && Number.isFinite(maxScore) && maxScore > 0) {
+    return score >= maxScore;
+  }
+  if (result.isCorrect === true) return true;
+  if (result.isCorrect === false) return false;
+  return result.status === 'accepted';
 }
 
 function clearAnswer(questionId) {
