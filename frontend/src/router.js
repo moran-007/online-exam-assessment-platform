@@ -1,5 +1,5 @@
 import { createRouter, createWebHistory } from 'vue-router';
-import { canAccessByMeta, firstAccessiblePath } from './access';
+import { canAccessByMeta, firstAccessiblePath, isPrivilegedUser } from './access';
 import { getCurrentUser, getRefreshToken, getToken } from './api';
 import LoginView from './views/LoginView.vue';
 import DashboardView from './views/DashboardView.vue';
@@ -12,12 +12,12 @@ import QuestionImportView from './views/QuestionImportView.vue';
 import PaperView from './views/PaperView.vue';
 import PaperAnswerView from './views/PaperAnswerView.vue';
 import ExamView from './views/ExamView.vue';
-import GradingView from './views/GradingView.vue';
+import GradingWorkbenchView from './views/GradingWorkbenchView.vue';
 import ExportView from './views/ExportView.vue';
 import StatisticsView from './views/StatisticsView.vue';
 import StudentExamView from './views/StudentExamView.vue';
 import ExamTakingView from './views/ExamTakingView.vue';
-import ResultView from './views/ResultView.vue';
+import AttemptReviewView from './views/AttemptReviewView.vue';
 import WrongQuestionView from './views/WrongQuestionView.vue';
 import PublicQuestionView from './views/PublicQuestionView.vue';
 import StudentPaperBankView from './views/StudentPaperBankView.vue';
@@ -41,7 +41,7 @@ const routes = [
   { path: '/papers', component: PaperView, meta: { adminOnly: true, permissions: ['paper:read'] } },
   { path: '/papers/:paperId/answer', component: PaperAnswerView },
   { path: '/exams', component: ExamView, meta: { adminOnly: true, permissions: ['exam:read'] } },
-  { path: '/grading', component: GradingView, meta: { adminOnly: true, permissions: ['grading:read'] } },
+  { path: '/grading', component: GradingWorkbenchView, meta: { adminOnly: true, permissions: ['grading:read'] } },
   { path: '/exports', component: ExportView, meta: { adminOnly: true, permissions: ['exam:result:export'] } },
   { path: '/statistics', component: StatisticsView, meta: { adminOnly: true, permissions: ['statistics:read'] } },
   {
@@ -50,8 +50,8 @@ const routes = [
     meta: { adminOnly: true, userTypes: ['SUPER_ADMIN', 'ADMIN', 'TEACHER', 'ASSISTANT'] },
   },
   { path: '/student/exams', component: StudentExamView, meta: { studentOnly: true } },
-  { path: '/student/exams/:examId', component: ExamTakingView, meta: { studentOnly: true } },
-  { path: '/student/attempts/:attemptId/result', component: ResultView, meta: { studentOnly: true } },
+  { path: '/student/exams/:examId', component: ExamTakingView, meta: { studentOnly: true, simulationAllowed: true } },
+  { path: '/student/attempts/:attemptId/result', component: AttemptReviewView, meta: { studentOnly: true, simulationAllowed: true } },
   { path: '/student/papers', component: StudentPaperBankView, meta: { studentOnly: true } },
   { path: '/student/wrong-questions', component: WrongQuestionView, meta: { studentOnly: true } },
   { path: '/student/profile', component: StudentProfileView, meta: { studentOnly: true } },
@@ -71,7 +71,8 @@ router.beforeEach((to) => {
   if (to.path === '/login' && getToken()) {
     return firstAccessiblePath(user);
   }
-  if (!canAccessByMeta(user, to.meta)) {
+  const simulationAccess = Boolean(to.meta.simulationAllowed && to.query.simulateStudentId && isPrivilegedUser(user));
+  if (!canAccessByMeta(user, to.meta) && !simulationAccess) {
     return user ? firstAccessiblePath(user) : '/login';
   }
   return true;

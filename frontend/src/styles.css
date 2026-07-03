@@ -1610,6 +1610,8 @@ body {
 
 .exam-main {
   display: grid;
+  grid-auto-rows: max-content;
+  align-content: start;
   gap: 14px;
   min-width: 0;
   min-height: 0;
@@ -1658,7 +1660,8 @@ body {
 
 .answer-layout-question {
   padding: 0;
-  overflow: hidden;
+  overflow: visible;
+  container-type: inline-size;
 }
 
 .answer-layout-question > .question-title,
@@ -1801,14 +1804,12 @@ body {
 
 .exam-question .question-answer-layout.is-side .question-answer-statement,
 .exam-question .question-answer-layout.is-side .question-answer-panel {
-  max-height: calc(100vh - 170px);
-  overflow: auto;
-  overscroll-behavior: contain;
+  max-height: none;
+  overflow: visible;
 }
 
 .exam-question .question-answer-layout.is-side .question-answer-panel {
-  position: sticky;
-  top: 0;
+  position: static;
 }
 
 .question-answer-layout.is-framed .question-answer-statement {
@@ -1843,7 +1844,24 @@ body {
 .programming-answer {
   display: grid;
   gap: 10px;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
   margin-top: 14px;
+}
+
+@container (max-width: 760px) {
+  .question-answer-layout.is-side {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .question-answer-layout.is-side .question-answer-resizer {
+    display: none;
+  }
+
+  .question-answer-layout.is-side .question-answer-panel {
+    border-top: 1px solid var(--border);
+  }
 }
 
 .code-answer-input .el-textarea__inner,
@@ -1921,6 +1939,14 @@ body {
 
 .programming-toolbar-shell + .code-answer-editor {
   margin-top: 0;
+}
+
+.programming-primary-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
 }
 
 .programming-toolbar .el-tag--info {

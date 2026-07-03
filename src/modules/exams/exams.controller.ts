@@ -28,7 +28,7 @@ export class ExamsController {
   }
 
   @Patch('batch/status')
-  @Permissions('exam:create')
+  @Permissions('exam:update')
   bulkUpdateStatus(@Body() dto: BulkUpdateExamStatusDto, @CurrentUser() user: RequestUser) {
     return this.examsService.bulkUpdateStatus(dto, user);
   }
@@ -56,7 +56,7 @@ export class ExamsController {
   }
 
   @Patch(':id')
-  @Permissions('exam:create')
+  @Permissions('exam:update')
   update(@Param('id') id: string, @Body() dto: UpdateExamDto, @CurrentUser() user: RequestUser) {
     return this.examsService.update(id, dto, user);
   }
@@ -86,7 +86,7 @@ export class ExamsController {
   }
 
   @Delete(':id')
-  @Permissions('exam:create')
+  @Permissions('exam:delete')
   remove(@Param('id') id: string, @CurrentUser() user: RequestUser) {
     return this.examsService.remove(id, user);
   }

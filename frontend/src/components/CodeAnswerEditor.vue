@@ -292,6 +292,8 @@ function normalizeLanguage(language) {
 
 <style scoped>
 .code-answer-editor {
+  width: 100%;
+  max-width: 100%;
   min-height: 0;
   margin-top: 14px;
   border: 1px solid #d9e2ec;
@@ -371,10 +373,14 @@ function normalizeLanguage(language) {
 }
 
 .code-answer-editor__host {
+  width: 100%;
+  max-width: 100%;
   min-height: 260px;
 }
 
 .code-answer-editor__host :deep(.cm-editor) {
+  width: 100%;
+  max-width: 100%;
   height: var(--code-editor-height);
   min-height: 260px;
   max-height: min(62vh, 640px);

@@ -15,7 +15,7 @@
           <el-radio-button label="stack">上下</el-radio-button>
         </el-radio-group>
         <el-button
-          v-if="isStudent && submitted && wrongEntries.length"
+          v-if="isStudent && submitted && manualWrongEntries.length"
           type="success"
           :icon="Notebook"
           :loading="addingWrongQuestions"
@@ -68,6 +68,9 @@
                 <div class="question-answer-body">
                   <div v-if="entry.snapshot.type === 'programming'" class="programming-answer">
                     <ProgrammingToolbarShell :summary="languageLabel(answers[entry.question.questionId].language)">
+                      <template #badge>
+                        <el-tag v-if="!matchedHydroAccountsFor(entry.snapshot).length" type="warning" size="small">无账号</el-tag>
+                      </template>
                       <template #default="{ close }">
                       <div class="programming-toolbar">
                         <span class="programming-language-label">语言</span>
@@ -82,6 +85,21 @@
                         <el-tag v-if="entry.snapshot.programmingRef?.externalProblemId" type="success">
                           {{ entry.snapshot.programmingRef.externalProblemId }}
                         </el-tag>
+                        <span class="programming-language-label">账号</span>
+                        <el-select
+                          v-model="selectedHydroAccountIds[entry.question.questionId]"
+                          :disabled="!matchedHydroAccountsFor(entry.snapshot).length"
+                          placeholder="选择提交账号"
+                          style="width: 230px"
+                          @change="close"
+                        >
+                          <el-option
+                            v-for="account in matchedHydroAccountsFor(entry.snapshot)"
+                            :key="account.id"
+                            :label="hydroAccountLabel(account)"
+                            :value="account.id"
+                          />
+                        </el-select>
                         <el-button
                           v-if="entry.snapshot.programmingRef?.externalProblemUrl"
                           :icon="Link"
@@ -92,6 +110,44 @@
                       </div>
                       </template>
                     </ProgrammingToolbarShell>
+                    <div class="programming-primary-actions">
+                      <el-button
+                        type="primary"
+                        :icon="Upload"
+                        :loading="Boolean(codeSubmitLoading[entry.question.questionId])"
+                        :disabled="!selectedHydroAccountIds[entry.question.questionId] || submitted"
+                        @click="submitPracticeCode(entry)"
+                      >
+                        提交 Hydro 评测
+                      </el-button>
+                      <span v-if="!selectedHydroAccountIds[entry.question.questionId]" class="muted">请先在提交设置中选择同站点账号</span>
+                    </div>
+                    <el-alert
+                      v-if="codeSubmitFeedback[entry.question.questionId]"
+                      class="code-submit-feedback"
+                      :type="codeSubmitFeedback[entry.question.questionId].type"
+                      :closable="false"
+                      show-icon
+                    >
+                      <template #title>{{ codeSubmitFeedback[entry.question.questionId].title }}</template>
+                      <div class="code-submit-meta">
+                        <span>状态：{{ codeSubmitFeedback[entry.question.questionId].status }}</span>
+                        <span v-if="codeSubmitFeedback[entry.question.questionId].score !== null">
+                          得分：{{ codeSubmitFeedback[entry.question.questionId].score }} / {{ codeSubmitFeedback[entry.question.questionId].maxScore }}
+                        </span>
+                        <span v-if="codeSubmitFeedback[entry.question.questionId].totalTestCaseCount">
+                          测试点：{{ codeSubmitFeedback[entry.question.questionId].passedTestCaseCount }} / {{ codeSubmitFeedback[entry.question.questionId].totalTestCaseCount }}
+                        </span>
+                        <el-link
+                          v-if="codeSubmitFeedback[entry.question.questionId].recordUrl"
+                          type="primary"
+                          :href="codeSubmitFeedback[entry.question.questionId].recordUrl"
+                          target="_blank"
+                        >
+                          查看 Hydro 记录
+                        </el-link>
+                      </div>
+                    </el-alert>
                     <CodeAnswerEditor
                       v-model="answers[entry.question.questionId].code"
                       :language="answers[entry.question.questionId].language"
@@ -219,10 +275,10 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue';
+import { computed, nextTick, onMounted, reactive, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { ElMessage } from 'element-plus';
-import { ArrowLeft, ArrowRight, Back, Check, Delete, Link, Notebook } from '@element-plus/icons-vue';
+import { ArrowLeft, ArrowRight, Back, Check, Delete, Link, Notebook, Upload } from '@element-plus/icons-vue';
 import { api, getCurrentUser } from '../api';
 import CodeAnswerEditor from '../components/CodeAnswerEditor.vue';
 import FillBlankAnswerInputs from '../components/FillBlankAnswerInputs.vue';
@@ -234,6 +290,10 @@ const route = useRoute();
 const router = useRouter();
 const paper = ref(null);
 const answers = reactive({});
+const codeSubmitLoading = reactive({});
+const codeSubmitFeedback = reactive({});
+const selectedHydroAccountIds = reactive({});
+const hydroAccounts = ref([]);
 const submitted = ref(false);
 const addingWrongQuestions = ref(false);
 const currentIndex = ref(0);
@@ -287,30 +347,42 @@ const pendingReviewCount = computed(() => (
   submitted.value ? flatQuestions.value.filter((entry) => entry.result?.isCorrect === null).length : 0
 ));
 const autoCheckedCount = computed(() => Math.max(0, totalCount.value - pendingReviewCount.value));
+const totalPossibleScore = computed(() => flatQuestions.value.reduce((sum, entry) => sum + Number(entry.question.score || 0), 0));
+const earnedScore = computed(() => flatQuestions.value.reduce((sum, entry) => sum + Number(entry.result?.score || 0), 0));
 const allCorrect = computed(() => totalCount.value > 0 && pendingReviewCount.value === 0 && correctCount.value === totalCount.value);
 const resultSummaryType = computed(() => (pendingReviewCount.value ? 'warning' : allCorrect.value ? 'success' : 'danger'));
 const resultSummaryText = computed(() => {
   if (!submitted.value) return '';
   if (pendingReviewCount.value) {
-    return `${correctCount.value} / ${autoCheckedCount.value} 自动判对，${pendingReviewCount.value} 题待自评`;
+    return `${formatScore(earnedScore.value)} / ${formatScore(totalPossibleScore.value)} 分，${pendingReviewCount.value} 题待评测或自评`;
   }
-  return `${correctCount.value} / ${totalCount.value} 正确`;
+  return `${formatScore(earnedScore.value)} / ${formatScore(totalPossibleScore.value)} 分`;
 });
 const wrongEntries = computed(() => (
   submitted.value
     ? flatQuestions.value.filter((entry) => entry.result?.isCorrect === false && entry.question.questionId)
     : []
 ));
+const manualWrongEntries = computed(() => wrongEntries.value.filter((entry) => entry.snapshot.type !== 'programming'));
 
 async function load() {
-  paper.value = await api(isStudent.value ? `/student/papers/${route.params.paperId}/preview` : `/papers/${route.params.paperId}/preview`);
+  const [paperData] = await Promise.all([
+    api(isStudent.value ? `/student/papers/${route.params.paperId}/preview` : `/papers/${route.params.paperId}/preview`),
+    loadHydroAccounts(),
+  ]);
+  paper.value = paperData;
   resetAnswers();
 }
 
 function resetAnswers() {
   Object.keys(answers).forEach((key) => delete answers[key]);
+  Object.keys(codeSubmitFeedback).forEach((key) => delete codeSubmitFeedback[key]);
+  Object.keys(selectedHydroAccountIds).forEach((key) => delete selectedHydroAccountIds[key]);
   for (const entry of flatQuestions.value) {
     answers[entry.question.questionId] = emptyAnswer(entry.snapshot);
+    if (entry.snapshot.type === 'programming') {
+      selectedHydroAccountIds[entry.question.questionId] = defaultHydroAccountId(entry.snapshot);
+    }
   }
   currentIndex.value = Math.min(currentIndex.value, Math.max(totalCount.value - 1, 0));
 }
@@ -335,16 +407,32 @@ function clearAnswer(questionId) {
   if (!answers[questionId]) return;
   const snapshot = flatQuestions.value.find((entry) => entry.question.questionId === questionId)?.snapshot;
   Object.assign(answers[questionId], emptyAnswer(snapshot));
+  delete codeSubmitFeedback[questionId];
   submitted.value = false;
 }
 
-function submit() {
+async function submit() {
+  const pendingProgrammingEntries = flatQuestions.value.filter(
+    (entry) => entry.snapshot.type === 'programming'
+      && String(answers[entry.question.questionId]?.code || '').trim()
+      && codeSubmitFeedback[entry.question.questionId]?.isCorrect === undefined,
+  );
+  if (pendingProgrammingEntries.length) {
+    await Promise.allSettled(pendingProgrammingEntries.map((entry) => submitPracticeCode(entry, true)));
+  }
   submitted.value = true;
 }
 
 async function addWrongQuestionsToBook() {
-  const questionIds = wrongEntries.value.map((entry) => entry.question.questionId).filter(Boolean);
-  if (!questionIds.length) {
+  const items = manualWrongEntries.value
+    .filter((entry) => entry.question.questionId)
+    .map((entry) => ({
+      questionId: entry.question.questionId,
+      answer: answerPayload(entry.snapshot, answers[entry.question.questionId]),
+      score: Number(entry.result?.score || 0),
+      totalScore: Number(entry.question.score || 0),
+    }));
+  if (!items.length) {
     ElMessage.warning('当前没有可加入错题本的题目');
     return;
   }
@@ -353,7 +441,7 @@ async function addWrongQuestionsToBook() {
   try {
     const result = await api('/student/wrong-questions/batch', {
       method: 'POST',
-      body: { items: questionIds.map((questionId) => ({ questionId })) },
+      body: { items },
     });
     const failedText = result.failed?.length ? `，${result.failed.length} 道失败` : '';
     ElMessage.success(`已加入 ${result.successCount} 道错题${failedText}`);
@@ -378,11 +466,22 @@ function isAnswered(questionId) {
 function gradeQuestion(paperQuestion) {
   const snapshot = paperQuestion.questionSnapshotJson ?? {};
   const answer = answers[paperQuestion.questionId] ?? emptyAnswer(snapshot);
+  if (snapshot.type === 'programming') {
+    const feedback = codeSubmitFeedback[paperQuestion.questionId];
+    if (!feedback || feedback.isCorrect === null || feedback.isCorrect === undefined) return { isCorrect: null };
+    return {
+      isCorrect: feedback.isCorrect,
+      score: feedback.score,
+      maxScore: feedback.maxScore,
+      passedTestCaseCount: feedback.passedTestCaseCount,
+      totalTestCaseCount: feedback.totalTestCaseCount,
+    };
+  }
   if (['single_choice', 'multiple_choice', 'true_false'].includes(snapshot.type)) {
     const selected = new Set(answer.selectedOptionIds?.filter(Boolean) ?? []);
     const correct = new Set((snapshot.options ?? []).filter((option) => option.isCorrect).map((option) => optionIdFor(option)));
     const isCorrect = selected.size === correct.size && [...selected].every((optionId) => correct.has(optionId));
-    return { isCorrect };
+    return { isCorrect, score: isCorrect ? Number(paperQuestion.score || 0) : 0, maxScore: Number(paperQuestion.score || 0) };
   }
   if (snapshot.type === 'fill_blank') {
     const rules = snapshot.answer?.blanks ?? [];
@@ -392,7 +491,7 @@ function gradeQuestion(paperQuestion) {
       const normalized = rule.ignoreCase ? submittedValue.trim().toLowerCase() : submittedValue.trim();
       return (rule.answers ?? []).some((item) => (rule.ignoreCase ? item.trim().toLowerCase() : item.trim()) === normalized);
     });
-    return { isCorrect };
+    return { isCorrect, score: isCorrect ? Number(paperQuestion.score || 0) : 0, maxScore: Number(paperQuestion.score || 0) };
   }
   return { isCorrect: null };
 }
@@ -404,9 +503,24 @@ function resultTagType(result) {
 }
 
 function resultLabel(result) {
+  if (result?.score !== null && result?.score !== undefined) return `${result.score} / ${result.maxScore} 分`;
   if (result?.isCorrect === true) return '正确';
   if (result?.isCorrect === false) return '错误';
   return '待自评';
+}
+
+function answerPayload(snapshot, answer = {}) {
+  if (['single_choice', 'multiple_choice', 'true_false'].includes(snapshot?.type)) {
+    return { selectedOptionIds: (answer.selectedOptionIds || []).filter(Boolean) };
+  }
+  if (snapshot?.type === 'fill_blank') return { blanks: answer.blanks || [] };
+  if (snapshot?.type === 'programming') return { language: answer.language || '', code: answer.code || '' };
+  return { text: answer.text || '' };
+}
+
+function formatScore(value) {
+  const numeric = Number(value || 0);
+  return Number.isInteger(numeric) ? String(numeric) : numeric.toFixed(2).replace(/0+$/, '').replace(/\.$/, '');
 }
 
 function numberTitle(entry) {
@@ -418,6 +532,121 @@ function numberTitle(entry) {
 function goQuestion(index) {
   if (index < 0 || index >= totalCount.value) return;
   currentIndex.value = index;
+  nextTick(() => {
+    document.querySelector('.exam-main')?.scrollTo({ top: 0 });
+    document.querySelector('.exam-question .question-answer-statement')?.scrollTo({ top: 0 });
+    document.querySelector('.exam-question .question-answer-panel')?.scrollTo({ top: 0 });
+  });
+}
+
+async function loadHydroAccounts() {
+  try {
+    const data = await api('/hydro/my/accounts');
+    hydroAccounts.value = data.items ?? data ?? [];
+  } catch {
+    hydroAccounts.value = [];
+  }
+}
+
+async function submitPracticeCode(entry, silent = false) {
+  const questionId = entry.question.questionId;
+  const answer = answers[questionId];
+  const accountId = selectedHydroAccountIds[questionId];
+  if (!String(answer?.code || '').trim()) {
+    if (!silent) ElMessage.warning('请先填写代码');
+    return;
+  }
+  if (!accountId) {
+    if (!silent) ElMessage.warning('请选择当前题目来源站点下的提交账号');
+    return;
+  }
+
+  codeSubmitLoading[questionId] = true;
+  try {
+    const result = await api(`/hydro/questions/${questionId}/submit-code`, {
+      method: 'POST',
+      body: { language: answer.language, code: answer.code, accountId },
+    });
+    codeSubmitFeedback[questionId] = buildSubmissionFeedback(result);
+    if (!silent) ElMessage.success(result.message || '评测完成');
+  } catch (error) {
+    codeSubmitFeedback[questionId] = {
+      type: 'error',
+      title: '评测失败',
+      status: 'failed',
+      score: null,
+      maxScore: Number(entry.question.score || 0),
+      isCorrect: null,
+      message: error.message || 'Hydro 提交失败',
+    };
+    if (!silent) ElMessage.error(error.message || 'Hydro 提交失败');
+  } finally {
+    codeSubmitLoading[questionId] = false;
+  }
+}
+
+function buildSubmissionFeedback(result) {
+  const final = !['pending', 'judging'].includes(result.status);
+  const isCorrect = final ? Boolean(result.isCorrect) : null;
+  return {
+    type: !final ? 'info' : isCorrect ? 'success' : 'error',
+    title: !final ? '等待 Hydro 评测' : isCorrect ? '全部测试点通过' : '部分测试点未通过',
+    status: result.status || '',
+    score: result.score ?? null,
+    maxScore: result.maxScore ?? 0,
+    passedTestCaseCount: result.passedTestCaseCount ?? null,
+    totalTestCaseCount: result.totalTestCaseCount ?? null,
+    scoreRate: result.scoreRate ?? null,
+    isCorrect,
+    recordUrl: result.recordUrl || '',
+    wrongQuestionAdded: Boolean(result.wrongQuestionAdded),
+  };
+}
+
+function matchedHydroAccountsFor(snapshot) {
+  const target = programmingRefBaseUrl(snapshot?.programmingRef);
+  if (!target) return [];
+  return hydroAccounts.value.filter((account) => account.bindStatus === 'bound' && sameHydroBaseUrl(account.platformBaseUrl, target));
+}
+
+function defaultHydroAccountId(snapshot) {
+  const matched = matchedHydroAccountsFor(snapshot);
+  const preferred = snapshot?.programmingRef?.accountId;
+  return matched.find((account) => account.id === preferred)?.id || matched[0]?.id || '';
+}
+
+function programmingRefBaseUrl(ref) {
+  return normalizeBaseUrl(ref?.platformBaseUrl || baseUrlFromProblemUrl(ref?.externalProblemUrl));
+}
+
+function baseUrlFromProblemUrl(value) {
+  try {
+    const parsed = new URL(String(value || '').trim());
+    return `${parsed.protocol}//${parsed.host}`;
+  } catch {
+    return '';
+  }
+}
+
+function normalizeBaseUrl(value) {
+  const raw = String(value || '').trim();
+  return raw ? (/^https?:\/\//i.test(raw) ? raw : `http://${raw}`).replace(/\/+$/, '') : '';
+}
+
+function shortHost(value) {
+  try {
+    return new URL(normalizeBaseUrl(value)).host;
+  } catch {
+    return String(value || '').replace(/^https?:\/\//i, '').replace(/\/+$/, '');
+  }
+}
+
+function sameHydroBaseUrl(left, right) {
+  return shortHost(left).toLowerCase().replace(/^www\./, '') === shortHost(right).toLowerCase().replace(/^www\./, '');
+}
+
+function hydroAccountLabel(account) {
+  return `${account.loginUsername || account.hydroUsername || 'Hydro账号'} · ${shortHost(account.platformBaseUrl)}`;
 }
 
 function isSplitQuestion(type) {

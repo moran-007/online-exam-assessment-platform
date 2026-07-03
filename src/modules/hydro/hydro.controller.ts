@@ -3,7 +3,6 @@ import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Permissions } from '../../common/decorators/permissions.decorator';
 import { Public } from '../../common/decorators/public.decorator';
-import { Roles } from '../../common/decorators/roles.decorator';
 import { RequestUser } from '../../common/interfaces/request-user.interface';
 import {
   BindHydroAccountDto,
@@ -37,13 +36,13 @@ export class HydroController {
   }
 
   @Post('platforms')
-  @Roles('SUPER_ADMIN')
+  @Permissions('hydro:platform:manage')
   createPlatform(@Body() dto: SaveHydroPlatformDto, @CurrentUser() user: RequestUser) {
     return this.hydroService.createPlatform(dto, user);
   }
 
   @Patch('platforms/:id')
-  @Roles('SUPER_ADMIN')
+  @Permissions('hydro:platform:manage')
   updatePlatform(
     @Param('id') id: string,
     @Body() dto: SaveHydroPlatformDto,
@@ -53,7 +52,7 @@ export class HydroController {
   }
 
   @Delete('platforms/:id')
-  @Roles('SUPER_ADMIN')
+  @Permissions('hydro:platform:manage')
   deletePlatform(@Param('id') id: string, @CurrentUser() user: RequestUser) {
     return this.hydroService.deletePlatform(id, user);
   }
@@ -123,7 +122,7 @@ export class HydroController {
   }
 
   @Put('questions/:questionId/binding')
-  @Permissions('question:update')
+  @Permissions('hydro:problem:bind')
   bindProblem(
     @Param('questionId') questionId: string,
     @Body() dto: BindHydroProblemDto,
@@ -133,19 +132,19 @@ export class HydroController {
   }
 
   @Delete('questions/:questionId/binding')
-  @Permissions('question:update')
+  @Permissions('hydro:problem:bind')
   removeProblemBinding(@Param('questionId') questionId: string, @CurrentUser() user: RequestUser) {
     return this.hydroService.removeProblemBinding(questionId, user);
   }
 
   @Get('accounts')
-  @Permissions('class:read')
+  @Permissions('hydro:account:read')
   accounts(@Query() query: QueryHydroSummaryDto, @CurrentUser() user: RequestUser) {
     return this.hydroService.accounts(query, user);
   }
 
   @Put('accounts/:studentId')
-  @Permissions('class:update')
+  @Permissions('hydro:account:update')
   bindStudentAccount(
     @Param('studentId') studentId: string,
     @Body() dto: BindHydroAccountDto,
@@ -155,13 +154,13 @@ export class HydroController {
   }
 
   @Post('accounts/:accountId/test')
-  @Permissions('class:update')
+  @Permissions('hydro:account:update')
   testAccount(@Param('accountId') accountId: string, @CurrentUser() user: RequestUser) {
     return this.hydroService.testAccount(accountId, user);
   }
 
   @Delete('accounts/:accountId')
-  @Permissions('class:update')
+  @Permissions('hydro:account:update')
   deleteAccount(@Param('accountId') accountId: string, @CurrentUser() user: RequestUser) {
     return this.hydroService.deleteAccount(accountId, user);
   }
@@ -216,7 +215,7 @@ export class HydroController {
   }
 
   @Patch('submissions/:submissionId/result')
-  @Permissions('grading:update')
+  @Permissions('hydro:result:write')
   writeBackSubmission(
     @Param('submissionId') submissionId: string,
     @Body() dto: WriteBackHydroResultDto,
@@ -226,7 +225,7 @@ export class HydroController {
   }
 
   @Post('writeback')
-  @Permissions('grading:update')
+  @Permissions('hydro:result:write')
   writeBack(@Body() dto: WriteBackHydroResultDto, @CurrentUser() user: RequestUser) {
     return this.hydroService.writeBackResult(dto, user);
   }

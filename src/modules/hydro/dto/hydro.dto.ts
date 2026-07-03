@@ -324,6 +324,18 @@ export class WriteBackHydroResultDto {
   @Min(0)
   score?: number;
 
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  passedTestCaseCount?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  totalTestCaseCount?: number;
+
   @IsString()
   @MaxLength(64)
   status: string;

@@ -63,3 +63,9 @@ http://localhost:3000/api/docs
 ```txt
 docs/项目进展与优化建议.md
 ```
+
+外部编程题导入、Hydro 计分、考试作答与批改流程见：
+
+```txt
+docs/外部编程题导入与测评说明.md
+```

@@ -4,6 +4,7 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Permissions } from '../../common/decorators/permissions.decorator';
 import { RequestUser } from '../../common/interfaces/request-user.interface';
 import { GradeAnswerDto } from './dto/grade-answer.dto';
+import { BatchGradeAnswersDto } from './dto/batch-grade-answers.dto';
 import { PublishGradesDto } from './dto/grade-visibility.dto';
 import { QueryGradingDto } from './dto/query-grading.dto';
 import { GradingService } from './grading.service';
@@ -34,6 +35,12 @@ export class GradingController {
     @CurrentUser() user: RequestUser,
   ) {
     return this.gradingService.gradeAnswer(answerRecordId, dto, user);
+  }
+
+  @Post('answers/batch')
+  @Permissions('grading:update')
+  batchGradeAnswers(@Body() dto: BatchGradeAnswersDto, @CurrentUser() user: RequestUser) {
+    return this.gradingService.batchGradeAnswers(dto, user);
   }
 
   @Post('attempts/:attemptId/finish')
