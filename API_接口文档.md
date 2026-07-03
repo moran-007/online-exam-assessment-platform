@@ -104,7 +104,8 @@ POST /api/v1/auth/login
 ```json
 {
   "username": "teacher001",
-  "password": "123456"
+  "password": "123456",
+  "rememberMe": true
 }
 ```
 
@@ -117,6 +118,11 @@ POST /api/v1/auth/login
   "data": {
     "accessToken": "xxx",
     "refreshToken": "xxx",
+    "session": {
+      "rememberMe": true,
+      "idleTimeoutMs": 1800000,
+      "expiresAt": "2026-07-10T08:00:00.000Z"
+    },
     "user": {
       "id": "user_001",
       "username": "teacher001",
@@ -151,14 +157,31 @@ POST /api/v1/auth/refresh
   "message": "ok",
   "data": {
     "accessToken": "new_access_token",
-    "refreshToken": "new_refresh_token"
+    "refreshToken": "new_refresh_token",
+    "session": {
+      "rememberMe": true,
+      "idleTimeoutMs": 1800000,
+      "expiresAt": "2026-07-10T08:15:00.000Z"
+    }
   }
 }
 ```
 
 ---
 
-### 2.3 获取当前用户
+### 2.3 上报有效操作
+
+```http
+POST /api/v1/auth/activity
+Authorization: Bearer <accessToken>
+X-Session-Activity: 1
+```
+
+前端仅在点击、键盘、触摸、滚动等真实操作后节流上报。成功返回 `true`；超过闲置时长后返回 `401`，且该会话不能再刷新。
+
+---
+
+### 2.4 获取当前用户
 
 ```http
 GET /api/v1/auth/me
@@ -183,11 +206,21 @@ GET /api/v1/auth/me
 
 ---
 
-### 2.4 退出登录
+### 2.5 退出登录
 
 ```http
 POST /api/v1/auth/logout
 ```
+
+请求：
+
+```json
+{
+  "refreshToken": "xxx"
+}
+```
+
+退出时会吊销该 Refresh Token 所属的整个登录会话，已签发的 Access Token 也不能继续访问受保护接口。
 
 返回：
 

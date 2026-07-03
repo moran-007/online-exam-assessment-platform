@@ -10,6 +10,7 @@ import { UsersService } from '../users/users.service';
 
 export interface AccessTokenPayload {
   sub: string;
+  sessionId: string;
   username: string;
   userType: string;
   roles: string[];
@@ -32,10 +33,17 @@ export class TokenService {
     private readonly usersService: UsersService,
   ) {}
 
-  async issueTokens(user: RequestUser, context: RequestContext) {
+  async issueTokens(
+    user: RequestUser,
+    context: RequestContext,
+    options: { rememberMe?: boolean; sessionId?: string; sessionExpiresAt?: Date } = {},
+  ) {
+    const sessionId = options.sessionId ?? randomUUID();
+    const rememberMe = options.rememberMe ?? true;
     const accessToken = await this.jwt.signAsync(
       {
         sub: user.id,
+        sessionId,
         username: user.username,
         userType: user.userType,
         roles: user.roles,
@@ -48,11 +56,22 @@ export class TokenService {
       },
     );
 
-    const refreshToken = await this.createRefreshToken(user.id, context);
+    const refresh = await this.createRefreshToken(
+      user.id,
+      context,
+      sessionId,
+      rememberMe,
+      options.sessionExpiresAt,
+    );
 
     return {
       accessToken,
-      refreshToken,
+      refreshToken: refresh.token,
+      session: {
+        rememberMe,
+        idleTimeoutMs: this.getIdleTimeoutMs(),
+        expiresAt: refresh.expiresAt.toISOString(),
+      },
     };
   }
 
@@ -84,27 +103,72 @@ export class TokenService {
       throw new UnauthorizedException('Refresh Token 无效');
     }
 
+    await this.assertSessionNotIdle(stored.sessionId, stored.lastActivityAt);
+
     const user = await this.usersService.findAuthenticatedById(payload.sub);
 
     if (!user) {
       throw new UnauthorizedException('用户不存在或已禁用');
     }
 
-    await this.prisma.refreshToken.update({
-      where: { id: stored.id },
+    const revoked = await this.prisma.refreshToken.updateMany({
+      where: { id: stored.id, revokedAt: null },
       data: { revokedAt: new Date() },
     });
 
-    return this.issueTokens(user, context);
+    if (revoked.count !== 1) {
+      throw new UnauthorizedException('Refresh Token 已被使用');
+    }
+
+    return this.issueTokens(user, context, {
+      rememberMe: stored.rememberMe,
+      sessionId: stored.sessionId,
+      sessionExpiresAt: stored.expiresAt,
+    });
+  }
+
+  async assertActiveSession(sessionId: string, markActive = false) {
+    if (!sessionId) {
+      throw new UnauthorizedException('登录会话无效');
+    }
+
+    const now = new Date();
+    const session = await this.prisma.refreshToken.findFirst({
+      where: {
+        sessionId,
+        revokedAt: null,
+        expiresAt: { gt: now },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    if (!session) {
+      throw new UnauthorizedException('登录会话已失效');
+    }
+
+    await this.assertSessionNotIdle(sessionId, session.lastActivityAt);
+
+    if (markActive) {
+      await this.prisma.refreshToken.updateMany({
+        where: { sessionId, revokedAt: null, expiresAt: { gt: now } },
+        data: { lastActivityAt: now },
+      });
+    }
   }
 
   async revokeRefreshToken(refreshToken: string) {
     const payload = await this.verifyRefreshToken(refreshToken);
 
+    const stored = await this.prisma.refreshToken.findUnique({
+      where: { jti: payload.jti },
+      select: { sessionId: true },
+    });
+
+    if (!stored) return;
+
     await this.prisma.refreshToken.updateMany({
       where: {
-        jti: payload.jti,
-        tokenHash: this.hashToken(refreshToken),
+        sessionId: stored.sessionId,
         revokedAt: null,
       },
       data: {
@@ -125,9 +189,19 @@ export class TokenService {
     });
   }
 
-  private async createRefreshToken(userId: string, context: RequestContext) {
+  private async createRefreshToken(
+    userId: string,
+    context: RequestContext,
+    sessionId: string,
+    rememberMe: boolean,
+    sessionExpiresAt?: Date,
+  ) {
     const jti = randomUUID();
-    const expiresIn = this.config.get<string>('jwt.refreshExpiresIn') ?? '7d';
+    const expiresIn = rememberMe
+      ? (this.config.get<string>('jwt.rememberExpiresIn') ?? '7d')
+      : (this.config.get<string>('jwt.sessionExpiresIn') ?? '8h');
+    const expiresAt = sessionExpiresAt ?? this.resolveExpiresAt(expiresIn);
+    const remainingSeconds = Math.max(1, Math.floor((expiresAt.getTime() - Date.now()) / 1000));
     const refreshToken = await this.jwt.signAsync(
       {
         sub: userId,
@@ -136,7 +210,7 @@ export class TokenService {
       } satisfies RefreshTokenPayload,
       {
         secret: this.config.get<string>('jwt.refreshSecret'),
-        expiresIn: expiresIn as never,
+        expiresIn: remainingSeconds,
       },
     );
 
@@ -144,14 +218,17 @@ export class TokenService {
       data: {
         userId,
         jti,
+        sessionId,
         tokenHash: this.hashToken(refreshToken),
-        expiresAt: this.resolveExpiresAt(expiresIn),
+        rememberMe,
+        lastActivityAt: new Date(),
+        expiresAt,
         ip: context.ip,
         userAgent: context.userAgent,
       },
     });
 
-    return refreshToken;
+    return { token: refreshToken, expiresAt };
   }
 
   private async verifyRefreshToken(token: string): Promise<RefreshTokenPayload> {
@@ -171,10 +248,29 @@ export class TokenService {
   }
 
   private resolveExpiresAt(expiresIn: string) {
+    return new Date(Date.now() + this.resolveDurationMs(expiresIn, 7 * 24 * 60 * 60 * 1000));
+  }
+
+  private getIdleTimeoutMs() {
+    const expiresIn = this.config.get<string>('jwt.idleExpiresIn') ?? '30m';
+    return this.resolveDurationMs(expiresIn, 30 * 60 * 1000);
+  }
+
+  private async assertSessionNotIdle(sessionId: string, lastActivityAt: Date) {
+    if (Date.now() - lastActivityAt.getTime() <= this.getIdleTimeoutMs()) return;
+
+    await this.prisma.refreshToken.updateMany({
+      where: { sessionId, revokedAt: null },
+      data: { revokedAt: new Date() },
+    });
+    throw new UnauthorizedException('登录已因长时间未操作而失效');
+  }
+
+  private resolveDurationMs(expiresIn: string, fallbackMs: number) {
     const match = /^(\d+)([smhd])?$/.exec(expiresIn);
 
     if (!match) {
-      return new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+      return fallbackMs;
     }
 
     const value = Number(match[1]);
@@ -187,6 +283,6 @@ export class TokenService {
     };
     const multiplier = multipliers[unit] ?? multipliers.s;
 
-    return new Date(Date.now() + value * multiplier);
+    return value * multiplier;
   }
 }

@@ -11,6 +11,8 @@ export default () => ({
     accessSecret: process.env.JWT_ACCESS_SECRET ?? 'change_me_access_secret',
     refreshSecret: process.env.JWT_REFRESH_SECRET ?? 'change_me_refresh_secret',
     accessExpiresIn: process.env.JWT_ACCESS_EXPIRES_IN ?? '15m',
-    refreshExpiresIn: process.env.JWT_REFRESH_EXPIRES_IN ?? '7d',
+    sessionExpiresIn: process.env.JWT_SESSION_EXPIRES_IN ?? '8h',
+    rememberExpiresIn: process.env.JWT_REMEMBER_EXPIRES_IN ?? process.env.JWT_REFRESH_EXPIRES_IN ?? '7d',
+    idleExpiresIn: process.env.JWT_IDLE_EXPIRES_IN ?? '30m',
   },
 });

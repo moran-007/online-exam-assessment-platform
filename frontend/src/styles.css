@@ -1181,6 +1181,20 @@ body {
   box-shadow: 0 20px 60px rgba(32, 48, 62, 0.16);
 }
 
+.login-options {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: -2px 0 4px;
+}
+
+.login-hint {
+  margin: 0 0 16px;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
 .question-card {
   border: 1px solid var(--border);
   border-radius: 8px;

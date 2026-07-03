@@ -63,9 +63,17 @@
 <script setup>
 import { computed, onMounted, onUnmounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
+import { ElMessage } from 'element-plus';
 import { Bell, Expand, Fold, Reading, SwitchButton } from '@element-plus/icons-vue';
 import { menuForUser } from './access';
-import { api, clearSession, getCurrentUser, onSessionChange } from './api';
+import {
+  api,
+  clearSession,
+  getCurrentUser,
+  getRefreshToken,
+  onSessionChange,
+  startSessionActivityMonitor,
+} from './api';
 
 const router = useRouter();
 const route = useRoute();
@@ -89,22 +97,44 @@ const roleName = computed(() => {
 });
 
 let unsubscribeSession = null;
+let stopSessionActivityMonitor = null;
 
 onMounted(() => {
-  unsubscribeSession = onSessionChange(() => {
+  unsubscribeSession = onSessionChange((event) => {
     user.value = getCurrentUser();
     loadNotificationCount();
+    if (event.detail?.reason === 'expired') {
+      if (route.path !== '/login') {
+        void router.replace({ path: '/login', query: { reason: 'expired' } });
+      }
+      ElMessage.warning('登录已失效，请重新登录');
+    } else if (!user.value && event.detail?.reason === 'logout' && route.path !== '/login') {
+      void router.replace('/login');
+    }
   });
+  stopSessionActivityMonitor = startSessionActivityMonitor();
   loadNotificationCount();
 });
 
 onUnmounted(() => {
   unsubscribeSession?.();
+  stopSessionActivityMonitor?.();
 });
 
-function logout() {
-  clearSession();
-  router.push('/login');
+async function logout() {
+  const refreshToken = getRefreshToken();
+  try {
+    await api('/auth/logout', {
+      method: 'POST',
+      markActivity: true,
+      body: { refreshToken },
+    });
+  } catch {
+    // 本地退出必须始终成功；服务端令牌会按闲置和最长时长策略失效。
+  } finally {
+    clearSession('logout');
+    await router.replace('/login');
+  }
 }
 
 function login() {

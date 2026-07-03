@@ -1,6 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router';
 import { canAccessByMeta, firstAccessiblePath, isPrivilegedUser } from './access';
-import { getCurrentUser, getRefreshToken, getToken } from './api';
+import { getCurrentUser, getRefreshToken, getToken, hasActiveSession } from './api';
 import LoginView from './views/LoginView.vue';
 import DashboardView from './views/DashboardView.vue';
 import CourseView from './views/CourseView.vue';
@@ -65,10 +65,12 @@ const router = createRouter({
 
 router.beforeEach((to) => {
   const user = getCurrentUser();
-  if (!to.meta.public && !getToken() && !getRefreshToken()) {
-    return '/login';
+  const hadStoredSession = Boolean(getToken() || getRefreshToken());
+  const activeSession = hasActiveSession();
+  if (!to.meta.public && !activeSession) {
+    return hadStoredSession ? { path: '/login', query: { reason: 'expired' } } : '/login';
   }
-  if (to.path === '/login' && getToken()) {
+  if (to.path === '/login' && activeSession) {
     return firstAccessiblePath(user);
   }
   const simulationAccess = Boolean(to.meta.simulationAllowed && to.query.simulateStudentId && isPrivilegedUser(user));

@@ -38,6 +38,12 @@ export class AuthController {
   }
 
   @ApiBearerAuth()
+  @Post('activity')
+  activity() {
+    return this.authService.activity();
+  }
+
+  @ApiBearerAuth()
   @Post('logout')
   logout(
     @CurrentUser() user: RequestUser,

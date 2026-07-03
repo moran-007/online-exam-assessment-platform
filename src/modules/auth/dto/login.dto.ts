@@ -1,4 +1,4 @@
-import { IsOptional, IsString, ValidateIf } from 'class-validator';
+import { IsBoolean, IsOptional, IsString, ValidateIf } from 'class-validator';
 
 export class LoginDto {
   @IsOptional()
@@ -12,4 +12,8 @@ export class LoginDto {
   @ValidateIf((data: LoginDto) => !data.provider || data.provider === 'password')
   @IsString()
   password?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  rememberMe = true;
 }

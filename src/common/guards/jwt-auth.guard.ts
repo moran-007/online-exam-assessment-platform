@@ -44,6 +44,9 @@ export class JwtAuthGuard implements CanActivate {
 
     try {
       const payload = await this.tokenService.verifyAccessToken(token);
+      const activityHeader = request.headers['x-session-activity'];
+      const marksActivity = (Array.isArray(activityHeader) ? activityHeader[0] : activityHeader) === '1';
+      await this.tokenService.assertActiveSession(payload.sessionId, marksActivity);
       const user = await this.usersService.findAuthenticatedById(payload.sub);
 
       if (!user) {

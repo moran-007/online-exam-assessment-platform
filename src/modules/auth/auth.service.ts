@@ -27,7 +27,9 @@ export class AuthService {
     }
 
     const user = await provider.validate(dto, context);
-    const tokens = await this.tokenService.issueTokens(user, context);
+    const tokens = await this.tokenService.issueTokens(user, context, {
+      rememberMe: dto.rememberMe,
+    });
 
     await this.auditService.log({
       userId: user.id,
@@ -51,6 +53,10 @@ export class AuthService {
 
   me(user: RequestUser) {
     return user;
+  }
+
+  activity() {
+    return true;
   }
 
   async logout(user: RequestUser, context: RequestContext, refreshToken?: string) {
