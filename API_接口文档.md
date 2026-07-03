@@ -1994,7 +1994,7 @@ GET /api/v1/exports?page=1&pageSize=20&type=exam_results&status=success
     "id": "export_001",
     "type": "exam_result_excel",
     "status": "success",
-    "fileUrl": "https://file.example.com/export/exam.xlsx",
+    "downloadReady": true,
     "createdAt": "2026-07-01T10:00:00+08:00",
     "finishedAt": "2026-07-01T10:01:00+08:00"
   }
@@ -2008,6 +2008,8 @@ GET /api/v1/exports?page=1&pageSize=20&type=exam_results&status=success
 ```http
 GET /api/v1/exports/:id/download
 ```
+
+必须携带 Bearer Token；成功时直接返回二进制文件流和 `Content-Disposition: attachment`，不再返回可绕过权限的静态 URL。
 
 ---
 
@@ -2056,6 +2058,7 @@ file=<file>
 - 用于题目导入时上传图片、PDF、Office、文本、压缩包等题目资源。
 - 图片、PDF 等附件统一存放在本地 `uploads/question-assets` 目录，方便后续按题目打包下载。
 - 单个文件限制 30MB；可执行脚本类扩展名会被拒绝。
+- 返回的 `/uploads/question-assets/...` 为 Markdown 逻辑标识，不能直接静态访问。
 
 返回：
 
@@ -2134,16 +2137,17 @@ GET /api/v1/uploads/question-assets/report
 
 ---
 
-### 16.5 兼容接口
+### 16.5 附件内容读取
 
 ```http
-POST /api/v1/uploads/images
-POST /api/v1/uploads/files
-PATCH /api/v1/uploads/files/:filename
-DELETE /api/v1/uploads/files/:filename
+GET /api/v1/uploads/question-assets/:filename/content
+GET /api/v1/uploads/public/questions/:questionId/assets/:filename?token=<signed-token>
 ```
 
-以上接口为兼容旧调用保留，实际仍写入 `uploads/question-assets`。
+- 第一个接口必须登录，并会重新校验管理权限、附件创建者或学生本人试卷快照引用。
+- 第二个接口仅服务于公开已发布题目；令牌绑定 `questionId`、作用域和过期时间，篡改、过期或跨题目复用均失败。
+- 公开题目详情的 `data.assetAccessToken` 用于构造签名内容 URL。
+- 旧 `/api/v1/uploads/files*`、`/api/v1/uploads/images` 和 `/images` 别名已删除。
 
 ---
 

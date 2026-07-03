@@ -9,6 +9,8 @@
 - 管理员、教师、助教、学生等角色，以及菜单、角色、权限和数据范围控制。
 - 课程、班级、知识点、标签、题库、试卷、考试、批改、错题本、导出和统计分析。
 - Prisma/PostgreSQL 数据模型、审计日志，以及 PostgreSQL、Redis、MinIO 本地依赖。
+- Helmet 安全头、分级限流、请求 ID、Pino 结构化日志和生产 CORS 白名单。
+- 私有附件鉴权/短时签名读取，以及 PostgreSQL + uploads 备份和隔离恢复校验。
 
 ## 登录与会话策略
 
@@ -67,6 +69,16 @@ pnpm prisma:generate
 pnpm build:all
 ```
 
+本地与 CI 使用独立的、数据库名以 `_test` 结尾的 PostgreSQL：
+
+```bash
+pnpm lint
+pnpm test
+pnpm test:e2e
+```
+
+GitHub Actions 会在 PR 和 `main` push 时执行 Prisma 校验/空库迁移/schema drift、lint、前后端构建、Jest/Supertest 与 Playwright；失败时保留截图、视频和 trace。
+
 数据库结构有更新时，启动新版本前执行：
 
 ```bash
@@ -84,6 +96,20 @@ POST /api/v1/auth/logout
 ```
 
 Swagger 文档默认地址：`http://localhost:3000/api/docs`。
+
+## 私有文件
+
+Markdown 中的 `/uploads/question-assets/...` 只是逻辑资源标识，不是公开静态地址。已登录用户通过 Bearer Token 鉴权流式读取；公开题目使用绑定题目和资源、默认 5 分钟失效的签名令牌。导出文件同样通过鉴权二进制接口下载，Nginx 对旧 `/uploads/*` 直接返回 404。
+
+## 备份与恢复
+
+```bash
+pnpm backup:create
+pnpm backup:verify -- --backup <backup-directory>
+pnpm backup:restore -- --backup <backup-directory> --target-database online_exam_restore --target-uploads <isolated-directory>
+```
+
+备份包含 `pg_dump -Fc`、uploads `tar.gz` 和 SHA-256 manifest。恢复命令拒绝覆盖当前生产库/目录；一键部署默认安装北京时间 02:30 定时器，保留 14 个日备份和 8 个周备份。未配置 `BACKUP_REMOTE` 时本地备份仍成功，但会记录远端未启用警告。
 
 ## 项目文档
 
