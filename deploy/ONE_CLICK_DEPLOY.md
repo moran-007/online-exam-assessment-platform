@@ -6,10 +6,16 @@
 curl -fsSL https://raw.githubusercontent.com/<owner>/<repo>/main/deploy/install.sh | bash -s -- --branch main --server-name <SERVER_IP_OR_DOMAIN>
 ```
 
+如果服务器访问官方 npm 源慢或超时，使用国内镜像参数：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/<owner>/<repo>/main/deploy/install.sh | bash -s -- --branch main --server-name <SERVER_IP_OR_DOMAIN> --china-mirror
+```
+
 如果需要部署当前开发分支，可以把 `--branch main` 改为对应分支名，例如：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/<owner>/<repo>/<branch>/deploy/install.sh | bash -s -- --branch codex/external-oj-import-fillblank --server-name <SERVER_IP_OR_DOMAIN>
+curl -fsSL https://raw.githubusercontent.com/<owner>/<repo>/<branch>/deploy/install.sh | bash -s -- --branch codex/external-oj-import-fillblank --server-name <SERVER_IP_OR_DOMAIN> --china-mirror
 ```
 
 常用参数：
@@ -21,6 +27,7 @@ curl -fsSL https://raw.githubusercontent.com/<owner>/<repo>/<branch>/deploy/inst
 --server-name NAME  Nginx server_name，IP 或域名
 --port PORT         后端端口，默认 3000
 --skip-seed         跳过初始化演示数据
+--china-mirror      使用 registry.npmmirror.com 加速 npm/pnpm/corepack
 ```
 
 默认部署目录：

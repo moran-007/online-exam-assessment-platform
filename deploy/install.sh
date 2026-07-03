@@ -8,6 +8,8 @@ BRANCH="main"
 SERVER_NAME="_"
 PORT="3000"
 RUN_SEED="true"
+USE_CHINA_MIRROR="false"
+NPM_REGISTRY="https://registry.npmjs.org"
 
 usage() {
   cat <<'USAGE'
@@ -20,6 +22,7 @@ Options:
   --server-name NAME Nginx server_name. Default: _
   --port PORT        Backend port. Default: 3000
   --skip-seed        Do not run pnpm db:seed.
+  --china-mirror     Use registry.npmmirror.com for npm/pnpm/corepack.
   -h, --help         Show help.
 USAGE
 }
@@ -50,6 +53,11 @@ while [[ $# -gt 0 ]]; do
       RUN_SEED="false"
       shift
       ;;
+    --china-mirror)
+      USE_CHINA_MIRROR="true"
+      NPM_REGISTRY="https://registry.npmmirror.com"
+      shift
+      ;;
     -h|--help)
       usage
       exit 0
@@ -73,6 +81,22 @@ log() {
 
 has_command() {
   command -v "$1" >/dev/null 2>&1
+}
+
+configure_package_mirror() {
+  export PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
+  export npm_config_registry="$NPM_REGISTRY"
+  export COREPACK_NPM_REGISTRY="$NPM_REGISTRY"
+
+  if has_command npm; then
+    npm config set registry "$NPM_REGISTRY" >/dev/null 2>&1 || true
+  fi
+  if has_command pnpm; then
+    pnpm config set registry "$NPM_REGISTRY" >/dev/null 2>&1 || true
+  fi
+  if [[ "$USE_CHINA_MIRROR" == "true" ]]; then
+    log "Using China package mirror: $NPM_REGISTRY"
+  fi
 }
 
 install_base_packages() {
@@ -110,14 +134,15 @@ install_node_runtime() {
 
   if has_command corepack; then
     corepack enable
-    corepack prepare pnpm@latest --activate
+    COREPACK_NPM_REGISTRY="$NPM_REGISTRY" corepack prepare pnpm@latest --activate
   fi
   if ! has_command pnpm; then
-    npm install -g pnpm
+    npm install -g pnpm --registry="$NPM_REGISTRY"
   fi
   if ! has_command pm2; then
-    npm install -g pm2
+    npm install -g pm2 --registry="$NPM_REGISTRY"
   fi
+  configure_package_mirror
 }
 
 install_node22() {
@@ -223,7 +248,7 @@ deploy_release() {
   log "Installing dependencies and building"
   (
     cd "$release"
-    pnpm install --frozen-lockfile
+    PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 pnpm install --frozen-lockfile --registry="$NPM_REGISTRY"
     pnpm build:all
     pnpm prisma generate
     pnpm prisma migrate deploy
