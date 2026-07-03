@@ -330,8 +330,7 @@
               </div>
             </el-form>
           </el-tab-pane>
-
-        </el-tabs>
+</el-tabs>
         </div>
       </el-dialog>
 
@@ -669,8 +668,7 @@
         <el-button type="primary" :icon="Download" @click="confirmQuestionExport">生成导出</el-button>
       </template>
     </el-dialog>
-
-  </div>
+</div>
 </template>
 
 <script setup>
@@ -1535,15 +1533,6 @@ function openQuestionExportDialog(questionIds) {
   questionExportVisible.value = true;
 }
 
-async function exportSelectedQuestions() {
-  if (!selectedQuestionIds.value.length) {
-    ElMessage.warning('请先选择需要导出的题目');
-    return;
-  }
-
-  openQuestionExportDialog(selectedQuestionIds.value);
-}
-
 async function exportQuestion(row) {
   openQuestionExportDialog([row.id]);
 }
@@ -2038,43 +2027,6 @@ function makeTagCode(name, index) {
 
 function isChoiceType(type) {
   return ['single_choice', 'multiple_choice', 'true_false'].includes(type);
-}
-
-function normalizeType(value) {
-  const key = String(value || '').trim().toLowerCase();
-  const map = {
-    单选: 'single_choice',
-    单选题: 'single_choice',
-    single: 'single_choice',
-    single_choice: 'single_choice',
-    多选: 'multiple_choice',
-    多选题: 'multiple_choice',
-    multiple: 'multiple_choice',
-    multiple_choice: 'multiple_choice',
-    判断: 'true_false',
-    判断题: 'true_false',
-    true_false: 'true_false',
-    填空: 'fill_blank',
-    填空题: 'fill_blank',
-    fill_blank: 'fill_blank',
-    简答: 'short_answer',
-    简答题: 'short_answer',
-    short_answer: 'short_answer',
-    编程: 'programming',
-    编程题: 'programming',
-    programming: 'programming',
-    材料: 'material',
-    材料题: 'material',
-    material: 'material',
-    文件上传: 'file_upload',
-    文件上传题: 'file_upload',
-    file_upload: 'file_upload',
-    scratch: 'scratch_project',
-    scratch_project: 'scratch_project',
-    arduino: 'arduino_project',
-    arduino_project: 'arduino_project',
-  };
-  return map[key] ?? key;
 }
 
 function typeLabel(value) {

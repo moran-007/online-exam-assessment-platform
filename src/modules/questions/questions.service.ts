@@ -1,10 +1,9 @@
 import {
   BadRequestException,
-  ConflictException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import ExcelJS from 'exceljs';
+import ExcelJS = require('exceljs');
 import { ExamStatus, Prisma, QuestionStatus, QuestionType, TagType } from '@prisma/client';
 import { toPagination } from '../../common/dto/pagination-query.dto';
 import {
@@ -14,6 +13,7 @@ import {
 } from '../../common/utils/enum-normalizer';
 import { AuditService } from '../audit/audit.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { AssetTokenService } from '../uploads/asset-token.service';
 import { CheckQuestionAnswerDto } from './dto/check-question-answer.dto';
 import { CreateQuestionDto } from './dto/create-question.dto';
 import { QueryQuestionDto } from './dto/query-question.dto';
@@ -78,6 +78,7 @@ export class QuestionsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly assetTokens: AssetTokenService,
   ) {}
 
   async list(query: QueryQuestionDto) {
@@ -278,6 +279,7 @@ export class QuestionsService {
 
     return {
       id: question.id,
+      assetAccessToken: this.assetTokens.issuePublicQuestionToken(question.id),
       title: question.title,
       content: question.content,
       type: toApiEnum(question.type),
@@ -529,7 +531,11 @@ export class QuestionsService {
       throw new BadRequestException('请上传 Excel 文件');
     }
     const workbook = new ExcelJS.Workbook();
-    await workbook.xlsx.load(file.buffer as unknown as ExcelJS.Buffer);
+    try {
+      await workbook.xlsx.load(file.buffer as unknown as ExcelJS.Buffer);
+    } catch {
+      throw new BadRequestException('Excel 文件格式无效或已损坏');
+    }
     const worksheet = workbook.worksheets[0];
     if (!worksheet) {
       throw new BadRequestException('Excel 文件中没有可读取的工作表');
@@ -1628,7 +1634,7 @@ export class QuestionsService {
 
     return {
       courseId: String(source.courseId ?? ''),
-      courseName: String(source.courseName ?? (this.toPlainRecord(source.course).name ?? '') ?? ''),
+      courseName: String(source.courseName ?? (this.toPlainRecord(source.course).name ?? '')),
       type: String(source.type ?? 'single_choice'),
       title: String(source.title ?? '未命名题目'),
       content: String(source.contentMarkdown ?? source.content ?? ''),

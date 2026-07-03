@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Query, Res, StreamableFile } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Permissions } from '../../common/decorators/permissions.decorator';
@@ -7,6 +7,7 @@ import { BatchExportActionDto } from './dto/batch-export-action.dto';
 import { CreateExportDto } from './dto/create-export.dto';
 import { QueryExportDto } from './dto/query-export.dto';
 import { ExportsService } from './exports.service';
+import { createReadStream } from 'node:fs';
 
 @ApiTags('Exports')
 @ApiBearerAuth()
@@ -69,7 +70,16 @@ export class ExportsController {
 
   @Get(':id/download')
   @Permissions('exam:result:export')
-  download(@Param('id') id: string, @CurrentUser() user: RequestUser) {
-    return this.exportsService.download(id, user);
+  async download(
+    @Param('id') id: string,
+    @CurrentUser() user: RequestUser,
+    @Res({ passthrough: true }) response: any,
+  ) {
+    const file = await this.exportsService.download(id, user);
+    response.setHeader('Content-Type', file.mimeType);
+    response.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(file.fileName)}`);
+    response.setHeader('Cache-Control', 'private, no-store');
+    response.setHeader('X-Content-Type-Options', 'nosniff');
+    return new StreamableFile(createReadStream(file.path));
   }
 }

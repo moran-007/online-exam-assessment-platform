@@ -172,7 +172,7 @@
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
-import { Delete, DocumentCopy, Edit, Plus, Refresh, Search, Upload, View } from '@element-plus/icons-vue';
+import { DocumentCopy, Edit, Plus, Refresh, Search, Upload, View } from '@element-plus/icons-vue';
 import { api, buildQuery } from '../api';
 import { useResponsiveColumns } from '../composables/useResponsiveColumns';
 
@@ -263,11 +263,13 @@ async function save() {
   };
 
   if (editingId.value) {
-    const { code, ...updatePayload } = payload;
+    const updatePayload = { ...payload };
+    delete updatePayload.code;
     await api(`/courses/${editingId.value}`, { method: 'PATCH', body: updatePayload });
     ElMessage.success('课程已保存');
   } else {
-    const { status, ...createPayload } = payload;
+    const createPayload = { ...payload };
+    delete createPayload.status;
     await api('/courses', { method: 'POST', body: createPayload });
     ElMessage.success('已新增课程');
   }

@@ -130,7 +130,7 @@
 import { computed, onMounted, onUnmounted, reactive, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { ElMessage } from 'element-plus';
-import { DataAnalysis, Refresh } from '@element-plus/icons-vue';
+import { Refresh } from '@element-plus/icons-vue';
 import { api, buildQuery } from '../api';
 import MarkdownRenderer from '../components/MarkdownRenderer.vue';
 import { useResponsiveColumns } from '../composables/useResponsiveColumns';

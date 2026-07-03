@@ -1,0 +1,99 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: online_exam_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d online_exam_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    env:
+      CI: true
+      NODE_ENV: test
+      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/online_exam_test?schema=public
+      TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/online_exam_test?schema=public
+      JWT_ACCESS_SECRET: ci_access_secret_that_is_longer_than_32_chars
+      JWT_REFRESH_SECRET: ci_refresh_secret_that_is_longer_than_32_chars
+      ASSET_URL_SECRET: ci_asset_secret_that_is_unique_and_long_enough
+      CORS_ORIGINS: http://127.0.0.1:5173
+      LOG_LEVEL: silent
+      LOG_PRETTY: false
+      SWAGGER_ENABLED: false
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.7.0
+          run_install: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Validate and generate Prisma client
+        run: |
+          pnpm exec prisma validate
+          pnpm prisma:generate
+
+      - name: Apply all migrations to an empty database
+        run: pnpm exec prisma migrate deploy
+
+      - name: Detect schema drift
+        run: pnpm exec prisma migrate diff --exit-code --from-schema-datasource prisma/schema.prisma --to-schema-datamodel prisma/schema.prisma
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Build backend and frontend
+        run: pnpm build:all
+
+      - name: Unit and integration tests
+        run: pnpm test
+
+      - name: Install Chromium
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Browser tests
+        run: pnpm test:e2e
+
+      - name: Upload failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-diagnostics-${{ github.run_id }}
+          path: |
+            test-results/
+            playwright-report/
+          if-no-files-found: warn
+          retention-days: 14

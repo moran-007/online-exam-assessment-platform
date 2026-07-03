@@ -343,7 +343,7 @@ export class StudentService {
     return { ...result, simulatedStudent: student };
   }
 
-  async getAttemptAsStudent(attemptId: string, studentId: string, actor: RequestUser) {
+  async getAttemptAsStudent(attemptId: string, studentId: string, _actor: RequestUser) {
     const student = await this.findStudentUser(studentId);
     await this.assertAttemptBelongsToStudent(attemptId, student.id);
     return this.getAttemptForStudent(attemptId, student);

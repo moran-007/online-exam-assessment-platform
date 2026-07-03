@@ -7,7 +7,7 @@ REPO_URL=""
 BRANCH="main"
 SERVER_NAME="_"
 PORT="3000"
-RUN_SEED="true"
+RUN_SEED="false"
 USE_CHINA_MIRROR="false"
 NPM_REGISTRY="https://registry.npmjs.org"
 
@@ -21,7 +21,7 @@ Options:
   --app-root PATH    Install path. Default: /opt/online-exam-platform
   --server-name NAME Nginx server_name. Default: _
   --port PORT        Backend port. Default: 3000
-  --skip-seed        Do not run pnpm db:seed.
+  --seed             Explicitly run pnpm db:seed after migrations.
   --china-mirror     Use registry.npmmirror.com for npm/pnpm/corepack.
   -h, --help         Show help.
 USAGE
@@ -48,6 +48,10 @@ while [[ $# -gt 0 ]]; do
     --port)
       PORT="${2:?Missing value for --port}"
       shift 2
+      ;;
+    --seed)
+      RUN_SEED="true"
+      shift
       ;;
     --skip-seed)
       RUN_SEED="false"
@@ -80,6 +84,11 @@ if [[ -z "$REPO_URL" ]]; then
   exit 1
 fi
 
+if [[ -z "$SERVER_NAME" || "$SERVER_NAME" == "_" || "$SERVER_NAME" == "*" || "$SERVER_NAME" == "localhost" ]]; then
+  echo "Please pass --server-name with the public domain or IP used by browsers." >&2
+  exit 1
+fi
+
 log() {
   printf '\n[%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*"
 }
@@ -108,13 +117,13 @@ install_base_packages() {
   log "Installing base packages"
   if has_command apt-get; then
     apt-get update
-    DEBIAN_FRONTEND=noninteractive apt-get install -y ca-certificates curl git gzip nginx openssl tar docker.io docker-compose-plugin
+    DEBIAN_FRONTEND=noninteractive apt-get install -y ca-certificates curl git gzip nginx openssl postgresql-client tar docker.io docker-compose-plugin
     systemctl enable --now docker nginx
   elif has_command dnf; then
-    dnf install -y ca-certificates curl git gzip nginx openssl tar docker docker-compose-plugin
+    dnf install -y ca-certificates curl git gzip nginx openssl postgresql tar docker docker-compose-plugin
     systemctl enable --now docker nginx
   elif has_command yum; then
-    yum install -y ca-certificates curl git gzip nginx openssl tar docker nginx
+    yum install -y ca-certificates curl git gzip nginx openssl postgresql tar docker nginx
     systemctl enable --now docker nginx
   else
     echo "Unsupported Linux distribution: apt-get/dnf/yum not found." >&2
@@ -179,18 +188,50 @@ random_secret() {
   openssl rand -base64 48 | tr -dc 'A-Za-z0-9' | head -c 48
 }
 
+upsert_env() {
+  local file="$1" key="$2" value="$3"
+  if grep -qE "^${key}=" "$file"; then
+    sed -i "s|^${key}=.*|${key}=${value}|" "$file"
+  else
+    printf '%s=%s\n' "$key" "$value" >>"$file"
+  fi
+}
+
 create_shared_env() {
   local env_file="$APP_ROOT/shared/.env"
   mkdir -p "$APP_ROOT/shared/uploads"
   if [[ -f "$env_file" ]]; then
     log "Keeping existing production env: $env_file"
+    upsert_env "$env_file" CORS_ORIGINS "http://$SERVER_NAME"
+    upsert_env "$env_file" TRUST_PROXY "1"
+    upsert_env "$env_file" LOG_LEVEL "info"
+    upsert_env "$env_file" LOG_PRETTY "false"
+    upsert_env "$env_file" JWT_SESSION_EXPIRES_IN "8h"
+    upsert_env "$env_file" JWT_REMEMBER_EXPIRES_IN "7d"
+    upsert_env "$env_file" JWT_IDLE_EXPIRES_IN "30m"
+    upsert_env "$env_file" RATE_LIMIT_TTL_MS "60000"
+    upsert_env "$env_file" RATE_LIMIT_MAX "120"
+    upsert_env "$env_file" LOGIN_RATE_LIMIT_TTL_MS "600000"
+    upsert_env "$env_file" LOGIN_RATE_LIMIT_MAX "5"
+    upsert_env "$env_file" REFRESH_RATE_LIMIT_TTL_MS "600000"
+    upsert_env "$env_file" REFRESH_RATE_LIMIT_MAX "30"
+    upsert_env "$env_file" ASSET_URL_EXPIRES_IN "5m"
+    upsert_env "$env_file" UPLOADS_DIR "$APP_ROOT/shared/uploads"
+    upsert_env "$env_file" BACKUP_DIR "$APP_ROOT/shared/backups"
+    upsert_env "$env_file" BACKUP_DAILY_RETENTION "14"
+    upsert_env "$env_file" BACKUP_WEEKLY_RETENTION "8"
+    if ! grep -qE '^ASSET_URL_SECRET=.{32,}$' "$env_file"; then
+      upsert_env "$env_file" ASSET_URL_SECRET "$(random_secret)"
+    fi
+    chmod 600 "$env_file"
     return
   fi
 
-  local postgres_password jwt_access jwt_refresh hydro_secret
+  local postgres_password jwt_access jwt_refresh asset_secret hydro_secret
   postgres_password="$(random_secret)"
   jwt_access="$(random_secret)"
   jwt_refresh="$(random_secret)"
+  asset_secret="$(random_secret)"
   hydro_secret="$(random_secret)"
 
   log "Creating production env: $env_file"
@@ -203,10 +244,31 @@ DATABASE_URL=postgresql://online_exam:$postgres_password@127.0.0.1:5432/online_e
 JWT_ACCESS_SECRET=$jwt_access
 JWT_REFRESH_SECRET=$jwt_refresh
 JWT_ACCESS_EXPIRES_IN=15m
-JWT_REFRESH_EXPIRES_IN=7d
+JWT_SESSION_EXPIRES_IN=8h
+JWT_REMEMBER_EXPIRES_IN=7d
+JWT_IDLE_EXPIRES_IN=30m
 
-CORS_ORIGINS=http://$SERVER_NAME,http://localhost:$PORT
+CORS_ORIGINS=http://$SERVER_NAME
+TRUST_PROXY=1
 SWAGGER_ENABLED=false
+LOG_LEVEL=info
+LOG_PRETTY=false
+
+RATE_LIMIT_TTL_MS=60000
+RATE_LIMIT_MAX=120
+LOGIN_RATE_LIMIT_TTL_MS=600000
+LOGIN_RATE_LIMIT_MAX=5
+REFRESH_RATE_LIMIT_TTL_MS=600000
+REFRESH_RATE_LIMIT_MAX=30
+
+ASSET_URL_SECRET=$asset_secret
+ASSET_URL_EXPIRES_IN=5m
+
+UPLOADS_DIR=$APP_ROOT/shared/uploads
+BACKUP_DIR=$APP_ROOT/shared/backups
+BACKUP_DAILY_RETENTION=14
+BACKUP_WEEKLY_RETENTION=8
+# BACKUP_REMOTE=s3:online-exam-backups
 
 HYDRO_BASE_URL=https://oj.example.com
 HYDRO_DEFAULT_LANGUAGES=cc.cc17o2,py.py3
@@ -256,7 +318,12 @@ deploy_release() {
     PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 pnpm install --frozen-lockfile --registry="$NPM_REGISTRY"
     pnpm build:all
     pnpm prisma generate
+    if [[ -e "$APP_ROOT/current" ]]; then
+      log "Creating a pre-migration backup"
+      pnpm backup:create
+    fi
     pnpm prisma migrate deploy
+    pnpm assets:migrate
     if [[ "$RUN_SEED" == "true" ]]; then
       pnpm db:seed
     fi
@@ -265,6 +332,7 @@ deploy_release() {
   ln -sfn "$release" "$APP_ROOT/current"
   configure_pm2
   configure_nginx
+  configure_backup_timer
 
   log "Restarting application"
   restart_application
@@ -342,13 +410,11 @@ server {
     proxy_set_header X-Real-IP \$remote_addr;
     proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
     proxy_set_header X-Forwarded-Proto \$scheme;
+    proxy_set_header X-Request-ID \$http_x_request_id;
   }
 
   location /uploads/ {
-    proxy_pass http://127.0.0.1:$PORT;
-    proxy_set_header Host \$host;
-    proxy_set_header X-Real-IP \$remote_addr;
-    proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+    return 404;
   }
 
   location / {
@@ -358,6 +424,42 @@ server {
 NGINX
   rm -f /etc/nginx/sites-enabled/default 2>/dev/null || true
   nginx -t
+}
+
+configure_backup_timer() {
+  local pnpm_path
+  pnpm_path="$(command -v pnpm)"
+  mkdir -p "$APP_ROOT/shared/backups" "$APP_ROOT/shared/restore-reports"
+  chmod 700 "$APP_ROOT/shared/backups" "$APP_ROOT/shared/restore-reports"
+
+  cat >"/etc/systemd/system/$APP_NAME-backup.service" <<SERVICE
+[Unit]
+Description=Online exam PostgreSQL and uploads backup
+After=docker.service network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=$APP_ROOT/current
+EnvironmentFile=$APP_ROOT/shared/.env
+UMask=0077
+ExecStart=$pnpm_path backup:create
+SERVICE
+
+  cat >"/etc/systemd/system/$APP_NAME-backup.timer" <<TIMER
+[Unit]
+Description=Run online exam backup daily at 02:30 Asia/Shanghai
+
+[Timer]
+OnCalendar=*-*-* 02:30:00 Asia/Shanghai
+Persistent=true
+RandomizedDelaySec=120
+
+[Install]
+WantedBy=timers.target
+TIMER
+
+  systemctl daemon-reload
+  systemctl enable --now "$APP_NAME-backup.timer"
 }
 
 smoke_test() {

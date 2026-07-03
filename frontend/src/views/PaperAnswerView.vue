@@ -234,13 +234,11 @@
                 </div>
               </template>
             </QuestionAnswerLayout>
-
-          </section>
+</section>
         </template>
 
         <el-empty v-else description="暂无题目" />
-
-      </main>
+</main>
 
       <aside class="exam-aside panel">
         <div class="exam-progress">
@@ -360,7 +358,7 @@ const resultSummaryType = computed(() => (pendingReviewCount.value ? 'warning' :
 const resultSummaryText = computed(() => {
   if (!submitted.value) return '';
   if (pendingReviewCount.value) {
-    return `${formatScore(earnedScore.value)} / ${formatScore(totalPossibleScore.value)} 分，${pendingReviewCount.value} 题待评测或自评`;
+    return `${formatScore(earnedScore.value)} / ${formatScore(totalPossibleScore.value)} 分，${autoCheckedCount.value} 题已自动评测，${pendingReviewCount.value} 题待评测或自评`;
   }
   return `${formatScore(earnedScore.value)} / ${formatScore(totalPossibleScore.value)} 分`;
 });

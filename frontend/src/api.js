@@ -184,6 +184,18 @@ export async function api(path, options = {}) {
   }
 }
 
+export async function apiBlob(path, options = {}) {
+  const { auth = true, markActivity = false, ...requestOptions } = options;
+  try {
+    if (auth) await refreshSessionIfNeeded();
+    return await requestBlob(path, requestOptions, { auth, markActivity });
+  } catch (error) {
+    if (!auth || !isUnauthorized(error)) throw error;
+    await refreshSession();
+    return requestBlob(path, requestOptions, { auth, markActivity });
+  }
+}
+
 async function request(path, options = {}, sessionOptions = {}) {
   const isFormData = typeof FormData !== 'undefined' && options.body instanceof FormData;
   const headers = {
@@ -210,6 +222,26 @@ async function request(path, options = {}, sessionOptions = {}) {
   }
 
   return payload.data;
+}
+
+async function requestBlob(path, options = {}, sessionOptions = {}) {
+  const headers = { ...(options.headers ?? {}) };
+  const token = sessionOptions.auth === false ? null : getToken();
+  if (token) headers.Authorization = `Bearer ${token}`;
+  if (token && (sessionOptions.markActivity || hasRecentActivity())) headers['X-Session-Activity'] = '1';
+
+  const response = await fetch(`${API_BASE}${path}`, { ...options, headers });
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null);
+    const error = new Error(payload?.message || `请求失败：${response.status}`);
+    error.status = response.status;
+    throw error;
+  }
+  return {
+    blob: await response.blob(),
+    contentDisposition: response.headers.get('Content-Disposition') || '',
+    contentType: response.headers.get('Content-Type') || '',
+  };
 }
 
 async function refreshSession() {

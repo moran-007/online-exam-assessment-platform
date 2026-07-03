@@ -12,6 +12,7 @@ const statusCodeMap = new Map<number, number>([
   [HttpStatus.UNAUTHORIZED, 40002],
   [HttpStatus.NOT_FOUND, 40004],
   [HttpStatus.CONFLICT, 40005],
+  [HttpStatus.TOO_MANY_REQUESTS, 40029],
 ]);
 
 @Catch()

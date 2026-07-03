@@ -1,9 +1,13 @@
 import { Module } from '@nestjs/common';
-import { ConfigModule } from '@nestjs/config';
+import { ConfigModule, ConfigService } from '@nestjs/config';
 import { APP_GUARD } from '@nestjs/core';
+import { ThrottlerModule } from '@nestjs/throttler';
+import { randomUUID } from 'node:crypto';
+import { LoggerModule } from 'nestjs-pino';
 import appConfig from './config/app.config';
 import { validateEnv } from './config/env.validation';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
+import { ConfiguredThrottlerGuard } from './common/guards/configured-throttler.guard';
 import { PermissionsGuard } from './common/guards/permissions.guard';
 import { RolesGuard } from './common/guards/roles.guard';
 import { AuditModule } from './modules/audit/audit.module';
@@ -36,6 +40,49 @@ import { UsersModule } from './modules/users/users.module';
       load: [appConfig],
       validate: validateEnv,
     }),
+    LoggerModule.forRootAsync({
+      inject: [ConfigService],
+      useFactory: (config: ConfigService) => ({
+        pinoHttp: {
+          level: config.get<string>('logLevel') ?? 'info',
+          transport: config.get<boolean>('logPretty')
+            ? { target: 'pino-pretty', options: { colorize: true, singleLine: true } }
+            : undefined,
+          genReqId: (request, response) => {
+            const header = request.headers['x-request-id'];
+            const candidate = Array.isArray(header) ? header[0] : header;
+            const requestId = candidate && /^[A-Za-z0-9._-]{1,64}$/.test(candidate) ? candidate : randomUUID();
+            response.setHeader('X-Request-ID', requestId);
+            return requestId;
+          },
+          redact: {
+            paths: [
+              'req.headers.authorization',
+              'req.headers.cookie',
+              'req.body.password',
+              'req.body.refreshToken',
+              'req.body.accessToken',
+              'req.body.token',
+              'req.body.secret',
+              'req.body.loginPassword',
+              'req.body.hydroPassword',
+              'res.headers["set-cookie"]',
+            ],
+            censor: '[REDACTED]',
+          },
+        },
+      }),
+    }),
+    ThrottlerModule.forRootAsync({
+      inject: [ConfigService],
+      useFactory: (config: ConfigService) => [
+        {
+          name: 'default',
+          ttl: config.get<number>('rateLimit.ttlMs') ?? 60_000,
+          limit: config.get<number>('rateLimit.max') ?? 120,
+        },
+      ],
+    }),
     PrismaModule,
     AuditModule,
     UsersModule,
@@ -59,6 +106,10 @@ import { UsersModule } from './modules/users/users.module';
     StudentModule,
   ],
   providers: [
+    {
+      provide: APP_GUARD,
+      useClass: ConfiguredThrottlerGuard,
+    },
     {
       provide: APP_GUARD,
       useClass: JwtAuthGuard,

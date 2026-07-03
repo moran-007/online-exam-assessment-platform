@@ -4,6 +4,10 @@
   "private": true,
   "description": "Online exam and intelligent assessment platform backend.",
   "license": "UNLICENSED",
+  "packageManager": "pnpm@11.7.0",
+  "engines": {
+    "node": ">=22 <25"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "dev": "nest start --watch",
@@ -16,7 +20,18 @@
     "prisma:migrate": "prisma migrate dev",
     "prisma:studio": "prisma studio",
     "db:seed": "tsx prisma/seed.ts",
-    "db:reseed-curriculum": "tsx prisma/reseed-curriculum.ts"
+    "db:reseed-curriculum": "tsx prisma/reseed-curriculum.ts",
+    "assets:migrate": "tsx scripts/migrate-legacy-assets.ts",
+    "backup:create": "tsx scripts/backup.ts create",
+    "backup:verify": "tsx scripts/backup.ts verify",
+    "backup:restore": "tsx scripts/backup.ts restore",
+    "lint": "eslint .",
+    "test": "pnpm test:unit && pnpm test:integration",
+    "test:unit": "jest --selectProjects unit --runInBand",
+    "test:db:prepare": "tsx scripts/prepare-test-db.ts",
+    "test:integration": "pnpm test:db:prepare && jest --selectProjects integration --runInBand",
+    "test:e2e": "pnpm test:db:prepare && playwright test",
+    "test:ci": "pnpm lint && pnpm build:all && pnpm test && pnpm test:e2e"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
@@ -28,6 +43,7 @@
     "@nestjs/jwt": "^11.0.2",
     "@nestjs/platform-express": "^11.1.27",
     "@nestjs/swagger": "^11.4.4",
+    "@nestjs/throttler": "^6.5.0",
     "@prisma/client": "^6.19.3",
     "bcryptjs": "^3.0.3",
     "class-transformer": "^0.5.1",
@@ -35,17 +51,33 @@
     "docx": "^9.7.1",
     "exceljs": "^4.4.0",
     "express": "^5.2.1",
+    "helmet": "^8.2.0",
+    "nestjs-pino": "^4.6.1",
     "pdfkit": "^0.19.1",
+    "pino": "^10.3.1",
+    "pino-http": "^11.0.0",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.2"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@nestjs/cli": "^11.0.23",
+    "@playwright/test": "^1.61.1",
+    "@types/jest": "^29.5.14",
     "@types/node": "^26.0.1",
     "@types/pdfkit": "^0.17.6",
+    "@types/supertest": "^7.2.0",
+    "eslint": "^10.6.0",
+    "eslint-plugin-vue": "^10.9.2",
+    "globals": "^17.7.0",
+    "jest": "^29.7.0",
     "playwright": "^1.61.1",
+    "pino-pretty": "^13.1.3",
     "prisma": "^6.19.3",
+    "supertest": "^7.2.2",
+    "ts-jest": "^29.2.6",
     "tsx": "^4.22.4",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.62.1"
   }
 }
