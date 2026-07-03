@@ -267,12 +267,42 @@ deploy_release() {
   configure_nginx
 
   log "Restarting application"
-  pm2 startOrReload "$APP_ROOT/shared/ecosystem.config.cjs" --update-env
-  pm2 save
-  pm2 startup systemd -u root --hp /root >/dev/null 2>&1 || true
+  restart_application
   systemctl reload nginx
 
   log "Deployment finished: $release"
+}
+
+restart_application() {
+  local expected_cwd current_real pm2_cwd pm2_cwd_real
+  expected_cwd="$APP_ROOT/current"
+  current_real="$(readlink -f "$expected_cwd")"
+
+  pm2 startOrReload "$APP_ROOT/shared/ecosystem.config.cjs" --update-env || true
+
+  pm2_cwd="$(
+    pm2 jlist | node -e "
+let input = '';
+process.stdin.on('data', (chunk) => input += chunk);
+process.stdin.on('end', () => {
+  const app = JSON.parse(input).find((item) => item.name === '$APP_NAME');
+  process.stdout.write(app?.pm2_env?.pm_cwd || '');
+});
+" 2>/dev/null || true
+  )"
+  pm2_cwd_real="$(readlink -f "$pm2_cwd" 2>/dev/null || printf '%s' "$pm2_cwd")"
+
+  if [[ "$pm2_cwd" != "$expected_cwd" && "$pm2_cwd_real" != "$current_real" ]]; then
+    log "PM2 still points to an old release; recreating application process"
+    pm2 delete "$APP_NAME" >/dev/null 2>&1 || true
+    (
+      cd "$APP_ROOT/current"
+      pm2 start dist/main.js --name "$APP_NAME" --update-env
+    )
+  fi
+
+  pm2 save
+  pm2 startup systemd -u root --hp /root >/dev/null 2>&1 || true
 }
 
 configure_pm2() {
