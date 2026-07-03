@@ -54,7 +54,10 @@
               </div>
             </div>
 
-            <QuestionAnswerLayout :mode="answerLayout">
+            <QuestionAnswerLayout
+              :mode="answerLayout"
+              :class="{ 'is-programming-workspace': entry.snapshot.type === 'programming' }"
+            >
               <template #statement>
                 <h2 class="exam-question-title">{{ entry.snapshot.title || `第 ${entry.index + 1} 题` }}</h2>
                 <MarkdownRenderer :source="entry.snapshot.content" />
@@ -67,7 +70,8 @@
               <template #answer>
                 <div class="question-answer-body">
                   <div v-if="entry.snapshot.type === 'programming'" class="programming-answer">
-                    <ProgrammingToolbarShell :summary="languageLabel(answers[entry.question.questionId].language)">
+                    <div class="programming-command-row">
+                      <ProgrammingToolbarShell :summary="languageLabel(answers[entry.question.questionId].language)">
                       <template #badge>
                         <el-tag v-if="!matchedHydroAccountsFor(entry.snapshot).length" type="warning" size="small">无账号</el-tag>
                       </template>
@@ -109,18 +113,19 @@
                         </el-button>
                       </div>
                       </template>
-                    </ProgrammingToolbarShell>
-                    <div class="programming-primary-actions">
-                      <el-button
-                        type="primary"
-                        :icon="Upload"
-                        :loading="Boolean(codeSubmitLoading[entry.question.questionId])"
-                        :disabled="!selectedHydroAccountIds[entry.question.questionId] || submitted"
-                        @click="submitPracticeCode(entry)"
-                      >
-                        提交 Hydro 评测
-                      </el-button>
-                      <span v-if="!selectedHydroAccountIds[entry.question.questionId]" class="muted">请先在提交设置中选择同站点账号</span>
+                      </ProgrammingToolbarShell>
+                      <div class="programming-primary-actions">
+                        <el-button
+                          type="primary"
+                          :icon="Upload"
+                          :loading="Boolean(codeSubmitLoading[entry.question.questionId])"
+                          :disabled="!selectedHydroAccountIds[entry.question.questionId] || submitted"
+                          @click="submitPracticeCode(entry)"
+                        >
+                          提交 Hydro 评测
+                        </el-button>
+                        <span v-if="!selectedHydroAccountIds[entry.question.questionId]" class="muted">请先在提交设置中选择同站点账号</span>
+                      </div>
                     </div>
                     <el-alert
                       v-if="codeSubmitFeedback[entry.question.questionId]"
