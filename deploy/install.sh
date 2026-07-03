@@ -3,7 +3,7 @@ set -Eeuo pipefail
 
 APP_NAME="online-exam-platform"
 APP_ROOT="/opt/online-exam-platform"
-REPO_URL="https://github.com/<owner>/<repo>.git"
+REPO_URL=""
 BRANCH="main"
 SERVER_NAME="_"
 PORT="3000"
@@ -72,6 +72,11 @@ done
 
 if [[ "$(id -u)" != "0" ]]; then
   echo "Please run as root." >&2
+  exit 1
+fi
+
+if [[ -z "$REPO_URL" ]]; then
+  echo "Please pass --repo https://github.com/<owner>/<repo>.git" >&2
   exit 1
 fi
 

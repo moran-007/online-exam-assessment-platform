@@ -3,25 +3,25 @@
 在一台全新的 Linux 服务器上以 `root` 执行下面指令，即可安装依赖、拉取 GitHub 代码、初始化数据库、构建前后端、配置 PM2 与 Nginx，并完成一次健康检查。
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/<owner>/<repo>/main/deploy/install.sh | bash -s -- --branch main --server-name <SERVER_IP_OR_DOMAIN>
+curl -fsSL https://raw.githubusercontent.com/<owner>/<repo>/main/deploy/install.sh | bash -s -- --repo https://github.com/<owner>/<repo>.git --branch main --server-name <SERVER_IP_OR_DOMAIN>
 ```
 
 如果服务器访问官方 npm 源慢或超时，使用国内镜像参数：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/<owner>/<repo>/main/deploy/install.sh | bash -s -- --branch main --server-name <SERVER_IP_OR_DOMAIN> --china-mirror
+curl -fsSL https://raw.githubusercontent.com/<owner>/<repo>/main/deploy/install.sh | bash -s -- --repo https://github.com/<owner>/<repo>.git --branch main --server-name <SERVER_IP_OR_DOMAIN> --china-mirror
 ```
 
 如果需要部署当前开发分支，可以把 `--branch main` 改为对应分支名，例如：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/<owner>/<repo>/<branch>/deploy/install.sh | bash -s -- --branch codex/external-oj-import-fillblank --server-name <SERVER_IP_OR_DOMAIN> --china-mirror
+curl -fsSL https://raw.githubusercontent.com/<owner>/<repo>/<branch>/deploy/install.sh | bash -s -- --repo https://github.com/<owner>/<repo>.git --branch <branch> --server-name <SERVER_IP_OR_DOMAIN> --china-mirror
 ```
 
 常用参数：
 
 ```txt
---repo URL           Git 仓库地址，默认当前 GitHub 仓库
+--repo URL           Git 仓库地址，必填
 --branch NAME       要部署的分支或标签
 --app-root PATH     安装目录，默认 /opt/online-exam-platform
 --server-name NAME  Nginx server_name，IP 或域名
