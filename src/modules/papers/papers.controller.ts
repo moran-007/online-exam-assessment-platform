@@ -47,7 +47,7 @@ export class PapersController {
   }
 
   @Patch(':id')
-  @Permissions('paper:create')
+  @Permissions('paper:update')
   update(@Param('id') id: string, @Body() dto: UpdatePaperDto, @CurrentUser() user: RequestUser) {
     return this.papersService.update(id, dto, user.id);
   }
@@ -59,7 +59,7 @@ export class PapersController {
   }
 
   @Post(':id/questions')
-  @Permissions('paper:create')
+  @Permissions('paper:update')
   addQuestion(
     @Param('id') id: string,
     @Body() dto: AddPaperQuestionDto,
@@ -69,7 +69,7 @@ export class PapersController {
   }
 
   @Post(':id/questions/by-tags')
-  @Permissions('paper:create')
+  @Permissions('paper:update')
   addQuestionsByTags(
     @Param('id') id: string,
     @Body() dto: AddPaperQuestionsByTagsDto,
@@ -79,7 +79,7 @@ export class PapersController {
   }
 
   @Delete(':id/questions/:paperQuestionId')
-  @Permissions('paper:create')
+  @Permissions('paper:update')
   removeQuestion(
     @Param('id') id: string,
     @Param('paperQuestionId') paperQuestionId: string,
@@ -89,7 +89,7 @@ export class PapersController {
   }
 
   @Patch(':id/questions/:paperQuestionId')
-  @Permissions('paper:create')
+  @Permissions('paper:update')
   updateQuestion(
     @Param('id') id: string,
     @Param('paperQuestionId') paperQuestionId: string,
@@ -100,7 +100,7 @@ export class PapersController {
   }
 
   @Patch(':id/questions/:paperQuestionId/snapshot')
-  @Permissions('paper:create')
+  @Permissions('paper:update')
   updateQuestionSnapshot(
     @Param('id') id: string,
     @Param('paperQuestionId') paperQuestionId: string,
@@ -111,7 +111,7 @@ export class PapersController {
   }
 
   @Post(':id/questions/:paperQuestionId/move')
-  @Permissions('paper:create')
+  @Permissions('paper:update')
   moveQuestion(
     @Param('id') id: string,
     @Param('paperQuestionId') paperQuestionId: string,
@@ -134,7 +134,7 @@ export class PapersController {
   }
 
   @Post(':id/generate-by-rule')
-  @Permissions('paper:create')
+  @Permissions('paper:update')
   generateByRule(
     @Param('id') id: string,
     @Body() dto: GeneratePaperRuleDto,

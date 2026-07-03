@@ -17,4 +17,8 @@ export class QueryGradingDto extends PaginationQueryDto {
   @IsOptional()
   @IsString()
   keyword?: string;
+
+  @IsOptional()
+  @IsString()
+  questionType?: string;
 }

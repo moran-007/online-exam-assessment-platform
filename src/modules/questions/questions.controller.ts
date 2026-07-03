@@ -109,7 +109,7 @@ export class QuestionsController {
   }
 
   @Post('batch/delete')
-  @Permissions('question:update')
+  @Permissions('question:delete')
   bulkDelete(@Body() dto: BulkQuestionActionDto, @CurrentUser() user: RequestUser) {
     return this.questionsService.bulkDelete(dto.ids, user.id);
   }
@@ -144,13 +144,13 @@ export class QuestionsController {
   }
 
   @Post(':id/publish')
-  @Permissions('question:update')
+  @Permissions('question:publish')
   publish(@Param('id') id: string, @CurrentUser() user: RequestUser) {
     return this.questionsService.publish(id, user.id);
   }
 
   @Delete(':id')
-  @Permissions('question:update')
+  @Permissions('question:delete')
   remove(@Param('id') id: string, @CurrentUser() user: RequestUser) {
     return this.questionsService.remove(id, user.id);
   }

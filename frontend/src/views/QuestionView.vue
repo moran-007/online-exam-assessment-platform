@@ -1430,7 +1430,7 @@ async function bulkDeleteQuestions() {
 
   try {
     await ElMessageBox.confirm(
-      `风险操作提示：将批量归档 ${selectedQuestionIds.value.length} 道题目，题库列表将不再显示；已生成试卷快照不会自动同步。`,
+      `风险操作提示：将批量归档 ${selectedQuestionIds.value.length} 道题目，并从引用这些题目的试卷中同步移除题位、重算总分；历史答卷与已生成考试快照仍会保留。`,
       '批量删除题目',
       {
         type: 'warning',
@@ -1929,6 +1929,7 @@ async function removeQuestion(row) {
     const references = impact.references || {};
     const resources = impact.resources || [];
     const risks = impact.risks || [];
+    const relatedPaperNames = (impact.relatedPapers || []).slice(0, 5).map((paper) => paper.name).join('、');
     const resourceReferenceCount = resources.reduce((sum, item) => sum + Number(item.referenceCount || 0), 0);
     const resourceLocations = resources
       .flatMap((item) => item.locations || [])
@@ -1936,6 +1937,7 @@ async function removeQuestion(row) {
       .join('；');
     const lines = [
       `试卷引用：${references.paperCount || 0} 份 / ${references.paperQuestionCount || 0} 个位置`,
+      ...(relatedPaperNames ? [`关联试卷：${relatedPaperNames}${impact.relatedPapers.length > 5 ? ' 等' : ''}`] : []),
       `关联考试：${references.examCount || 0} 场，其中进行中或已安排 ${references.activeExamCount || 0} 场`,
       `试卷快照：${references.paperInstanceCount || 0} 份`,
       `答题记录：${references.answerRecordCount || 0} 条，错题记录：${references.wrongQuestionCount || 0} 条`,
@@ -1944,7 +1946,7 @@ async function removeQuestion(row) {
       ...risks,
     ];
     await ElMessageBox.confirm(
-      `确认删除题目“${row.title}”？\n\n${lines.join('\n')}\n\n删除后题目会归档并从题库隐藏，历史答卷和已生成试卷快照不会自动同步。`,
+      `确认删除题目“${row.title}”？\n\n${lines.join('\n')}\n\n删除后题目会归档，并从上述试卷中同步移除；历史答卷和已生成的考试快照仍会保留。`,
       '删除题目风险确认',
       {
         type: 'warning',
@@ -1952,8 +1954,8 @@ async function removeQuestion(row) {
         cancelButtonText: '取消',
       },
     );
-    await api(`/questions/${row.id}`, { method: 'DELETE' });
-    ElMessage.success('已删除');
+    const result = await api(`/questions/${row.id}`, { method: 'DELETE' });
+    ElMessage.success(result.message || '已删除');
     if (editingId.value === row.id) resetForm();
     await load();
   } catch (error) {

@@ -101,26 +101,29 @@
                         >
                           打开 Hydro
                         </el-button>
-                        <el-button
-                          type="primary"
-                          :icon="Upload"
-                          :loading="Boolean(codeSubmitLoading[entry.question.questionId])"
-                          :disabled="!selectedHydroAccountIds[entry.question.questionId]"
-                          @click="close(); submitCode(entry)"
-                        >
-                          提交代码
-                        </el-button>
-                        <el-button
-                          v-if="codeSubmitFeedback[entry.question.questionId]?.submissionId"
-                          :icon="Refresh"
-                          :loading="Boolean(codeSubmitLoading[entry.question.questionId])"
-                          @click="close(); refreshSubmission(entry.question.questionId)"
-                        >
-                          刷新结果
-                        </el-button>
                       </div>
                       </template>
                     </ProgrammingToolbarShell>
+                    <div class="programming-primary-actions">
+                      <el-button
+                        type="primary"
+                        :icon="Upload"
+                        :loading="Boolean(codeSubmitLoading[entry.question.questionId])"
+                        :disabled="!selectedHydroAccountIds[entry.question.questionId]"
+                        @click="submitCode(entry)"
+                      >
+                        提交 Hydro 评测
+                      </el-button>
+                      <el-button
+                        v-if="codeSubmitFeedback[entry.question.questionId]?.submissionId"
+                        :icon="Refresh"
+                        :loading="Boolean(codeSubmitLoading[entry.question.questionId])"
+                        @click="refreshSubmission(entry.question.questionId)"
+                      >
+                        刷新结果
+                      </el-button>
+                      <span v-if="!selectedHydroAccountIds[entry.question.questionId]" class="muted">请先在提交设置中选择同站点账号</span>
+                    </div>
                     <el-alert
                       v-if="codeSubmitFeedback[entry.question.questionId]"
                       class="code-submit-feedback"
@@ -142,7 +145,10 @@
                           Hydro提交：{{ codeSubmitFeedback[entry.question.questionId].externalSubmissionId }}
                         </span>
                         <span v-if="codeSubmitFeedback[entry.question.questionId].score !== null && codeSubmitFeedback[entry.question.questionId].score !== undefined">
-                          得分：{{ codeSubmitFeedback[entry.question.questionId].score }}
+                          得分：{{ codeSubmitFeedback[entry.question.questionId].score }} / {{ codeSubmitFeedback[entry.question.questionId].maxScore }}
+                        </span>
+                        <span v-if="codeSubmitFeedback[entry.question.questionId].totalTestCaseCount">
+                          测试点：{{ codeSubmitFeedback[entry.question.questionId].passedTestCaseCount }} / {{ codeSubmitFeedback[entry.question.questionId].totalTestCaseCount }}
                         </span>
                         <el-link
                           v-if="codeSubmitFeedback[entry.question.questionId].recordUrl"
@@ -311,7 +317,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue';
+import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { ArrowLeft, ArrowRight, Check, Close, Delete, Expand, Flag, Fold, Link, Refresh, Upload } from '@element-plus/icons-vue';
@@ -734,15 +740,21 @@ async function refreshSubmission(questionId) {
 
 function buildSubmissionFeedback(result, fallbackType = 'info') {
   const status = result.status || '';
-  const accepted = status === 'accepted';
+  const final = !['pending', 'judging'].includes(status);
+  const accepted = result.isCorrect === true || status === 'accepted';
+  const detail = result.result || {};
   return {
-    type: accepted ? 'success' : fallbackType,
-    title: result.mode === 'manual' ? '本地提交已记录' : accepted ? '判题通过' : '代码提交已记录',
+    type: accepted ? 'success' : final ? 'error' : fallbackType,
+    title: result.mode === 'manual' ? '本地提交已记录' : accepted ? '全部测试点通过' : final ? '部分测试点未通过' : '等待 Hydro 评测',
     message: result.message || '',
     status,
     language: result.language || '',
     externalSubmissionId: result.externalSubmissionId || '',
     score: result.score ?? null,
+    maxScore: result.maxScore ?? 0,
+    passedTestCaseCount: result.passedTestCaseCount ?? detail.passedTestCaseCount ?? null,
+    totalTestCaseCount: result.totalTestCaseCount ?? detail.totalTestCaseCount ?? null,
+    scoreRate: result.scoreRate ?? detail.scoreRate ?? null,
     submissionId: result.submissionId || '',
     problemUrl: result.problemUrl || '',
     recordUrl: result.recordUrl || '',
@@ -823,6 +835,11 @@ function numberTitle(entry) {
 function goQuestion(index) {
   if (index < 0 || index >= totalCount.value) return;
   currentIndex.value = index;
+  nextTick(() => {
+    document.querySelector('.exam-main')?.scrollTo({ top: 0 });
+    document.querySelector('.exam-question .question-answer-statement')?.scrollTo({ top: 0 });
+    document.querySelector('.exam-question .question-answer-panel')?.scrollTo({ top: 0 });
+  });
 }
 
 function toggleAside() {

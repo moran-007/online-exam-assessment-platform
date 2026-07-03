@@ -7,6 +7,7 @@ import { RequestUser } from '../../common/interfaces/request-user.interface';
 import { DataScopeService } from '../data-scope/data-scope.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { GradeAnswerDto } from './dto/grade-answer.dto';
+import { BatchGradeAnswersDto } from './dto/batch-grade-answers.dto';
 import { PublishGradesDto } from './dto/grade-visibility.dto';
 import { QueryGradingDto } from './dto/query-grading.dto';
 
@@ -45,6 +46,7 @@ export class GradingService {
   async list(query: QueryGradingDto, user: RequestUser) {
     const { page, pageSize, skip, take } = toPagination(query);
     const status = this.answerStatusWhere(query.status);
+    const questionType = this.questionTypeWhere(query.questionType);
     const examScope = await this.dataScope.examWhere(user);
     const where: Prisma.AnswerRecordWhereInput = {
       status:
@@ -62,6 +64,7 @@ export class GradingService {
         submittedAt: { not: null },
         exam: examScope,
       },
+      question: questionType ? { type: questionType } : undefined,
       OR: query.keyword
         ? [
             { question: { title: { contains: query.keyword, mode: 'insensitive' } } },
@@ -111,6 +114,11 @@ export class GradingService {
           questionType: this.toQuestionType(snapshot?.snapshot.type ?? record.question.type),
           maxScore: snapshot?.score ?? 0,
           score: Number(record.score),
+          isCorrect: record.isCorrect,
+          studentAnswer: record.answerJson,
+          referenceAnswer: snapshot?.snapshot.answer ?? {},
+          options: snapshot?.snapshot.options ?? [],
+          manualComment: record.manualComment ?? '',
           status: toApiEnum(record.status),
           submittedAt: record.attempt.submittedAt,
           gradedAt: record.gradedAt,
@@ -236,6 +244,41 @@ export class GradingService {
     });
 
     return { id: answerRecordId };
+  }
+
+  async batchGradeAnswers(dto: BatchGradeAnswersDto, user: RequestUser) {
+    const ids = [...new Set(dto.answerRecordIds)];
+    const records = await this.prisma.answerRecord.findMany({
+      where: { id: { in: ids } },
+      include: { attempt: { include: { paperInstance: true } } },
+    });
+    if (records.length !== ids.length) {
+      throw new NotFoundException('部分待批改答案不存在，请刷新列表后重试');
+    }
+
+    for (const record of records) {
+      await this.dataScope.assertExamAccessible(user, record.attempt.examId);
+      if (!this.isGradableStatus(record.status)) {
+        throw new BadRequestException('选中项中存在不可批改的答案，请刷新列表后重试');
+      }
+    }
+
+    for (const record of records) {
+      const snapshot = this.findSnapshotQuestion(
+        record.attempt.paperInstance.paperSnapshotJson as unknown as PaperSnapshot,
+        record.questionId,
+      );
+      await this.gradeAnswer(
+        record.id,
+        {
+          score: dto.mode === 'full' ? (snapshot?.score ?? 0) : 0,
+          comment: dto.comment,
+        },
+        user,
+      );
+    }
+
+    return { updatedCount: records.length, mode: dto.mode };
   }
 
   async finishAttempt(attemptId: string, user: RequestUser) {
@@ -478,6 +521,16 @@ export class GradingService {
 
     const enumKey = normalized.toUpperCase() as keyof typeof AnswerRecordStatus;
     return AnswerRecordStatus[enumKey];
+  }
+
+  private questionTypeWhere(value?: string) {
+    if (!value) return undefined;
+    const enumKey = value.replace(/-/g, '_').toUpperCase() as keyof typeof QuestionType;
+    const questionType = QuestionType[enumKey];
+    if (!questionType) {
+      throw new BadRequestException('题型筛选值不合法');
+    }
+    return questionType;
   }
 
   private normalizeShowScoreMode(value: string) {

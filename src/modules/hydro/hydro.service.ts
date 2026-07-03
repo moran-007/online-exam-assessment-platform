@@ -102,6 +102,8 @@ type HydroRecordResult = {
   recordUrl: string;
   status: string;
   score: number | null;
+  passedTestCaseCount: number | null;
+  totalTestCaseCount: number | null;
   message: string;
   judgedAt: string | null;
   final: boolean;
@@ -1097,9 +1099,20 @@ export class HydroService implements OnModuleInit, OnModuleDestroy {
       throw new BadRequestException('当前 Hydro 账号缺少登录账号或密码，请先补全后再提交');
     }
 
-    const submitResult = await this.submitToHydro(binding, { ...dto, language }, hydroAccount);
+    const submitResult = await this.submitToHydro(
+      binding,
+      { ...dto, language },
+      hydroAccount,
+      [1000, 2000, 3000, 5000, 5000],
+    );
     const maxScore = Number(question.defaultScore);
-    const practiceScore = submitResult.score === null || submitResult.score === undefined ? null : Math.min(Math.max(Number(submitResult.score), 0), maxScore);
+    const scoreBreakdown = this.hydroScoreBreakdown(
+      maxScore,
+      submitResult.status || 'pending',
+      submitResult.score,
+      this.toRecord(submitResult.result),
+    );
+    const practiceScore = scoreBreakdown.final ? scoreBreakdown.score : null;
     const shouldRecordWrong =
       user.userType === UserType.STUDENT &&
       Number.isFinite(maxScore) &&
@@ -1127,6 +1140,10 @@ export class HydroService implements OnModuleInit, OnModuleDestroy {
             externalSubmissionId: submitResult.externalSubmissionId ?? null,
             status: submitResult.status ?? null,
             maxScore,
+            remoteScore: scoreBreakdown.remoteScore,
+            passedTestCaseCount: scoreBreakdown.passedTestCaseCount,
+            totalTestCaseCount: scoreBreakdown.totalTestCaseCount,
+            scoreRate: scoreBreakdown.scoreRate,
             message: submitResult.message ?? '',
           } as Prisma.InputJsonObject,
         });
@@ -1141,8 +1158,13 @@ export class HydroService implements OnModuleInit, OnModuleDestroy {
       mode: submitResult.mode,
       problemUrl: submitResult.problemUrl,
       recordUrl: submitResult.recordUrl,
-      score: submitResult.score ?? null,
+      score: practiceScore,
       maxScore,
+      remoteScore: scoreBreakdown.remoteScore,
+      passedTestCaseCount: scoreBreakdown.passedTestCaseCount,
+      totalTestCaseCount: scoreBreakdown.totalTestCaseCount,
+      scoreRate: scoreBreakdown.scoreRate,
+      isCorrect: scoreBreakdown.final ? scoreBreakdown.isFullScore : null,
       wrongQuestionAdded: shouldRecordWrong,
       language,
       account: this.formatHydroAccount(hydroAccount),
@@ -1158,7 +1180,7 @@ export class HydroService implements OnModuleInit, OnModuleDestroy {
       where: { id: submissionId },
       include: {
         question: { include: { programmingRef: true } },
-        attempt: { select: { userId: true, examId: true } },
+        attempt: { include: { paperInstance: true } },
       },
     });
     if (!submission) throw new NotFoundException('判题提交记录不存在');
@@ -1172,11 +1194,16 @@ export class HydroService implements OnModuleInit, OnModuleDestroy {
           where: { id: submissionId },
           include: {
             question: { include: { programmingRef: true } },
-            attempt: { select: { userId: true, examId: true } },
+            attempt: { include: { paperInstance: true } },
           },
         })) ?? submission;
     }
     const result = this.toRecord(submission.resultJson);
+    const snapshot = this.findSnapshotQuestion(
+      submission.attempt.paperInstance.paperSnapshotJson as unknown as PaperSnapshot,
+      submission.questionId,
+    );
+    const maxScore = Number(snapshot?.score ?? 0);
     return {
       submissionId: submission.id,
       attemptId: submission.attemptId,
@@ -1190,6 +1217,12 @@ export class HydroService implements OnModuleInit, OnModuleDestroy {
       language: submission.language,
       status: submission.status,
       score: submission.score === null ? null : Number(submission.score),
+      maxScore,
+      isCorrect: submission.score === null ? null : Number(submission.score) >= maxScore,
+      remoteScore: result.remoteScore ?? null,
+      passedTestCaseCount: result.passedTestCaseCount ?? null,
+      totalTestCaseCount: result.totalTestCaseCount ?? null,
+      scoreRate: result.scoreRate ?? null,
       message: String(result.message ?? ''),
       mode: String(result.mode ?? ''),
       problemUrl: String(result.problemUrl ?? ''),
@@ -1732,14 +1765,13 @@ export class HydroService implements OnModuleInit, OnModuleDestroy {
     );
     const maxScore = Number(snapshot?.score ?? 0);
     const normalizedStatus = this.normalizeJudgeStatus(dto.status);
-    const accepted = normalizedStatus === 'accepted';
-    const score =
-      dto.score === undefined || dto.score === null
-        ? accepted
-          ? maxScore
-          : 0
-        : Math.min(Math.max(Number(dto.score), 0), maxScore);
-    const isFullScore = maxScore > 0 ? score >= maxScore : accepted;
+    const scoreBreakdown = this.hydroScoreBreakdown(maxScore, normalizedStatus, dto.score, {
+      ...this.toRecord(dto.result),
+      passedTestCaseCount: dto.passedTestCaseCount ?? this.toRecord(dto.result).passedTestCaseCount,
+      totalTestCaseCount: dto.totalTestCaseCount ?? this.toRecord(dto.result).totalTestCaseCount,
+    });
+    const score = scoreBreakdown.score;
+    const isFullScore = scoreBreakdown.isFullScore;
     const judgedAt = dto.judgedAt ? new Date(dto.judgedAt) : new Date();
     const previousResult = this.toRecord(submission.resultJson);
     const hydroResult = this.toRecord(dto.result);
@@ -1753,6 +1785,10 @@ export class HydroService implements OnModuleInit, OnModuleDestroy {
       recordUrl: recordUrl || null,
       problemUrl: problemUrl || null,
       writebackStatus: dto.status,
+      remoteScore: scoreBreakdown.remoteScore,
+      passedTestCaseCount: scoreBreakdown.passedTestCaseCount,
+      totalTestCaseCount: scoreBreakdown.totalTestCaseCount,
+      scoreRate: scoreBreakdown.scoreRate,
     } as Prisma.InputJsonObject;
     const autoResultJson = {
       latestSubmissionId: submission.id,
@@ -1764,6 +1800,10 @@ export class HydroService implements OnModuleInit, OnModuleDestroy {
       recordUrl,
       language: String(hydroResult.language ?? previousResult.language ?? submission.language),
       result: hydroResult,
+      remoteScore: scoreBreakdown.remoteScore,
+      passedTestCaseCount: scoreBreakdown.passedTestCaseCount,
+      totalTestCaseCount: scoreBreakdown.totalTestCaseCount,
+      scoreRate: scoreBreakdown.scoreRate,
     } as Prisma.InputJsonObject;
 
     await this.prisma.$transaction(async (tx) => {
@@ -1829,6 +1869,10 @@ export class HydroService implements OnModuleInit, OnModuleDestroy {
             externalSubmissionId: submission.externalSubmissionId,
             status: normalizedStatus,
             maxScore,
+            remoteScore: scoreBreakdown.remoteScore,
+            passedTestCaseCount: scoreBreakdown.passedTestCaseCount,
+            totalTestCaseCount: scoreBreakdown.totalTestCaseCount,
+            scoreRate: scoreBreakdown.scoreRate,
             message: dto.message ?? '',
           } as Prisma.InputJsonObject,
         });
@@ -1845,6 +1889,11 @@ export class HydroService implements OnModuleInit, OnModuleDestroy {
       status: normalizedStatus,
       score,
       maxScore,
+      remoteScore: scoreBreakdown.remoteScore,
+      passedTestCaseCount: scoreBreakdown.passedTestCaseCount,
+      totalTestCaseCount: scoreBreakdown.totalTestCaseCount,
+      scoreRate: scoreBreakdown.scoreRate,
+      isCorrect: isFullScore,
       judgedAt,
     };
   }
@@ -2475,6 +2524,7 @@ export class HydroService implements OnModuleInit, OnModuleDestroy {
     binding: HydroProblemBinding,
     dto: SubmitHydroCodeDto,
     account: HydroAccount,
+    waitSchedule = [1000, 2000, 3000],
   ): Promise<HydroSubmitResult> {
     if (account.lastLoginStatus === 'blocked') {
       throw new BadRequestException(this.hydroBotChallengeMessage);
@@ -2533,13 +2583,15 @@ export class HydroService implements OnModuleInit, OnModuleDestroy {
         recordUrl,
         status: 'pending',
         score: null,
+        passedTestCaseCount: null,
+        totalTestCaseCount: null,
         message,
         judgedAt: null,
         final: false,
         result: { error: message },
       } satisfies HydroRecordResult;
     });
-    for (const waitMs of [1000, 2000, 3000]) {
+    for (const waitMs of waitSchedule) {
       if (record.final) break;
       await this.delay(waitMs);
       record = await this.fetchHydroRecordResult(session, externalSubmissionId, recordUrl).catch(async (error) => {
@@ -2683,6 +2735,7 @@ export class HydroService implements OnModuleInit, OnModuleDestroy {
       this.extractByRegex(html, /<h1[^>]*class=["'][^"']*section__title[^"']*["'][\s\S]*?<span[^>]*style=["'][^"']*color:[^"']*["'][^>]*>([\s\S]*?)<\/span>/i);
     const parsedScore = Number(String(scoreText).trim());
     const score = Number.isFinite(parsedScore) && parsedScore >= 0 ? parsedScore : status === 'accepted' ? 100 : null;
+    const testCaseSummary = this.extractHydroTestCaseSummary(html);
     const judgedTimestamp = this.extractByRegex(
       html,
       /<dt>\s*评测时间\s*<\/dt>\s*<dd>\s*<span[^>]*data-timestamp=["']([^"']+)["'][^>]*>/i,
@@ -2701,6 +2754,8 @@ export class HydroService implements OnModuleInit, OnModuleDestroy {
       recordUrl,
       status,
       score,
+      passedTestCaseCount: testCaseSummary.passed,
+      totalTestCaseCount: testCaseSummary.total,
       message: this.decodeHtml(this.stripTags(message)).replace(/\s+/g, ' ').trim(),
       judgedAt,
       final: !['pending', 'judging'].includes(status),
@@ -2710,6 +2765,10 @@ export class HydroService implements OnModuleInit, OnModuleDestroy {
         statusText: this.decodeHtml(this.stripTags(statusText)).replace(/\s+/g, ' ').trim(),
         dataStatus,
         score,
+        remoteScore: score,
+        passedTestCaseCount: testCaseSummary.passed,
+        totalTestCaseCount: testCaseSummary.total,
+        scoreRate: testCaseSummary.total ? (testCaseSummary.passed ?? 0) / testCaseSummary.total : null,
         language,
         submitter,
       },
@@ -2752,6 +2811,8 @@ export class HydroService implements OnModuleInit, OnModuleDestroy {
       externalSubmissionId: submission.externalSubmissionId ?? undefined,
       status: record.status,
       score: record.score ?? undefined,
+      passedTestCaseCount: record.passedTestCaseCount ?? undefined,
+      totalTestCaseCount: record.totalTestCaseCount ?? undefined,
       message: record.message,
       judgedAt: record.judgedAt ?? undefined,
       result: {
@@ -2969,8 +3030,8 @@ export class HydroService implements OnModuleInit, OnModuleDestroy {
 
   private normalizeJudgeStatus(status: string) {
     const value = status.trim().toLowerCase().replace(/\s+/g, '_');
-    const accepted = new Set(['accepted', 'accept', 'ac', 'ok', 'success', 'passed']);
-    if (accepted.has(value)) return 'accepted';
+    const accepted = new Set(['accepted', 'accept', 'ac', 'ok', 'success', 'pass', 'passed']);
+    if (accepted.has(value) || /通过|正确/.test(status)) return 'accepted';
     if (['pending', 'queued', 'waiting', 'wait', 'waiting_judge'].includes(value) || /等待|排队/.test(status)) return 'pending';
     if (['judging', 'running', 'compiling', 'fetched'].includes(value) || /评测|运行|编译/.test(status)) return 'judging';
     if (['compile_error', 'ce', 'compile_error_'].includes(value) || /编译错误/i.test(status)) return 'compile_error';
@@ -2980,6 +3041,65 @@ export class HydroService implements OnModuleInit, OnModuleDestroy {
     if (['memory_limit_exceeded', 'memory_limit_exceed', 'mle'].includes(value) || /内存超限|memory limit/i.test(status)) return 'memory_limit_exceeded';
     if (['system_error', 'se', 'failed', 'error', 'unknown'].includes(value) || /系统错误|system/i.test(status)) return 'system_error';
     return value || 'unknown';
+  }
+
+  private extractHydroTestCaseSummary(html: string) {
+    let passed = 0;
+    let total = 0;
+    const rowPattern = /<tr\b([^>]*)>([\s\S]*?)<\/tr>/gi;
+    for (const match of html.matchAll(rowPattern)) {
+      const attributes = match[1] ?? '';
+      const className = this.extractByRegex(attributes, /class=["']([^"']*)["']/i);
+      const classes = className.split(/\s+/).filter(Boolean);
+      if (!classes.includes('case') && !classes.includes('subtask-case')) continue;
+
+      const body = match[2] ?? '';
+      const statusText =
+        this.extractByRegex(body, /<span[^>]*class=["'][^"']*record-status--text[^"']*["'][^>]*>([\s\S]*?)<\/span>/i) ||
+        this.extractByRegex(body, /record-status--(?:text|icon)[^"']*\s+([^\s"']+)/i);
+      const normalized = this.normalizeJudgeStatus(this.decodeHtml(this.stripTags(statusText)).trim());
+      total += 1;
+      if (normalized === 'accepted') passed += 1;
+    }
+    return { passed: total ? passed : null, total: total || null };
+  }
+
+  private hydroScoreBreakdown(
+    maxScore: number,
+    status: string,
+    remoteScore: number | null | undefined,
+    result: Record<string, unknown>,
+  ) {
+    const normalizedStatus = this.normalizeJudgeStatus(status);
+    const final = !['pending', 'judging'].includes(normalizedStatus);
+    const accepted = normalizedStatus === 'accepted';
+    const passedTestCaseCount = this.toNonNegativeInteger(result.passedTestCaseCount);
+    const totalTestCaseCount = this.toNonNegativeInteger(result.totalTestCaseCount);
+    const numericRemoteScore = Number(remoteScore ?? result.remoteScore ?? result.score);
+    const normalizedRemoteScore = Number.isFinite(numericRemoteScore) ? Math.min(Math.max(numericRemoteScore, 0), 100) : null;
+    const scoreRate = accepted
+      ? 1
+      : totalTestCaseCount && passedTestCaseCount !== null
+        ? Math.min(passedTestCaseCount, totalTestCaseCount) / totalTestCaseCount
+        : normalizedRemoteScore !== null
+          ? normalizedRemoteScore / 100
+          : 0;
+    const safeMaxScore = Number.isFinite(maxScore) ? Math.max(maxScore, 0) : 0;
+    const score = final ? Math.round(safeMaxScore * scoreRate * 100) / 100 : 0;
+    return {
+      score,
+      scoreRate,
+      remoteScore: normalizedRemoteScore,
+      passedTestCaseCount,
+      totalTestCaseCount,
+      final,
+      isFullScore: accepted || (safeMaxScore > 0 && score >= safeMaxScore),
+    };
+  }
+
+  private toNonNegativeInteger(value: unknown) {
+    const numeric = Number(value);
+    return Number.isInteger(numeric) && numeric >= 0 ? numeric : null;
   }
 
   private attemptDeadline(attempt: { startedAt: Date; exam: { durationMinutes: number; endTime: Date } }) {

@@ -74,6 +74,18 @@ export class SimulateSaveAnswersDto extends SaveAnswersDto {
 export class AddWrongQuestionDto {
   @IsUUID()
   questionId: string;
+
+  @IsOptional()
+  @IsObject()
+  answer?: Record<string, unknown>;
+
+  @IsOptional()
+  @Type(() => Number)
+  score?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  totalScore?: number;
 }
 
 export class BatchWrongQuestionDto {

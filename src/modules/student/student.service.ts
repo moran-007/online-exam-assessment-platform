@@ -806,6 +806,10 @@ export class StudentService {
 
     return {
       attemptId: attempt.id,
+      exam: {
+        id: attempt.exam.id,
+        name: attempt.exam.name,
+      },
       status: toApiEnum(attempt.status),
       totalScore: visibility.score ? Number(attempt.totalScore) : null,
       objectiveScore: visibility.score ? Number(attempt.objectiveScore) : null,
@@ -931,6 +935,12 @@ export class StudentService {
       throw new NotFoundException('题目不存在或未发布，不能加入错题本');
     }
 
+    const fromPractice = dto.answer !== undefined || dto.score !== undefined || dto.totalScore !== undefined;
+    const sourceType = fromPractice ? WrongQuestionSourceType.PRACTICE : WrongQuestionSourceType.MANUAL;
+    const wrongAnswerJson = (dto.answer ?? {}) as Prisma.InputJsonObject;
+    const score = dto.score ?? 0;
+    const masteryStatus = fromPractice ? MasteryStatus.UNMASTERED : MasteryStatus.REVIEWING;
+
     const item = await this.prisma.wrongQuestion.upsert({
       where: {
         studentId_questionId: {
@@ -939,24 +949,25 @@ export class StudentService {
         },
       },
       update: {
-        sourceType: WrongQuestionSourceType.MANUAL,
+        sourceType,
         sourceId: dto.questionId,
-        wrongAnswerJson: {},
+        wrongAnswerJson,
         correctAnswerJson: (question.answer?.answerJson ?? {}) as Prisma.InputJsonObject,
-        score: 0,
-        masteryStatus: MasteryStatus.REVIEWING,
+        score,
+        masteryStatus,
+        ...(fromPractice ? { wrongCount: { increment: 1 } } : {}),
         lastWrongAt: new Date(),
       },
       create: {
         studentId: user.id,
         questionId: dto.questionId,
-        sourceType: WrongQuestionSourceType.MANUAL,
+        sourceType,
         sourceId: dto.questionId,
-        wrongAnswerJson: {},
+        wrongAnswerJson,
         correctAnswerJson: (question.answer?.answerJson ?? {}) as Prisma.InputJsonObject,
-        score: 0,
-        wrongCount: 0,
-        masteryStatus: MasteryStatus.REVIEWING,
+        score,
+        wrongCount: fromPractice ? 1 : 0,
+        masteryStatus,
       },
     });
     await this.prisma.wrongQuestionEvent.create({
@@ -964,13 +975,16 @@ export class StudentService {
         wrongQuestionId: item.id,
         studentId: user.id,
         questionId: dto.questionId,
-        sourceType: WrongQuestionSourceType.MANUAL,
+        sourceType,
         sourceId: dto.questionId,
-        eventType: 'manual_add',
-        isCorrect: null,
-        score: 0,
-        masteryStatus: MasteryStatus.REVIEWING,
-        eventJson: {} as Prisma.InputJsonObject,
+        eventType: fromPractice ? 'practice_wrong' : 'manual_add',
+        isCorrect: fromPractice ? false : null,
+        score,
+        masteryStatus,
+        eventJson: {
+          answer: dto.answer ?? {},
+          totalScore: dto.totalScore ?? null,
+        } as Prisma.InputJsonObject,
       },
     });
 

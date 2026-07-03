@@ -657,14 +657,16 @@ export class QuestionsService {
       : [];
     const resourceStats = await this.resourceReferenceStats(resourceReferences);
 
-    const [paperQuestionCount, paperCount, examCount, activeExamCount, paperInstanceCount, answerRecordCount, wrongQuestionCount, judgeSubmissionCount, versionCount] =
+    const [paperQuestionCount, relatedPapers, examCount, activeExamCount, paperInstanceCount, answerRecordCount, wrongQuestionCount, judgeSubmissionCount, versionCount] =
       await this.prisma.$transaction([
         this.prisma.paperQuestion.count({ where: { questionId: id } }),
-        this.prisma.paper.count({
+        this.prisma.paper.findMany({
           where: {
             deletedAt: null,
             questions: { some: { questionId: id } },
           },
+          select: { id: true, name: true, status: true },
+          orderBy: { updatedAt: 'desc' },
         }),
         this.prisma.exam.count({
           where: {
@@ -689,9 +691,10 @@ export class QuestionsService {
         this.prisma.judgeSubmission.count({ where: { questionId: id } }),
         this.prisma.questionVersion.count({ where: { questionId: id } }),
       ]);
+    const paperCount = relatedPapers.length;
 
     const risks: string[] = [];
-    if (paperQuestionCount > 0) risks.push(`已被 ${paperQuestionCount} 个试卷题目引用，试卷快照不会自动同步`);
+    if (paperQuestionCount > 0) risks.push(`删除时会从 ${paperCount} 份试卷的 ${paperQuestionCount} 个题位中同步移除，并重算试卷总分`);
     if (activeExamCount > 0) risks.push(`有 ${activeExamCount} 场已安排或进行中的考试引用该题`);
     if (answerRecordCount > 0) risks.push(`已有 ${answerRecordCount} 条答题记录，删除后历史成绩仍保留快照`);
     if (wrongQuestionCount > 0) risks.push(`已有 ${wrongQuestionCount} 条错题记录`);
@@ -715,6 +718,11 @@ export class QuestionsService {
         judgeSubmissionCount,
         versionCount,
       },
+      relatedPapers: relatedPapers.map((paper) => ({
+        id: paper.id,
+        name: paper.name,
+        status: toApiEnum(paper.status),
+      })),
       resources: resourceReferences.map((url) => {
         const asset = resourceAssets.find((item) => item.url === url || `/uploads/${item.objectKey}` === url || item.objectKey === url.replace(/^\/uploads\//, ''));
         const stats = resourceStats.get(url) ?? { count: 0, locations: [] };
@@ -1016,13 +1024,40 @@ export class QuestionsService {
       throw new NotFoundException('题目不存在');
     }
 
-    await this.prisma.question.update({
-      where: { id },
-      data: {
-        status: QuestionStatus.ARCHIVED,
-        deletedAt: new Date(),
-        updatedBy: userId,
-      },
+    const deletion = await this.prisma.$transaction(async (tx) => {
+      const paperLinks = await tx.paperQuestion.findMany({
+        where: { questionId: id },
+        select: { paperId: true },
+      });
+      const paperIds = [...new Set(paperLinks.map((item) => item.paperId))];
+
+      if (paperLinks.length) {
+        await tx.paperQuestion.deleteMany({ where: { questionId: id } });
+        for (const paperId of paperIds) {
+          const aggregate = await tx.paperQuestion.aggregate({
+            where: { paperId },
+            _sum: { score: true },
+          });
+          await tx.paper.updateMany({
+            where: { id: paperId, deletedAt: null },
+            data: {
+              totalScore: aggregate._sum.score ?? 0,
+              updatedBy: userId,
+            },
+          });
+        }
+      }
+
+      await tx.question.update({
+        where: { id },
+        data: {
+          status: QuestionStatus.ARCHIVED,
+          deletedAt: new Date(),
+          updatedBy: userId,
+        },
+      });
+
+      return { paperCount: paperIds.length, paperQuestionCount: paperLinks.length };
     });
 
     await this.audit.log({
@@ -1031,9 +1066,17 @@ export class QuestionsService {
       module: 'question',
       targetType: 'question',
       targetId: id,
+      beforeData: { title: exists.title },
+      afterData: deletion,
     });
 
-    return true;
+    return {
+      deleted: true,
+      ...deletion,
+      message: deletion.paperQuestionCount
+        ? `题目已删除，并从 ${deletion.paperCount} 份试卷中移除 ${deletion.paperQuestionCount} 个关联题位`
+        : '题目已删除',
+    };
   }
 
   async bulkDelete(ids: string[], userId: string) {
