@@ -30,7 +30,10 @@
     </div>
 
     <div class="exam-layout">
-      <main class="exam-main">
+      <main
+        class="exam-main"
+        :class="{ 'is-programming-main': visibleEntries[0]?.snapshot.type === 'programming' }"
+      >
         <template v-if="visibleEntries.length">
           <section
             v-for="entry in visibleEntries"
@@ -232,20 +235,11 @@
               </template>
             </QuestionAnswerLayout>
 
-            <div class="question-actions">
-              <el-button :icon="Delete" @click="clearAnswer(entry.question.questionId)">清除本题</el-button>
-            </div>
           </section>
         </template>
 
         <el-empty v-else description="暂无题目" />
 
-        <div v-if="totalCount" class="exam-stepbar">
-          <el-button :icon="ArrowLeft" :disabled="currentIndex <= 0" @click="goQuestion(currentIndex - 1)">上一题</el-button>
-          <el-button type="primary" :icon="ArrowRight" :disabled="currentIndex >= totalCount - 1" @click="goQuestion(currentIndex + 1)">
-            下一题
-          </el-button>
-        </div>
       </main>
 
       <aside class="exam-aside panel">
@@ -273,6 +267,13 @@
           >
             <span>{{ entry.index + 1 }}</span>
           </button>
+        </div>
+        <div v-if="totalCount" class="aside-stepbar">
+          <el-button :icon="Delete" :disabled="!visibleEntries[0]" @click="clearAnswer(visibleEntries[0].question.questionId)">清除</el-button>
+          <el-button :icon="ArrowLeft" :disabled="currentIndex <= 0" @click="goQuestion(currentIndex - 1)">上一题</el-button>
+          <el-button type="primary" :icon="ArrowRight" :disabled="currentIndex >= totalCount - 1" @click="goQuestion(currentIndex + 1)">
+            下一题
+          </el-button>
         </div>
       </aside>
     </div>

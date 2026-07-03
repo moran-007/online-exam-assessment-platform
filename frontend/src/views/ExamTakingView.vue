@@ -23,7 +23,10 @@
     </div>
 
     <div class="exam-layout" :class="{ 'is-aside-collapsed': asideCollapsed }">
-      <main class="exam-main">
+      <main
+        class="exam-main"
+        :class="{ 'is-programming-main': visibleEntries[0]?.question.type === 'programming' }"
+      >
         <template v-if="visibleEntries.length">
           <section
             v-for="entry in visibleEntries"
@@ -247,23 +250,11 @@
               </template>
             </QuestionAnswerLayout>
 
-            <div class="question-actions">
-              <el-button :icon="Flag" :type="isFlagged(entry.question.questionId) ? 'warning' : 'default'" @click="toggleFlag(entry.question.questionId)">
-                {{ isFlagged(entry.question.questionId) ? '取消标疑' : '标记疑问' }}
-              </el-button>
-              <el-button :icon="Delete" @click="clearAnswer(entry.question.questionId)">清除答案</el-button>
-            </div>
           </section>
         </template>
 
         <el-empty v-else description="暂无题目" />
 
-        <div v-if="totalCount" class="exam-stepbar">
-          <el-button :icon="ArrowLeft" :disabled="currentIndex <= 0" @click="goQuestion(currentIndex - 1)">上一题</el-button>
-          <el-button type="primary" :icon="ArrowRight" :disabled="currentIndex >= totalCount - 1" @click="goQuestion(currentIndex + 1)">
-            下一题
-          </el-button>
-        </div>
       </main>
 
       <aside class="exam-aside panel" :class="{ 'is-collapsed': asideCollapsed }">
@@ -307,9 +298,15 @@
             <el-button :icon="Flag" :type="currentQuestionId && isFlagged(currentQuestionId) ? 'warning' : 'default'" @click="toggleCurrentFlag">
               {{ currentQuestionId && isFlagged(currentQuestionId) ? '取消本题标疑' : '本题标疑' }}
             </el-button>
-            <el-button :icon="Delete" :disabled="!currentQuestionId" @click="clearCurrentAnswer">清除本题</el-button>
             <el-button :icon="Upload" :disabled="autoSubmitting" @click="saveAll">保存全部</el-button>
             <el-button type="primary" :icon="Check" :loading="autoSubmitting" @click="submit">提交试卷</el-button>
+          </div>
+          <div v-if="totalCount" class="aside-stepbar">
+            <el-button :icon="Delete" :disabled="!currentQuestionId" @click="clearCurrentAnswer">清除</el-button>
+            <el-button :icon="ArrowLeft" :disabled="currentIndex <= 0" @click="goQuestion(currentIndex - 1)">上一题</el-button>
+            <el-button type="primary" :icon="ArrowRight" :disabled="currentIndex >= totalCount - 1" @click="goQuestion(currentIndex + 1)">
+              下一题
+            </el-button>
           </div>
         </template>
         <div v-else class="exam-aside-compact">
