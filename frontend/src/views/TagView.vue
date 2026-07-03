@@ -132,7 +132,7 @@
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
-import { Delete, Edit, Plus, Refresh, Search } from '@element-plus/icons-vue';
+import { Edit, Plus, Refresh, Search } from '@element-plus/icons-vue';
 import { api, buildQuery } from '../api';
 import { useResponsiveColumns } from '../composables/useResponsiveColumns';
 
@@ -233,7 +233,8 @@ async function save() {
     await api(`/tags/${editingId.value}`, { method: 'PATCH', body: payload });
     ElMessage.success('标签已保存');
   } else {
-    const { status, ...createPayload } = payload;
+    const createPayload = { ...payload };
+    delete createPayload.status;
     await api('/tags', { method: 'POST', body: createPayload });
     ElMessage.success('已新增标签');
   }

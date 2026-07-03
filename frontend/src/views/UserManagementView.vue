@@ -28,7 +28,7 @@
             <el-button :icon="Search" @click="loadFirstUserPage">查询</el-button>
           </div>
 
-          <el-table :data="users" v-loading="userLoading" height="100%">
+          <el-table v-loading="userLoading" :data="users" height="100%">
             <el-table-column label="用户" min-width="220">
               <template #default="{ row }">
                 <div class="user-main-cell">
@@ -91,7 +91,7 @@
             <el-button :icon="Refresh" @click="loadRoles">刷新角色</el-button>
           </div>
 
-          <el-table :data="roles" v-loading="roleLoading" height="100%">
+          <el-table v-loading="roleLoading" :data="roles" height="100%">
             <el-table-column label="角色" min-width="220">
               <template #default="{ row }">
                 <div class="user-main-cell">

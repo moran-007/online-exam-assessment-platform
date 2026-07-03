@@ -550,7 +550,7 @@
         <div v-if="uploadedAssets.length" class="uploaded-asset-list">
           <div v-for="asset in uploadedAssets" :key="asset.url" class="uploaded-asset-item">
             <div class="asset-preview">
-              <img v-if="asset.isImage" :src="asset.url" :alt="asset.displayName" />
+              <img v-if="asset.isImage && asset.previewUrl" :src="asset.previewUrl" :alt="asset.displayName" />
               <div v-else class="asset-file-icon">{{ fileExt(asset) }}</div>
             </div>
             <div class="asset-main">
@@ -629,7 +629,7 @@ import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { Back, Delete, DocumentAdd, DocumentCopy, Link, Plus, Refresh, Upload, View } from '@element-plus/icons-vue';
-import { api, buildQuery } from '../api';
+import { api, apiBlob, buildQuery } from '../api';
 import MarkdownRenderer from '../components/MarkdownRenderer.vue';
 import {
   DEFAULT_BLANK_ANSWER_TEXT,
@@ -720,7 +720,6 @@ const selectedKnowledgeNames = computed(() => {
   return sharedKnowledgePointIds.value.map((id) => map.get(id)).filter(isMeaningfulName);
 });
 const isSingleChoice = computed(() => isChoiceType(singleForm.type));
-const validCount = computed(() => batchPreview.value.filter((row) => row.valid !== false).length);
 const importableBatchCount = computed(
   () => batchPreview.value.filter((row) => row.valid !== false && !shouldSkipBatchRow(row)).length,
 );
@@ -1073,10 +1072,23 @@ function buildSingleFillBlankPreviewAnswer(score) {
   }
 }
 
+function questionPayload(preview) {
+  const payload = { ...preview };
+  for (const key of [
+    'answerText', 'number', 'statusText', 'valid', 'tagNames',
+    'conflictStatus', 'conflictMessage', 'conflictMatches', 'batchKey',
+  ]) {
+    delete payload[key];
+  }
+  return payload;
+}
+
 async function importSingle() {
   singleSaving.value = true;
   try {
-    const { tagNames, answerText, number, statusText, valid, ...payload } = buildSinglePreview();
+    const preview = buildSinglePreview();
+    const tagNames = preview.tagNames;
+    const payload = questionPayload(preview);
     validatePayload(payload, '当前题目');
     const duplicateResult = await runSingleDuplicateCheck({ silent: true });
     if (duplicateResult && duplicateResult.status !== 'ok') {
@@ -1366,18 +1378,8 @@ async function importBatch() {
   try {
     for (const question of importRows) {
       const index = batchPreview.value.indexOf(question);
-      const {
-        answerText,
-        number,
-        statusText,
-        valid,
-        tagNames,
-        conflictStatus,
-        conflictMessage,
-        conflictMatches,
-        batchKey,
-        ...payload
-      } = question;
+      const tagNames = question.tagNames;
+      const payload = questionPayload(question);
       try {
         payload.tagIds = await resolveTagIds(tagNames);
         const created = await api('/questions', { method: 'POST', body: payload });
@@ -1660,7 +1662,7 @@ function parseAnswerConfig(text) {
     const line = rawLine.trim();
     if (!line || line.startsWith('#')) continue;
 
-    const indexMatch = line.match(/^(\d+)[\.\、:：]\s*(.+)$/);
+    const indexMatch = line.match(/^(\d+)[.、:：]\s*(.+)$/);
     if (indexMatch) {
       byIndex.set(Number(indexMatch[1]), indexMatch[2].trim());
       continue;
@@ -1790,7 +1792,7 @@ function parseOptions(text, answerKeys, type) {
   let inCode = false;
 
   for (const line of text.replace(/\r\n/g, '\n').split('\n')) {
-    const match = !inCode ? line.match(/^\s*([A-Z])[\.\、:：]\s*(.*)$/i) : null;
+    const match = !inCode ? line.match(/^\s*([A-Z])[.、:：]\s*(.*)$/i) : null;
     if (match) {
       if (current) options.push(current);
       current = { optionKey: match[1].toUpperCase(), contentLines: [match[2]] };
@@ -2136,6 +2138,7 @@ async function uploadAssetFile(file, options = {}) {
     formData.append('file', file);
     const asset = await api('/uploads/question-assets', { method: 'POST', body: formData });
     const normalized = normalizeUploadedAsset(asset);
+    await prepareAssetPreview(normalized);
     uploadedAssets.value = [normalized, ...uploadedAssets.value.filter((item) => item.url !== normalized.url)].slice(0, 24);
     if (!options.silent) {
       ElMessage.success(normalized.isImage ? '图片已上传' : '附件已上传');
@@ -2184,6 +2187,8 @@ async function renameAsset(asset) {
         body: { displayName: nextName },
       }),
     );
+    releaseAssetPreview(asset);
+    await prepareAssetPreview(renamed);
     Object.assign(asset, renamed);
     replaceAssetReferences(oldUrl, asset.url, oldMarkdown, assetMarkdown(asset));
     ElMessage.success('附件已重命名');
@@ -2196,6 +2201,7 @@ async function renameAsset(asset) {
 async function removeUploadedAsset(asset) {
   try {
     await api(`/uploads/question-assets/${encodeURIComponent(asset.filename)}`, { method: 'DELETE' });
+    releaseAssetPreview(asset);
     uploadedAssets.value = uploadedAssets.value.filter((item) => item.url !== asset.url);
     removeAssetReferences(asset.url);
     ElMessage.success('附件已删除');
@@ -2255,7 +2261,23 @@ function normalizeUploadedAsset(asset) {
     isImage: Boolean(asset?.isImage) || /\.(png|jpe?g|gif|webp|svg)$/i.test(filename),
     align: asset?.align || 'center',
     width: Number(asset?.width) || 80,
+    previewUrl: asset?.previewUrl || '',
   };
+}
+
+async function prepareAssetPreview(asset) {
+  if (!asset?.isImage || !asset?.filename) return;
+  try {
+    const result = await apiBlob(`/uploads/question-assets/${encodeURIComponent(asset.filename)}/content`);
+    asset.previewUrl = URL.createObjectURL(result.blob);
+  } catch {
+    asset.previewUrl = '';
+  }
+}
+
+function releaseAssetPreview(asset) {
+  if (asset?.previewUrl?.startsWith('blob:')) URL.revokeObjectURL(asset.previewUrl);
+  if (asset) asset.previewUrl = '';
 }
 
 function formatAssetKind(kind) {
@@ -3023,6 +3045,7 @@ watch(
 
 onBeforeUnmount(() => {
   if (singleDuplicateTimer) clearTimeout(singleDuplicateTimer);
+  uploadedAssets.value.forEach(releaseAssetPreview);
 });
 
 onMounted(async () => {

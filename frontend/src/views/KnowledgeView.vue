@@ -298,7 +298,8 @@ async function saveKnowledge() {
     await api(`/knowledge-points/${editingId.value}`, { method: 'PATCH', body: payload });
     ElMessage.success('知识点已保存');
   } else {
-    const { status, ...createPayload } = payload;
+    const createPayload = { ...payload };
+    delete createPayload.status;
     await api('/knowledge-points', {
       method: 'POST',
       body: {

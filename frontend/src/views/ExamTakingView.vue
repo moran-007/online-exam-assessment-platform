@@ -249,13 +249,11 @@
                 </div>
               </template>
             </QuestionAnswerLayout>
-
-          </section>
+</section>
         </template>
 
         <el-empty v-else-if="!visibleEntries.length" description="暂无题目" />
-
-      </main>
+</main>
 
       <aside class="exam-aside panel" :class="{ 'is-collapsed': asideCollapsed }">
         <div class="exam-aside-toggle">

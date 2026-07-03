@@ -590,7 +590,7 @@
 import { computed, onMounted, reactive, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { ElMessage, ElMessageBox } from 'element-plus';
-import { Bottom, Check, Close, Delete, DocumentCopy, Edit, Plus, Refresh, Top, Upload, View } from '@element-plus/icons-vue';
+import { Bottom, Check, Close, Delete, DocumentCopy, Edit, Plus, Refresh, Top, Upload } from '@element-plus/icons-vue';
 import { api, buildQuery } from '../api';
 import MarkdownRenderer from '../components/MarkdownRenderer.vue';
 import { useResponsiveColumns } from '../composables/useResponsiveColumns';
@@ -950,13 +950,6 @@ async function selectPaper(row) {
   if (row?.id) {
     selectedPaperId.value = row.id;
     await loadDetail();
-  }
-}
-
-function selectPaperById(id) {
-  const paper = papers.value.find((item) => item.id === id);
-  if (paper) {
-    selectPaper(paper);
   }
 }
 

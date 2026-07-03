@@ -384,7 +384,7 @@
 import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { ElMessage, ElMessageBox } from 'element-plus';
-import { Check, Close, DataAnalysis, Delete, Edit, Plus, Refresh, Search, User, View } from '@element-plus/icons-vue';
+import { Check, DataAnalysis, Edit, Plus, Refresh, Search, User, View } from '@element-plus/icons-vue';
 import { api, buildQuery, getCurrentUser } from '../api';
 import { useResponsiveColumns } from '../composables/useResponsiveColumns';
 import {
@@ -428,7 +428,6 @@ const examFilter = reactive({
 const examStatusTab = ref('running');
 const examPagination = reactive({ page: 1, pageSize: 20, total: 0 });
 const pageSizes = [20, 50, 100];
-const now = new Date();
 const form = reactive(baseForm());
 const currentUser = ref(getCurrentUser());
 const statusOptions = examStatusOptions;
@@ -660,23 +659,6 @@ function previewExam(row) {
   if (!row?.id) return;
   selectedExam.value = row;
   examPreviewVisible.value = true;
-}
-
-async function createExam() {
-  const payload = {
-    ...form,
-    startTime: form.startTime.toISOString(),
-    endTime: form.endTime.toISOString(),
-    antiCheatConfig: { resultVisibility: { ...form.resultVisibility } },
-  };
-  delete payload.resultVisibility;
-  await api('/exams', {
-    method: 'POST',
-    body: payload,
-  });
-  ElMessage.success('已创建');
-  resetForm();
-  await loadAll();
 }
 
 async function publish(row) {

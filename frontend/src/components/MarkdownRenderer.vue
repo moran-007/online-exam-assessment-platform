@@ -1,20 +1,25 @@
 <template>
+  <!-- MarkdownIt runs with raw HTML disabled; URLs and generated tags are sanitized below. -->
+  <!-- eslint-disable-next-line vue/no-v-html -->
   <div ref="root" class="markdown-body" v-html="html"></div>
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import MarkdownIt from 'markdown-it';
 import hljs from 'highlight.js/lib/common';
 import katex from 'katex';
 import 'highlight.js/styles/github.css';
 import 'katex/dist/katex.min.css';
+import { apiBlob } from '../api';
 
 const props = defineProps({
   source: {
     type: String,
     default: '',
   },
+  publicQuestionId: { type: String, default: '' },
+  assetAccessToken: { type: String, default: '' },
 });
 
 const md = new MarkdownIt({
@@ -50,6 +55,12 @@ md.renderer.rules.link_open = (tokens, idx, options, env, self) => {
   const token = tokens[idx];
   const href = token.attrGet('href') || '';
   if (!isSafeLink(href)) return '';
+  if (isLocalAsset(href)) {
+    token.attrSet('href', '#');
+    token.attrSet('data-asset-url', href);
+    token.attrSet('data-asset-download', 'true');
+    return defaultLinkOpen(tokens, idx, options, env, self);
+  }
   token.attrSet('target', '_blank');
   token.attrSet('rel', 'noopener noreferrer');
   return defaultLinkOpen(tokens, idx, options, env, self);
@@ -70,7 +81,7 @@ md.renderer.rules.image = (tokens, idx, options, env, self) => {
   const caption = title ? `<figcaption>${md.utils.escapeHtml(title)}</figcaption>` : '';
   return [
     `<figure class="markdown-image markdown-image-${image.align}" style="--markdown-image-width:${image.width}%">`,
-    `<img src="${md.utils.escapeHtml(image.src)}" alt="${alt}" loading="lazy" referrerpolicy="no-referrer">`,
+    `<img src="data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=" data-asset-url="${md.utils.escapeHtml(image.src)}" alt="${alt}" loading="lazy" referrerpolicy="no-referrer">`,
     caption,
     '</figure>',
   ].join('');
@@ -101,6 +112,11 @@ function isSafeImage(value) {
   const url = parseUrl(value);
   if (!url) return false;
   return url.origin === baseOrigin() && url.pathname.startsWith('/uploads/');
+}
+
+function isLocalAsset(value) {
+  const url = parseUrl(value);
+  return Boolean(url && url.origin === baseOrigin() && url.pathname.startsWith('/uploads/question-assets/'));
 }
 
 function normalizeImageLayout(value) {
@@ -306,7 +322,7 @@ function readSuperscript(source, start) {
     if (end >= 0) return { text: source.slice(start + 1, end), end };
   }
   let end = start;
-  while (end < source.length && /[0-9+\-]/.test(source[end])) end += 1;
+  while (end < source.length && /[0-9+-]/.test(source[end])) end += 1;
   return { text: source.slice(start, end) || '^', end: Math.max(start, end) - 1 };
 }
 
@@ -329,11 +345,85 @@ function handleCopy(event) {
   }, 1200);
 }
 
+const objectUrls = new Set();
+
+function assetFilename(value) {
+  const url = parseUrl(value);
+  if (!url || !url.pathname.startsWith('/uploads/question-assets/')) return '';
+  return decodeURIComponent(url.pathname.slice('/uploads/question-assets/'.length));
+}
+
+function publicAssetPath(filename) {
+  if (!props.publicQuestionId || !props.assetAccessToken) return '';
+  return `/uploads/public/questions/${encodeURIComponent(props.publicQuestionId)}/assets/${encodeURIComponent(filename)}?token=${encodeURIComponent(props.assetAccessToken)}`;
+}
+
+async function loadAsset(value) {
+  const filename = assetFilename(value);
+  if (!filename) return null;
+  const publicPath = publicAssetPath(filename);
+  return apiBlob(
+    publicPath || `/uploads/question-assets/${encodeURIComponent(filename)}/content`,
+    publicPath ? { auth: false } : {},
+  );
+}
+
+function releaseObjectUrls() {
+  objectUrls.forEach((url) => URL.revokeObjectURL(url));
+  objectUrls.clear();
+}
+
+async function hydrateImages() {
+  await nextTick();
+  releaseObjectUrls();
+  const images = [...(root.value?.querySelectorAll('img[data-asset-url]') ?? [])];
+  await Promise.all(images.map(async (image) => {
+    try {
+      const result = await loadAsset(image.getAttribute('data-asset-url') || '');
+      if (!result) return;
+      const objectUrl = URL.createObjectURL(result.blob);
+      objectUrls.add(objectUrl);
+      image.setAttribute('src', objectUrl);
+    } catch {
+      image.setAttribute('alt', `${image.getAttribute('alt') || '图片'}（无权访问或已失效）`);
+    }
+  }));
+}
+
+async function handleAssetDownload(event) {
+  const link = event.target?.closest?.('a[data-asset-url]');
+  if (!link || !root.value?.contains(link)) return;
+  event.preventDefault();
+  try {
+    const logicalUrl = link.getAttribute('data-asset-url') || '';
+    const result = await loadAsset(logicalUrl);
+    if (!result) return;
+    const objectUrl = URL.createObjectURL(result.blob);
+    const download = document.createElement('a');
+    download.href = objectUrl;
+    download.download = assetFilename(logicalUrl) || '附件';
+    download.click();
+    window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+  } catch {
+    link.setAttribute('title', '附件无权访问或链接已失效');
+  }
+}
+
 onMounted(() => {
   root.value?.addEventListener('click', handleCopy);
+  root.value?.addEventListener('click', handleAssetDownload);
+  void hydrateImages();
 });
+
+watch(
+  () => [props.source, props.publicQuestionId, props.assetAccessToken],
+  () => void hydrateImages(),
+  { flush: 'post' },
+);
 
 onBeforeUnmount(() => {
   root.value?.removeEventListener('click', handleCopy);
+  root.value?.removeEventListener('click', handleAssetDownload);
+  releaseObjectUrls();
 });
 </script>

@@ -1,49 +1,15 @@
-import { ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
 import { NestExpressApplication } from '@nestjs/platform-express';
-import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
-import { json, urlencoded } from 'express';
-import { join } from 'node:path';
+import { Logger } from 'nestjs-pino';
 import { AppModule } from './app.module';
-import { HttpExceptionFilter } from './common/filters/http-exception.filter';
-import { ResponseInterceptor } from './common/interceptors/response.interceptor';
+import { configureApplication } from './app.setup';
 
 async function bootstrap() {
-  const app = await NestFactory.create<NestExpressApplication>(AppModule);
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, { bufferLogs: true });
+  app.useLogger(app.get(Logger));
+  configureApplication(app);
   const config = app.get(ConfigService);
-  const corsOrigins = config.get<string[]>('corsOrigins') ?? [];
-
-  app.setGlobalPrefix('api/v1');
-  app.enableCors({
-    origin: corsOrigins.length ? corsOrigins : true,
-    credentials: true,
-  });
-  app.use(json({ limit: '20mb' }));
-  app.use(urlencoded({ extended: true, limit: '20mb' }));
-
-  app.useGlobalPipes(
-    new ValidationPipe({
-      whitelist: true,
-      forbidNonWhitelisted: true,
-      transform: true,
-    }),
-  );
-  app.useGlobalFilters(new HttpExceptionFilter());
-  app.useGlobalInterceptors(new ResponseInterceptor());
-  app.useStaticAssets(join(process.cwd(), 'uploads'), { prefix: '/uploads/' });
-
-  if (config.get<boolean>('swaggerEnabled')) {
-    const documentConfig = new DocumentBuilder()
-      .setTitle('在线答题与智能测评平台 API')
-      .setDescription('MVP backend API')
-      .setVersion('1.0')
-      .addBearerAuth()
-      .build();
-    const document = SwaggerModule.createDocument(app, documentConfig);
-    SwaggerModule.setup('api/docs', app, document);
-  }
-
   await app.listen(config.get<number>('port') ?? 3000);
 }
 

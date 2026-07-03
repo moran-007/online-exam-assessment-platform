@@ -1,4 +1,5 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException, OnModuleInit } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { ExportStatus, MasteryStatus, Prisma, QuestionStatus, UserType, WrongQuestionSourceType } from '@prisma/client';
 import {
   AlignmentType,
@@ -11,7 +12,7 @@ import {
 import PDFDocument = require('pdfkit');
 import { existsSync } from 'node:fs';
 import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises';
-import { basename, extname, isAbsolute, join, resolve } from 'node:path';
+import { basename, extname, isAbsolute, join, relative, resolve } from 'node:path';
 import { toPagination } from '../../common/dto/pagination-query.dto';
 import { toApiEnum } from '../../common/utils/enum-normalizer';
 import { RequestUser } from '../../common/interfaces/request-user.interface';
@@ -83,7 +84,8 @@ type ZipEntry = {
 
 @Injectable()
 export class ExportsService implements OnModuleInit {
-  private readonly exportDir = join(process.cwd(), 'uploads', 'exports');
+  private readonly uploadsRoot: string;
+  private readonly exportDir: string;
   private readonly fontPath = this.resolveFontPath();
   private readonly crc32Table = ExportsService.makeCrc32Table();
   private readonly exportExpireDays = 7;
@@ -95,7 +97,11 @@ export class ExportsService implements OnModuleInit {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly dataScope: DataScopeService,
-  ) {}
+    config: ConfigService,
+  ) {
+    this.uploadsRoot = resolve(process.cwd(), config.get<string>('uploadsDir') ?? 'uploads');
+    this.exportDir = join(this.uploadsRoot, 'exports');
+  }
 
   onModuleInit() {
     void this.resumeQueuedTasks();
@@ -199,7 +205,10 @@ export class ExportsService implements OnModuleInit {
         permissionSnapshotCapturedAt: snapshot.capturedAt ?? null,
       },
     });
-    return { url: task.fileUrl };
+    const path = this.exportFilePath(task.fileUrl);
+    if (!path || !existsSync(path)) throw new NotFoundException('导出文件不存在或已被清理');
+    const fileName = basename(path);
+    return { path, fileName, mimeType: this.exportMimeType(fileName) };
   }
 
   async retry(id: string, user: RequestUser) {
@@ -1244,11 +1253,14 @@ export class ExportsService implements OnModuleInit {
 
   private formatTask<T extends { status: ExportStatus; paramsJson?: Prisma.JsonValue | null }>(task: T) {
     const paramsJson = task.paramsJson === undefined ? undefined : this.sanitizedExportParams(task.paramsJson);
-    return {
+    const formatted = {
       ...task,
       status: toApiEnum(task.status),
       ...(paramsJson === undefined ? {} : { paramsJson }),
     };
+    const fileUrl = (formatted as typeof formatted & { fileUrl?: unknown }).fileUrl;
+    delete (formatted as typeof formatted & { fileUrl?: unknown }).fileUrl;
+    return { ...formatted, downloadReady: task.status === ExportStatus.SUCCESS && Boolean(fileUrl) };
   }
 
   private sanitizedExportParams(value: unknown) {
@@ -1273,11 +1285,23 @@ export class ExportsService implements OnModuleInit {
 
   private exportFilePath(fileUrl: string | null) {
     if (!fileUrl || !fileUrl.startsWith('/uploads/exports/')) return '';
-    const candidate = resolve(process.cwd(), fileUrl.slice(1));
+    const candidate = resolve(this.uploadsRoot, fileUrl.slice('/uploads/'.length));
     const exportRoot = resolve(this.exportDir);
-    const rootWithSep = exportRoot.endsWith('\\') ? exportRoot : `${exportRoot}\\`;
-    if (candidate !== exportRoot && !candidate.startsWith(rootWithSep)) return '';
+    const relativePath = relative(exportRoot, candidate);
+    if (relativePath.startsWith('..') || isAbsolute(relativePath)) return '';
     return candidate;
+  }
+
+  private exportMimeType(fileName: string) {
+    const mimeTypes: Record<string, string> = {
+      '.csv': 'text/csv; charset=utf-8',
+      '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      '.pdf': 'application/pdf',
+      '.zip': 'application/zip',
+      '.json': 'application/json; charset=utf-8',
+    };
+    return mimeTypes[extname(fileName).toLowerCase()] || 'application/octet-stream';
   }
 
   private exportQuestionFromSnapshot(
@@ -2276,26 +2300,26 @@ export class ExportsService implements OnModuleInit {
     }
 
     const withoutHash = raw.split('#')[0].split('?')[0];
-    let decoded = withoutHash;
+    let decoded: string;
     try {
       decoded = decodeURIComponent(withoutHash);
     } catch {
       decoded = withoutHash;
     }
 
-    const uploadsRoot = resolve(process.cwd(), 'uploads');
+    const uploadsRoot = this.uploadsRoot;
     let candidate = '';
     if (decoded.startsWith('/uploads/')) {
-      candidate = resolve(process.cwd(), decoded.slice(1));
+      candidate = resolve(uploadsRoot, decoded.slice('/uploads/'.length));
     } else if (decoded.startsWith('uploads/')) {
-      candidate = resolve(process.cwd(), decoded);
+      candidate = resolve(uploadsRoot, decoded.slice('uploads/'.length));
     } else if (isAbsolute(decoded)) {
       candidate = resolve(decoded);
     }
 
     if (!candidate) return '';
-    const rootWithSep = uploadsRoot.endsWith('\\') ? uploadsRoot : `${uploadsRoot}\\`;
-    if (candidate !== uploadsRoot && !candidate.startsWith(rootWithSep)) return '';
+    const relativePath = relative(uploadsRoot, candidate);
+    if (relativePath.startsWith('..') || isAbsolute(relativePath)) return '';
     return existsSync(candidate) ? candidate : '';
   }
 
@@ -2560,8 +2584,11 @@ export class ExportsService implements OnModuleInit {
   }
 
   private safeZipName(value: string) {
-    return String(value || '')
-      .replace(/[<>:"\\|?*\x00-\x1F]/g, '_')
+    const withoutControlCharacters = [...String(value || '')]
+      .map((character) => character.charCodeAt(0) < 32 ? '_' : character)
+      .join('');
+    return withoutControlCharacters
+      .replace(/[<>:"\\|?*]/g, '_')
       .replace(/\s+/g, '_')
       .slice(0, 160);
   }

@@ -288,7 +288,7 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue';
 import { ElMessage } from 'element-plus';
 import { Delete, Download, Refresh, Search } from '@element-plus/icons-vue';
-import { api, buildQuery, getCurrentUser } from '../api';
+import { api, apiBlob, buildQuery, getCurrentUser } from '../api';
 import { useResponsiveColumns } from '../composables/useResponsiveColumns';
 import {
   examStatusOptions,
@@ -440,7 +440,7 @@ async function directExport(payload) {
   exporting.value = true;
   try {
     const body = Object.fromEntries(Object.entries(payload).filter(([, value]) => value !== undefined && value !== null && value !== ''));
-    const task = await api('/exports', { method: 'POST', body });
+    await api('/exports', { method: 'POST', body });
     ElMessage.success('导出任务已加入队列，可在导出记录查看进度');
     taskPagination.page = 1;
     await loadTasks();
@@ -520,8 +520,23 @@ function scheduleTaskPolling() {
 }
 
 async function downloadTask(row) {
-  const data = await api(`/exports/${row.id}/download`);
-  window.open(data.url, '_blank');
+  const data = await apiBlob(`/exports/${row.id}/download`);
+  const objectUrl = URL.createObjectURL(data.blob);
+  const link = document.createElement('a');
+  link.href = objectUrl;
+  link.download = downloadFilename(data.contentDisposition) || `export-${row.id}`;
+  link.click();
+  window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+}
+
+function downloadFilename(contentDisposition) {
+  const encoded = /filename\*=UTF-8''([^;]+)/i.exec(contentDisposition || '')?.[1];
+  if (!encoded) return '';
+  try {
+    return decodeURIComponent(encoded);
+  } catch {
+    return encoded;
+  }
 }
 
 async function openDownloadAudits() {

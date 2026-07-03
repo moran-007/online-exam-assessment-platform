@@ -1,9 +1,11 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { FileVisibility } from '@prisma/client';
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { FileVisibility, QuestionStatus, UserType } from '@prisma/client';
 import { mkdir, readdir, rename, stat, unlink, writeFile } from 'node:fs/promises';
-import { basename, extname, join } from 'node:path';
+import { basename, extname, join, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { PrismaService } from '../prisma/prisma.service';
+import { RequestUser } from '../../common/interfaces/request-user.interface';
 
 const MIME_EXTENSIONS = new Map<string, string>([
   ['image/jpeg', '.jpg'],
@@ -40,18 +42,52 @@ const BLOCKED_EXTENSIONS = new Set([
 
 @Injectable()
 export class UploadsService {
-  constructor(private readonly prisma: PrismaService) {}
+  private readonly uploadsRoot: string;
 
-  async saveImage(file: { originalname?: string; mimetype?: string; buffer: Buffer }, userId?: string) {
-    if (!file.mimetype?.startsWith('image/')) {
-      throw new BadRequestException('请上传图片文件');
-    }
-
-    return this.saveToFolder(file, 'question-assets', userId);
+  constructor(private readonly prisma: PrismaService, config: ConfigService) {
+    this.uploadsRoot = resolve(process.cwd(), config.get<string>('uploadsDir') ?? 'uploads');
   }
 
   async saveQuestionAsset(file: { originalname?: string; mimetype?: string; size?: number; buffer: Buffer }, userId?: string) {
     return this.saveToFolder(file, 'question-assets', userId);
+  }
+
+  async authenticatedQuestionAsset(filename: string, user: RequestUser) {
+    const descriptor = await this.questionAssetDescriptor(filename);
+    const privileged = user.userType !== UserType.STUDENT && user.permissions.includes('question:read');
+    if (privileged || descriptor.asset.createdBy === user.id) return descriptor;
+
+    const logicalUrl = `/uploads/question-assets/${descriptor.filename}`;
+    if (user.userType === UserType.STUDENT) {
+      const instances = await this.prisma.paperInstance.findMany({
+        where: { studentId: user.id },
+        select: { paperSnapshotJson: true },
+      });
+      if (instances.some((instance) => JSON.stringify(instance.paperSnapshotJson).includes(logicalUrl))) {
+        return descriptor;
+      }
+    }
+
+    throw new ForbiddenException('无权限读取该附件');
+  }
+
+  async publicQuestionAsset(questionId: string, filename: string) {
+    const descriptor = await this.questionAssetDescriptor(filename);
+    const logicalUrl = `/uploads/question-assets/${descriptor.filename}`;
+    const question = await this.prisma.question.findFirst({
+      where: {
+        id: questionId,
+        deletedAt: null,
+        status: QuestionStatus.PUBLISHED,
+        OR: [
+          { content: { contains: logicalUrl } },
+          { options: { some: { content: { contains: logicalUrl } } } },
+        ],
+      },
+      select: { id: true },
+    });
+    if (!question) throw new ForbiddenException('资源不属于该公开题目');
+    return descriptor;
   }
 
   async renameQuestionAsset(filename: string, displayName: string) {
@@ -210,6 +246,33 @@ export class UploadsService {
     return this.fileResponse(filename, folder, displayName, file);
   }
 
+  private async questionAssetDescriptor(filename: string) {
+    const safeFilename = this.safeExistingFilename(filename);
+    const asset = await this.prisma.fileAsset.findFirst({
+      where: {
+        deletedAt: null,
+        OR: [
+          { objectKey: `question-assets/${safeFilename}` },
+          { url: `/uploads/question-assets/${safeFilename}` },
+        ],
+      },
+    });
+    if (!asset) throw new NotFoundException('附件不存在或已被删除');
+    const path = join(this.uploadDir('question-assets'), safeFilename);
+    try {
+      await stat(path);
+    } catch {
+      throw new NotFoundException('附件文件不存在');
+    }
+    return {
+      asset,
+      filename: safeFilename,
+      path,
+      mimeType: asset.mimeType || 'application/octet-stream',
+      displayName: asset.fileName || safeFilename,
+    };
+  }
+
   private fileResponse(
     filename: string,
     folder: 'question-assets',
@@ -249,10 +312,16 @@ export class UploadsService {
   }
 
   private cleanDisplayName(value: string) {
-    const cleaned = String(value || '')
+    const withoutControlCharacters = [...String(value || '')]
+      .map((character) => character.charCodeAt(0) < 32 ? '-' : character)
+      .join('');
+    const cleaned = withoutControlCharacters
       .replace(/\.[^.]+$/, '')
-      .replace(/[<>:"/\\|?*\x00-\x1F]/g, '-')
-      .replace(/[\[\]\(\)]/g, '')
+      .replace(/[<>:"/\\|?*]/g, '-')
+      .replaceAll('[', '')
+      .replaceAll(']', '')
+      .replaceAll('(', '')
+      .replaceAll(')', '')
       .replace(/\s+/g, ' ')
       .trim()
       .slice(0, 48);
@@ -279,7 +348,7 @@ export class UploadsService {
   }
 
   private uploadDir(folder: 'question-assets') {
-    return join(process.cwd(), 'uploads', folder);
+    return join(this.uploadsRoot, folder);
   }
 
   private isImageExtension(filename: string) {

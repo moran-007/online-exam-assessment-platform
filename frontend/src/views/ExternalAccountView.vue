@@ -97,7 +97,7 @@
     </div>
 
     <div class="panel">
-      <el-table :data="accounts" v-loading="loading">
+      <el-table v-loading="loading" :data="accounts">
         <el-table-column label="用户" min-width="170">
           <template #default="{ row }">
             <strong>{{ row.ownerName || row.studentName }}</strong>

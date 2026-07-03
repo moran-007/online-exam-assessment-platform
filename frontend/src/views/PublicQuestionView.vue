@@ -130,7 +130,11 @@
 
         <QuestionAnswerLayout :mode="answerLayout" framed>
           <template #statement>
-            <MarkdownRenderer :source="detail.content" />
+            <MarkdownRenderer
+              :source="detail.content"
+              :public-question-id="detail.id"
+              :asset-access-token="detail.assetAccessToken"
+            />
           </template>
 
           <template #answer>
@@ -234,7 +238,11 @@
                   <el-radio v-for="option in detail.options" :key="option.optionId" :label="option.optionId" class="answer-option">
                     <span class="option-choice">
                       <strong>{{ option.label }}.</strong>
-                      <MarkdownRenderer :source="option.content" />
+                      <MarkdownRenderer
+                        :source="option.content"
+                        :public-question-id="detail.id"
+                        :asset-access-token="detail.assetAccessToken"
+                      />
                     </span>
                   </el-radio>
                 </el-radio-group>
@@ -243,7 +251,11 @@
                   <el-checkbox v-for="option in detail.options" :key="option.optionId" :label="option.optionId" class="answer-option">
                     <span class="option-choice">
                       <strong>{{ option.label }}.</strong>
-                      <MarkdownRenderer :source="option.content" />
+                      <MarkdownRenderer
+                        :source="option.content"
+                        :public-question-id="detail.id"
+                        :asset-access-token="detail.assetAccessToken"
+                      />
                     </span>
                   </el-checkbox>
                 </el-checkbox-group>

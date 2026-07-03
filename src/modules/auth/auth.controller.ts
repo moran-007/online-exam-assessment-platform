@@ -2,6 +2,7 @@ import { Body, Controller, Get, Post, Req } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Public } from '../../common/decorators/public.decorator';
+import { UseRateLimitProfile } from '../../common/decorators/rate-limit-profile.decorator';
 import { RequestContext } from '../../common/interfaces/request-context.interface';
 import { RequestUser } from '../../common/interfaces/request-user.interface';
 import { AuthService } from './auth.service';
@@ -21,12 +22,14 @@ export class AuthController {
 
   @Public()
   @Post('login')
+  @UseRateLimitProfile('login')
   login(@Body() dto: LoginDto, @Req() request: HttpRequest) {
     return this.authService.login(dto, this.toContext(request));
   }
 
   @Public()
   @Post('refresh')
+  @UseRateLimitProfile('refresh')
   refresh(@Body() dto: RefreshTokenDto, @Req() request: HttpRequest) {
     return this.authService.refresh(dto.refreshToken, this.toContext(request));
   }

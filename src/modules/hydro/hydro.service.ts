@@ -362,7 +362,7 @@ export class HydroService implements OnModuleInit, OnModuleDestroy {
     };
   }
 
-  async listProblemBindings(query: QueryHydroSummaryDto, user: RequestUser) {
+  async listProblemBindings(query: QueryHydroSummaryDto, _user: RequestUser) {
     const { page, pageSize, skip, take } = toPagination(query);
     const where: Prisma.QuestionWhereInput = {
       deletedAt: null,
