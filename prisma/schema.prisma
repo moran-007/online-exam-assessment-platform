@@ -79,6 +79,36 @@ enum QuestionStatus {
   ARCHIVED       @map("archived")
 }
 
+enum ScoringEvaluationSource {
+  AUTO          @map("auto")
+  MANUAL        @map("manual")
+  JUDGE         @map("judge")
+  REGRADE       @map("regrade")
+  AI_SUGGESTION @map("ai_suggestion")
+}
+
+enum ScoringEvaluationStatus {
+  TRIAL      @map("trial")
+  OFFICIAL   @map("official")
+  SUPERSEDED @map("superseded")
+}
+
+enum RegradeRunStatus {
+  PROCESSING @map("processing")
+  PREVIEWED  @map("previewed")
+  APPLYING   @map("applying")
+  APPLIED    @map("applied")
+  CANCELLED  @map("cancelled")
+  FAILED     @map("failed")
+  EXPIRED    @map("expired")
+}
+
+enum RegradeRuleSource {
+  SNAPSHOT  @map("snapshot")
+  LATEST    @map("latest")
+  SPECIFIED @map("specified")
+}
+
 enum PaperType {
   FIXED    @map("fixed")
   RULE     @map("rule")
@@ -251,16 +281,17 @@ model Role {
 }
 
 model Permission {
-  id        String         @id @default(uuid()) @db.Uuid
-  name      String         @db.VarChar(64)
-  code      String         @unique @db.VarChar(128)
-  type      PermissionType
-  parentId  String?        @map("parent_id") @db.Uuid
-  path      String?        @db.VarChar(255)
-  method    String?        @db.VarChar(16)
-  sortOrder Int            @default(0) @map("sort_order")
-  createdAt DateTime       @default(now()) @map("created_at")
-  updatedAt DateTime       @updatedAt @map("updated_at")
+  id          String         @id @default(uuid()) @db.Uuid
+  name        String         @db.VarChar(64)
+  description String?        @db.Text
+  code        String         @unique @db.VarChar(128)
+  type        PermissionType
+  parentId    String?        @map("parent_id") @db.Uuid
+  path        String?        @db.VarChar(255)
+  method      String?        @db.VarChar(16)
+  sortOrder   Int            @default(0) @map("sort_order")
+  createdAt   DateTime       @default(now()) @map("created_at")
+  updatedAt   DateTime       @updatedAt @map("updated_at")
 
   parent   Permission?      @relation("PermissionTree", fields: [parentId], references: [id])
   children Permission[]     @relation("PermissionTree")
@@ -438,18 +469,21 @@ model Question {
   updatedAt          DateTime       @updatedAt @map("updated_at")
   deletedAt          DateTime?      @map("deleted_at")
 
-  course           Course                   @relation(fields: [courseId], references: [id])
-  options          QuestionOption[]
-  answer           QuestionAnswer?
-  knowledgePoints  QuestionKnowledgePoint[]
-  tags             QuestionTag[]
-  versions         QuestionVersion[]
-  paperQuestions   PaperQuestion[]
-  answerRecords    AnswerRecord[]
-  wrongQuestions   WrongQuestion[]
+  course              Course                   @relation(fields: [courseId], references: [id])
+  options             QuestionOption[]
+  answer              QuestionAnswer?
+  knowledgePoints     QuestionKnowledgePoint[]
+  tags                QuestionTag[]
+  versions            QuestionVersion[]
+  paperQuestions      PaperQuestion[]
+  answerRecords       AnswerRecord[]
+  wrongQuestions      WrongQuestion[]
   wrongQuestionEvents WrongQuestionEvent[]
-  programmingRef   ProgrammingProblemRef?
-  judgeSubmissions JudgeSubmission[]
+  programmingRef      ProgrammingProblemRef?
+  judgeSubmissions    JudgeSubmission[]
+  compositionChildren QuestionComposition[]    @relation("CompositionParent")
+  compositionParents  QuestionComposition[]    @relation("CompositionChild")
+  scoringRuleVersions ScoringRuleVersion[]
 
   @@index([courseId])
   @@index([type])
@@ -477,14 +511,16 @@ model QuestionOption {
 }
 
 model QuestionAnswer {
-  id              String   @id @default(uuid()) @db.Uuid
-  questionId      String   @unique @map("question_id") @db.Uuid
-  answerJson      Json     @map("answer_json")
-  scoringRuleJson Json?    @map("scoring_rule_json")
-  createdAt       DateTime @default(now()) @map("created_at")
-  updatedAt       DateTime @updatedAt @map("updated_at")
+  id                   String   @id @default(uuid()) @db.Uuid
+  questionId           String   @unique @map("question_id") @db.Uuid
+  currentRuleVersionId String?  @unique @map("current_rule_version_id") @db.Uuid
+  answerJson           Json     @map("answer_json")
+  scoringRuleJson      Json?    @map("scoring_rule_json")
+  createdAt            DateTime @default(now()) @map("created_at")
+  updatedAt            DateTime @updatedAt @map("updated_at")
 
-  question Question @relation(fields: [questionId], references: [id])
+  question           Question            @relation(fields: [questionId], references: [id])
+  currentRuleVersion ScoringRuleVersion? @relation("CurrentScoringRule", fields: [currentRuleVersionId], references: [id])
 
   @@map("question_answers")
 }
@@ -532,6 +568,47 @@ model QuestionVersion {
   @@unique([questionId, version])
   @@index([questionId])
   @@map("question_versions")
+}
+
+model QuestionComposition {
+  id               String   @id @default(uuid()) @db.Uuid
+  parentQuestionId String   @map("parent_question_id") @db.Uuid
+  childQuestionId  String   @map("child_question_id") @db.Uuid
+  score            Decimal  @db.Decimal(8, 2)
+  sortOrder        Int      @default(0) @map("sort_order")
+  configJson       Json?    @map("config_json")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  parentQuestion Question @relation("CompositionParent", fields: [parentQuestionId], references: [id], onDelete: Restrict)
+  childQuestion  Question @relation("CompositionChild", fields: [childQuestionId], references: [id], onDelete: Restrict)
+
+  @@unique([parentQuestionId, childQuestionId])
+  @@index([parentQuestionId, sortOrder])
+  @@index([childQuestionId])
+  @@map("question_compositions")
+}
+
+model ScoringRuleVersion {
+  id             String   @id @default(uuid()) @db.Uuid
+  questionId     String   @map("question_id") @db.Uuid
+  version        Int
+  adapterKey     String   @map("adapter_key") @db.VarChar(64)
+  adapterVersion Int      @default(1) @map("adapter_version")
+  answerJson     Json     @map("answer_json")
+  ruleJson       Json?    @map("rule_json")
+  rubricJson     Json?    @map("rubric_json")
+  checksum       String   @db.VarChar(64)
+  createdBy      String?  @map("created_by") @db.Uuid
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  question    Question            @relation(fields: [questionId], references: [id], onDelete: Restrict)
+  currentFor  QuestionAnswer?     @relation("CurrentScoringRule")
+  evaluations ScoringEvaluation[]
+
+  @@unique([questionId, version])
+  @@index([questionId, createdAt])
+  @@map("scoring_rule_versions")
 }
 
 model Paper {
@@ -738,23 +815,26 @@ model ExamAttempt {
 }
 
 model AnswerRecord {
-  id                 String             @id @default(uuid()) @db.Uuid
-  attemptId          String             @map("attempt_id") @db.Uuid
-  questionId         String             @map("question_id") @db.Uuid
-  questionSnapshotId String?            @map("question_snapshot_id") @db.Uuid
-  answerJson         Json               @map("answer_json")
-  isCorrect          Boolean?           @map("is_correct")
-  score              Decimal            @default(0) @db.Decimal(8, 2)
-  status             AnswerRecordStatus @default(SAVED)
-  autoResultJson     Json?              @map("auto_result_json")
-  manualComment      String?            @map("manual_comment") @db.Text
-  gradedBy           String?            @map("graded_by") @db.Uuid
-  gradedAt           DateTime?          @map("graded_at")
-  createdAt          DateTime           @default(now()) @map("created_at")
-  updatedAt          DateTime           @updatedAt @map("updated_at")
+  id                  String             @id @default(uuid()) @db.Uuid
+  attemptId           String             @map("attempt_id") @db.Uuid
+  questionId          String             @map("question_id") @db.Uuid
+  questionSnapshotId  String?            @map("question_snapshot_id") @db.Uuid
+  answerJson          Json               @map("answer_json")
+  isCorrect           Boolean?           @map("is_correct")
+  score               Decimal            @default(0) @db.Decimal(8, 2)
+  status              AnswerRecordStatus @default(SAVED)
+  autoResultJson      Json?              @map("auto_result_json")
+  manualComment       String?            @map("manual_comment") @db.Text
+  gradedBy            String?            @map("graded_by") @db.Uuid
+  gradedAt            DateTime?          @map("graded_at")
+  currentEvaluationId String?            @unique @map("current_evaluation_id") @db.Uuid
+  createdAt           DateTime           @default(now()) @map("created_at")
+  updatedAt           DateTime           @updatedAt @map("updated_at")
 
-  attempt  ExamAttempt @relation(fields: [attemptId], references: [id])
-  question Question    @relation(fields: [questionId], references: [id])
+  attempt           ExamAttempt         @relation(fields: [attemptId], references: [id])
+  question          Question            @relation(fields: [questionId], references: [id])
+  currentEvaluation ScoringEvaluation?  @relation("CurrentAnswerEvaluation", fields: [currentEvaluationId], references: [id])
+  evaluations       ScoringEvaluation[] @relation("AnswerEvaluations")
 
   @@unique([attemptId, questionId])
   @@index([attemptId])
@@ -764,19 +844,20 @@ model AnswerRecord {
 }
 
 model WrongQuestion {
-  id                String                  @id @default(uuid()) @db.Uuid
-  studentId         String                  @map("student_id") @db.Uuid
-  questionId        String                  @map("question_id") @db.Uuid
-  sourceType        WrongQuestionSourceType @map("source_type")
-  sourceId          String                  @map("source_id") @db.Uuid
-  wrongAnswerJson   Json                    @map("wrong_answer_json")
-  correctAnswerJson Json                    @map("correct_answer_json")
-  score             Decimal                 @default(0) @db.Decimal(8, 2)
-  masteryStatus     MasteryStatus           @default(UNMASTERED) @map("mastery_status")
-  wrongCount        Int                     @default(1) @map("wrong_count")
-  lastWrongAt       DateTime                @default(now()) @map("last_wrong_at")
-  createdAt         DateTime                @default(now()) @map("created_at")
-  updatedAt         DateTime                @updatedAt @map("updated_at")
+  id                  String                  @id @default(uuid()) @db.Uuid
+  studentId           String                  @map("student_id") @db.Uuid
+  questionId          String                  @map("question_id") @db.Uuid
+  sourceType          WrongQuestionSourceType @map("source_type")
+  sourceId            String                  @map("source_id") @db.Uuid
+  wrongAnswerJson     Json                    @map("wrong_answer_json")
+  correctAnswerJson   Json                    @map("correct_answer_json")
+  contextSnapshotJson Json?                   @map("context_snapshot_json")
+  score               Decimal                 @default(0) @db.Decimal(8, 2)
+  masteryStatus       MasteryStatus           @default(UNMASTERED) @map("mastery_status")
+  wrongCount          Int                     @default(1) @map("wrong_count")
+  lastWrongAt         DateTime                @default(now()) @map("last_wrong_at")
+  createdAt           DateTime                @default(now()) @map("created_at")
+  updatedAt           DateTime                @updatedAt @map("updated_at")
 
   question Question             @relation(fields: [questionId], references: [id])
   events   WrongQuestionEvent[]
@@ -787,6 +868,62 @@ model WrongQuestion {
   @@index([sourceType])
   @@index([masteryStatus])
   @@map("wrong_questions")
+}
+
+model RegradeRun {
+  id                   String            @id @default(uuid()) @db.Uuid
+  status               RegradeRunStatus  @default(PROCESSING)
+  examId               String            @map("exam_id") @db.Uuid
+  requestedBy          String            @map("requested_by") @db.Uuid
+  confirmedBy          String?           @map("confirmed_by") @db.Uuid
+  ruleSource           RegradeRuleSource @default(SNAPSHOT) @map("rule_source")
+  scoringRuleVersionId String?           @map("scoring_rule_version_id") @db.Uuid
+  filtersJson          Json              @map("filters_json")
+  summaryJson          Json?             @map("summary_json")
+  reason               String?           @db.Text
+  fingerprint          String?           @db.VarChar(64)
+  errorMessage         String?           @map("error_message") @db.Text
+  expiresAt            DateTime          @map("expires_at")
+  createdAt            DateTime          @default(now()) @map("created_at")
+  updatedAt            DateTime          @updatedAt @map("updated_at")
+  confirmedAt          DateTime?         @map("confirmed_at")
+
+  evaluations ScoringEvaluation[]
+
+  @@index([examId, status])
+  @@index([requestedBy, createdAt])
+  @@index([expiresAt])
+  @@map("regrade_runs")
+}
+
+model ScoringEvaluation {
+  id                   String                  @id @default(uuid()) @db.Uuid
+  answerRecordId       String                  @map("answer_record_id") @db.Uuid
+  scoringRuleVersionId String?                 @map("scoring_rule_version_id") @db.Uuid
+  regradeRunId         String?                 @map("regrade_run_id") @db.Uuid
+  source               ScoringEvaluationSource
+  status               ScoringEvaluationStatus
+  adapterKey           String                  @map("adapter_key") @db.VarChar(64)
+  adapterVersion       Int                     @default(1) @map("adapter_version")
+  score                Decimal                 @db.Decimal(8, 2)
+  maxScore             Decimal                 @map("max_score") @db.Decimal(8, 2)
+  isCorrect            Boolean?                @map("is_correct")
+  detailJson           Json                    @map("detail_json")
+  ruleSnapshotJson     Json?                   @map("rule_snapshot_json")
+  answerFingerprint    String                  @map("answer_fingerprint") @db.VarChar(64)
+  gradedBy             String?                 @map("graded_by") @db.Uuid
+  createdAt            DateTime                @default(now()) @map("created_at")
+
+  answerRecord AnswerRecord        @relation("AnswerEvaluations", fields: [answerRecordId], references: [id], onDelete: Cascade)
+  currentFor   AnswerRecord?       @relation("CurrentAnswerEvaluation")
+  ruleVersion  ScoringRuleVersion? @relation(fields: [scoringRuleVersionId], references: [id], onDelete: SetNull)
+  regradeRun   RegradeRun?         @relation(fields: [regradeRunId], references: [id], onDelete: Cascade)
+
+  @@index([answerRecordId, createdAt])
+  @@index([regradeRunId])
+  @@index([scoringRuleVersionId])
+  @@index([status, source])
+  @@map("scoring_evaluations")
 }
 
 model WrongQuestionEvent {
@@ -1056,6 +1193,8 @@ model FileAsset {
   fileExt    String?        @map("file_ext") @db.VarChar(32)
   mimeType   String?        @map("mime_type") @db.VarChar(128)
   fileSize   BigInt         @default(0) @map("file_size")
+  sha256     String?        @db.VarChar(64)
+  version    Int            @default(1)
   url        String?        @db.Text
   visibility FileVisibility @default(PRIVATE)
   createdBy  String?        @map("created_by") @db.Uuid

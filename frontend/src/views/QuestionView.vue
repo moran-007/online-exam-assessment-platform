@@ -307,6 +307,26 @@
                   </div>
                 </div>
               </el-form-item>
+              <el-form-item v-else-if="form.type === 'material'" label="子题">
+                <div class="material-child-editor">
+                  <el-alert type="info" :closable="false" title="当前仅支持单层组合；材料题本身不计分，总分由子题分值相加。" />
+                  <div v-for="(child, index) in form.children" :key="`${child.questionId}-${index}`" class="material-child-row">
+                    <el-tag>{{ index + 1 }}</el-tag>
+                    <el-select v-model="child.questionId" filterable placeholder="选择已发布子题" style="flex: 1">
+                      <el-option
+                        v-for="candidate in materialCandidates"
+                        :key="candidate.id"
+                        :label="`${candidate.title}（${typeLabel(candidate.type)}）`"
+                        :value="candidate.id"
+                        :disabled="form.children.some((item, childIndex) => childIndex !== index && item.questionId === candidate.id)"
+                      />
+                    </el-select>
+                    <el-input-number v-model="child.score" :min="0.01" :precision="2" :step="1" />
+                    <el-button plain :icon="Delete" @click="removeMaterialChild(index)">删除</el-button>
+                  </div>
+                  <el-button plain :icon="Plus" @click="addMaterialChild">增加子题</el-button>
+                </div>
+              </el-form-item>
               <el-form-item v-else label="参考答案">
                 <el-input
                   v-model="answerReference"
@@ -736,6 +756,7 @@ const tags = ref([]);
 const formKnowledgeTree = ref([]);
 const filterKnowledgeTree = ref([]);
 const items = ref([]);
+const materialCandidates = ref([]);
 const blankAnswerRows = ref(emptyFillBlankRows());
 const blankAnswerText = computed({
   get: () => fillBlankAnswerTextFromRows(blankAnswerRows.value),
@@ -941,6 +962,7 @@ function baseForm() {
     defaultScore: 2,
     analysis: '',
     programmingRef: emptyProgrammingRef(),
+    children: [],
     options: [
       { optionKey: 'A', content: '', isCorrect: false, sortOrder: 1 },
       { optionKey: 'B', content: '', isCorrect: true, sortOrder: 2 },
@@ -1105,7 +1127,32 @@ async function loadFilterKnowledgeTree() {
 
 async function handleFormCourseChange() {
   form.knowledgePointIds = [];
+  form.children = [];
   await loadFormKnowledgeTree();
+  if (form.type === 'material') await loadMaterialCandidates();
+}
+
+async function loadMaterialCandidates() {
+  if (!form.courseId) {
+    materialCandidates.value = [];
+    return;
+  }
+  const data = await api(`/questions${buildQuery({ page: 1, pageSize: 200, courseId: form.courseId, scope: 'published' })}`);
+  materialCandidates.value = (data.items ?? []).filter((item) => item.type !== 'material' && item.id !== editingId.value);
+}
+
+function addMaterialChild() {
+  const used = new Set(form.children.map((child) => child.questionId));
+  const candidate = materialCandidates.value.find((item) => !used.has(item.id));
+  form.children.push({
+    questionId: candidate?.id || '',
+    score: Number(candidate?.defaultScore || 1),
+    sortOrder: form.children.length + 1,
+  });
+}
+
+function removeMaterialChild(index) {
+  form.children.splice(index, 1);
 }
 
 async function handleFilterCourseChange() {
@@ -1181,6 +1228,12 @@ function handleCurrentChange(page) {
 }
 
 function resetOptions() {
+  if (form.type === 'material') {
+    form.options = [];
+    void loadMaterialCandidates();
+    if (!form.children.length) addMaterialChild();
+    return;
+  }
   if (form.type === 'true_false') {
     form.options = [
       { optionKey: 'A', content: '正确', isCorrect: true, sortOrder: 1 },
@@ -1286,6 +1339,14 @@ function validatePayload(payload, label) {
       throw new Error(`${label}：多选题至少需要两个正确选项`);
     }
   }
+  if (payload.type === 'material') {
+    if (!payload.children?.length || payload.children.some((child) => !child.questionId || Number(child.score) <= 0)) {
+      throw new Error(`${label}：请至少选择一道子题并填写有效分值`);
+    }
+    if (new Set(payload.children.map((child) => child.questionId)).size !== payload.children.length) {
+      throw new Error(`${label}：子题不能重复`);
+    }
+  }
 }
 
 async function buildQuestionPayload(options = {}) {
@@ -1310,6 +1371,9 @@ async function buildQuestionPayload(options = {}) {
           sortOrder: index + 1,
         }))
       : [],
+    children: form.type === 'material'
+      ? form.children.map((child, index) => ({ questionId: child.questionId, score: Number(child.score), sortOrder: index + 1 }))
+      : undefined,
   };
 
   if (form.type === 'programming') {
@@ -1402,7 +1466,13 @@ async function editQuestion(row) {
       isCorrect: option.isCorrect,
       sortOrder: option.sortOrder ?? index + 1,
     })),
+    children: (detail.children ?? []).map((child, index) => ({
+      questionId: child.questionId,
+      score: Number(child.score),
+      sortOrder: child.sortOrder ?? index + 1,
+    })),
   });
+  if (form.type === 'material') await loadMaterialCandidates();
   await loadFormKnowledgeTree();
   if (isChoice.value && !form.options.length) resetOptions();
 

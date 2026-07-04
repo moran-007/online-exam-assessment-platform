@@ -25,6 +25,7 @@ import { NotificationsModule } from './modules/notifications/notifications.modul
 import { PapersModule } from './modules/papers/papers.module';
 import { PrismaModule } from './modules/prisma/prisma.module';
 import { QuestionsModule } from './modules/questions/questions.module';
+import { QuestionTypesModule } from './modules/question-types/question-types.module';
 import { ReviewRulesModule } from './modules/review-rules/review-rules.module';
 import { StatisticsModule } from './modules/statistics/statistics.module';
 import { StudentModule } from './modules/student/student.module';
@@ -96,6 +97,7 @@ import { UsersModule } from './modules/users/users.module';
     NotificationsModule,
     TagsModule,
     UploadsModule,
+    QuestionTypesModule,
     QuestionsModule,
     ReviewRulesModule,
     PapersModule,

@@ -3,9 +3,10 @@ import { ConfigService } from '@nestjs/config';
 import { FileVisibility, QuestionStatus, UserType } from '@prisma/client';
 import { mkdir, readdir, rename, stat, unlink, writeFile } from 'node:fs/promises';
 import { basename, extname, join, resolve } from 'node:path';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { RequestUser } from '../../common/interfaces/request-user.interface';
+import { hasPermission } from '../../common/security/permission-policy';
 
 const MIME_EXTENSIONS = new Map<string, string>([
   ['image/jpeg', '.jpg'],
@@ -52,9 +53,11 @@ export class UploadsService {
     return this.saveToFolder(file, 'question-assets', userId);
   }
 
-  async authenticatedQuestionAsset(filename: string, user: RequestUser) {
+  async authenticatedQuestionAsset(filename: string, user: RequestUser, action: 'preview' | 'download' = 'preview') {
     const descriptor = await this.questionAssetDescriptor(filename);
-    const privileged = user.userType !== UserType.STUDENT && user.permissions.includes('question:read');
+    const privileged =
+      user.userType !== UserType.STUDENT &&
+      hasPermission(user, action === 'download' ? 'attachment:download' : 'attachment:preview');
     if (privileged || descriptor.asset.createdBy === user.id) return descriptor;
 
     const logicalUrl = `/uploads/question-assets/${descriptor.filename}`;
@@ -239,6 +242,8 @@ export class UploadsService {
         fileSize: BigInt(file.size ?? file.buffer.length ?? 0),
         url: `/uploads/${folder}/${filename}`,
         visibility: FileVisibility.PRIVATE,
+        sha256: createHash('sha256').update(file.buffer).digest('hex'),
+        version: 1,
         createdBy: userId,
       },
     });

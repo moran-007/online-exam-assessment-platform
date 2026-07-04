@@ -191,6 +191,7 @@ UNIQUE(code)
 id                  UUID / BIGINT
 name                VARCHAR(64)
 code                VARCHAR(128)
+description         TEXT
 type                VARCHAR(32)
 parent_id           UUID / BIGINT
 path                VARCHAR(255)
@@ -215,7 +216,14 @@ question:create
 question:update
 paper:publish
 exam:result:export
+grading:score:read
+grading:rubric:update
+grading:regrade:preview
+export:file:download
+attachment:preview
 ```
+
+说明：`code` 是稳定程序标识，保持英文；`name` 和 `description` 面向用户展示，内置权限与角色默认使用中文。
 
 ---
 
@@ -473,6 +481,7 @@ INDEX(question_id)
 ```txt
 id                  UUID / BIGINT
 question_id         UUID / BIGINT
+current_rule_version_id UUID / BIGINT
 answer_json         JSONB
 scoring_rule_json   JSONB
 created_at          TIMESTAMP
@@ -583,7 +592,63 @@ INDEX(question_id)
 
 说明：
 
-每次修改题目核心内容时生成一条版本记录。快照应包含题干、选项、答案、解析、知识点、标签、分值、难度等信息。
+每次修改题目核心内容时生成一条版本记录。快照应包含题干、选项、答案、解析、知识点、标签、分值、难度、材料子题、评分规则版本和资源清单等信息。
+
+---
+
+### 5.7 question_compositions 材料/组合题关系表
+
+字段：
+
+```txt
+id                  UUID / BIGINT
+parent_question_id  UUID / BIGINT
+child_question_id   UUID / BIGINT
+score               DECIMAL(8,2)
+sort_order          INT
+config_json         JSONB
+created_at          TIMESTAMP
+updated_at          TIMESTAMP
+```
+
+索引：
+
+```txt
+UNIQUE(parent_question_id, child_question_id)
+INDEX(parent_question_id, sort_order)
+INDEX(child_question_id)
+```
+
+说明：当前只支持单层组合，父题类型为 `material`，子题必须是非材料题。父题不直接判分，得分由子题汇总。
+
+---
+
+### 5.8 scoring_rule_versions 评分规则版本表
+
+字段：
+
+```txt
+id                  UUID / BIGINT
+question_id         UUID / BIGINT
+version             INT
+adapter_key         VARCHAR(64)
+adapter_version     INT
+answer_json         JSONB
+rule_json           JSONB
+rubric_json         JSONB
+checksum            VARCHAR(64)
+created_by          UUID / BIGINT
+created_at          TIMESTAMP
+```
+
+索引：
+
+```txt
+UNIQUE(question_id, version)
+INDEX(question_id, created_at)
+```
+
+说明：题目答案与评分规则修改时生成版本。考试快照引用当时的规则版本，重判可选择考试快照规则、题目最新规则或指定规则版本。
 
 ---
 
@@ -905,6 +970,7 @@ auto_result_json       JSONB
 manual_comment         TEXT
 graded_by              UUID / BIGINT
 graded_at              TIMESTAMP
+current_evaluation_id  UUID / BIGINT
 created_at             TIMESTAMP
 updated_at             TIMESTAMP
 ```
@@ -929,6 +995,8 @@ INDEX(question_id)
 INDEX(status)
 UNIQUE(attempt_id, question_id)
 ```
+
+说明：`score`、`status`、`auto_result_json` 继续作为兼容投影；正式评分证据写入 `scoring_evaluations`，`current_evaluation_id` 指向当前生效评价。
 
 answer_json 示例，单选：
 
@@ -961,6 +1029,81 @@ answer_json 示例，填空：
 
 ---
 
+### 7.5 regrade_runs 试算重判任务表
+
+字段：
+
+```txt
+id                       UUID / BIGINT
+status                   VARCHAR(32)
+exam_id                  UUID / BIGINT
+requested_by             UUID / BIGINT
+confirmed_by             UUID / BIGINT
+rule_source              VARCHAR(32)
+scoring_rule_version_id  UUID / BIGINT
+filters_json             JSONB
+summary_json             JSONB
+reason                   TEXT
+fingerprint              VARCHAR(64)
+error_message            TEXT
+expires_at               TIMESTAMP
+created_at               TIMESTAMP
+updated_at               TIMESTAMP
+confirmed_at             TIMESTAMP
+```
+
+状态：
+
+```txt
+processing
+preview_ready
+confirmed
+canceled
+expired
+failed
+```
+
+说明：试算任务只保存预览和待确认结果，确认时会校验答案指纹并在事务内更新正式成绩。
+
+---
+
+### 7.6 scoring_evaluations 评分评价历史表
+
+字段：
+
+```txt
+id                       UUID / BIGINT
+answer_record_id         UUID / BIGINT
+scoring_rule_version_id  UUID / BIGINT
+regrade_run_id           UUID / BIGINT
+source                   VARCHAR(32)
+status                   VARCHAR(32)
+adapter_key              VARCHAR(64)
+adapter_version          INT
+score                    DECIMAL(8,2)
+max_score                DECIMAL(8,2)
+is_correct               BOOLEAN
+detail_json              JSONB
+rule_snapshot_json       JSONB
+answer_fingerprint       VARCHAR(64)
+graded_by                UUID / BIGINT
+created_at               TIMESTAMP
+```
+
+source：
+
+```txt
+auto
+manual
+judge
+regrade
+ai_suggestion
+```
+
+说明：评价历史不可覆盖。数据库约束禁止 `ai_suggestion` 成为正式生效评价；AI 只可作为建议或证据输入，由教师确认后通过人工/rubric 评价写入。
+
+---
+
 ## 八、错题与练习表
 
 ### 8.1 wrong_questions 错题表
@@ -975,6 +1118,7 @@ source_type            VARCHAR(32)
 source_id              UUID / BIGINT
 wrong_answer_json      JSONB
 correct_answer_json    JSONB
+context_snapshot_json  JSONB
 score                  DECIMAL(8,2)
 mastery_status         VARCHAR(32)
 wrong_count            INT
@@ -1013,7 +1157,7 @@ UNIQUE(student_id, question_id)
 
 说明：
 
-同一学生同一题多次答错，更新 `wrong_count` 和 `last_wrong_at`。
+同一学生同一题多次答错，更新 `wrong_count` 和 `last_wrong_at`。材料题子题进入错题本时，`context_snapshot_json` 保存父材料题干、子题顺序、考试/试卷来源和资源快照，便于练习时还原原材料上下文。
 
 ---
 
@@ -1396,6 +1540,8 @@ file_name           VARCHAR(255)
 file_ext            VARCHAR(32)
 mime_type           VARCHAR(128)
 file_size           BIGINT
+sha256              VARCHAR(64)
+version             INT
 url                 TEXT
 visibility          VARCHAR(32)
 created_by          UUID / BIGINT
@@ -1414,7 +1560,8 @@ temporary
 说明：
 
 1. 题目附件、导入恢复附件、导出打包资源统一记录在 `files` 表，并以 `uploads/question-assets` 为当前本地目录。
-2. 引用计数由题目 Markdown、答案配置、题目版本、试卷快照和答题实例扫描得到；删除附件前必须确认引用计数为 0。
+2. 题目版本、试卷题快照和考试实例应保存 FileAsset ID、对象键、SHA-256、版本、大小和 MIME；替换资源创建新版本，历史快照引用的文件不得被清理。
+3. 引用计数由题目 Markdown、答案配置、题目版本、试卷快照和答题实例扫描得到；删除附件前必须确认引用计数为 0。
 
 ---
 
@@ -1709,9 +1856,11 @@ tags
 questions
 question_options
 question_answers
+question_compositions
 question_knowledge_points
 question_tags
 question_versions
+scoring_rule_versions
 
 papers
 paper_sections
@@ -1722,6 +1871,8 @@ exams
 paper_instances
 exam_attempts
 answer_records
+regrade_runs
+scoring_evaluations
 
 wrong_questions
 review_reminder_rules

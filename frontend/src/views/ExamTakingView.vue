@@ -53,6 +53,10 @@
               :class="{ 'is-programming-workspace': entry.question.type === 'programming' }"
             >
               <template #statement>
+                <div v-if="entry.materialContext" class="material-context">
+                  <h3>{{ entry.materialContext.title }}</h3>
+                  <MarkdownRenderer :source="entry.materialContext.content" />
+                </div>
                 <h2 class="exam-question-title">{{ entry.question.title || `第 ${entry.index + 1} 题` }}</h2>
                 <MarkdownRenderer :source="entry.question.content" />
               </template>
@@ -178,74 +182,13 @@
                       :rows="22"
                     />
                   </div>
-                  <div v-else-if="isSplitQuestion(entry.question.type)" class="programming-answer">
-                    <div class="programming-toolbar">
-                      <span class="programming-language-label">作答</span>
-                      <el-tag>{{ typeLabel(entry.question.type) }}</el-tag>
-                    </div>
-                    <el-input
-                      v-model="answers[entry.question.questionId].text"
-                      class="answer-input subjective-answer-input"
-                      type="textarea"
-                      :rows="22"
-                      placeholder="填写答案"
-                    />
-                  </div>
-                  <template v-else>
-                    <div class="programming-toolbar">
-                      <span class="programming-language-label">作答</span>
-                      <el-tag>{{ typeLabel(entry.question.type) }}</el-tag>
-                    </div>
-                    <el-radio-group
-                      v-if="['single_choice', 'true_false'].includes(entry.question.type)"
-                      v-model="answers[entry.question.questionId].selectedOptionIds[0]"
-                      class="answer-options"
-                    >
-                      <el-radio
-                        v-for="option in entry.question.options"
-                        :key="option.optionId"
-                        :label="option.optionId"
-                        class="answer-option"
-                      >
-                        <span class="option-choice">
-                          <strong>{{ option.label }}.</strong>
-                          <MarkdownRenderer :source="option.content" />
-                        </span>
-                      </el-radio>
-                    </el-radio-group>
-
-                    <el-checkbox-group
-                      v-else-if="entry.question.type === 'multiple_choice'"
-                      v-model="answers[entry.question.questionId].selectedOptionIds"
-                      class="answer-options"
-                    >
-                      <el-checkbox
-                        v-for="option in entry.question.options"
-                        :key="option.optionId"
-                        :label="option.optionId"
-                        class="answer-option"
-                      >
-                        <span class="option-choice">
-                          <strong>{{ option.label }}.</strong>
-                          <MarkdownRenderer :source="option.content" />
-                        </span>
-                      </el-checkbox>
-                    </el-checkbox-group>
-
-                    <FillBlankAnswerInputs
-                      v-else-if="entry.question.type === 'fill_blank'"
-                      v-model="answers[entry.question.questionId].blanks"
-                      :count="blankCountFor(entry.question)"
-                    />
-                    <el-input
-                      v-else
-                      v-model="answers[entry.question.questionId].text"
-                      class="answer-input"
-                      type="textarea"
-                      :rows="6"
-                      placeholder="填写答案"
-                    />
-                  </template>
+                  <QuestionAnswerHost
+                    v-else
+                    v-model="answers[entry.question.questionId]"
+                    :question="entry.question"
+                    :type="entry.question.type"
+                    :rows="isSplitQuestion(entry.question.type) ? 22 : 6"
+                  />
                 </div>
               </template>
             </QuestionAnswerLayout>
@@ -323,10 +266,10 @@ import { ElMessage, ElMessageBox } from 'element-plus';
 import { ArrowLeft, ArrowRight, Check, Close, Delete, Expand, Flag, Fold, Link, Refresh, Upload } from '@element-plus/icons-vue';
 import { api, getToken } from '../api';
 import CodeAnswerEditor from '../components/CodeAnswerEditor.vue';
-import FillBlankAnswerInputs from '../components/FillBlankAnswerInputs.vue';
 import MarkdownRenderer from '../components/MarkdownRenderer.vue';
 import ProgrammingToolbarShell from '../components/ProgrammingToolbarShell.vue';
 import QuestionAnswerLayout from '../components/QuestionAnswerLayout.vue';
+import QuestionAnswerHost from '../components/QuestionAnswerHost.vue';
 
 const route = useRoute();
 const router = useRouter();
@@ -362,12 +305,16 @@ const objectiveQuestionTypes = new Set(['single_choice', 'multiple_choice', 'tru
 
 const flatQuestions = computed(() => {
   let index = 0;
+  const flatten = (question, sectionTitle, materialContext = null) => {
+    const children = Array.isArray(question.children) ? question.children : [];
+    if (children.length) {
+      const context = { title: question.title, content: question.content };
+      return children.flatMap((child) => flatten(child, sectionTitle, context));
+    }
+    return [{ question, sectionTitle, materialContext, index: index++ }];
+  };
   return paper.sections.flatMap((section) =>
-    section.questions.map((question) => ({
-      question,
-      sectionTitle: section.title,
-      index: index++,
-    })),
+    section.questions.flatMap((question) => flatten(question, section.title)),
   );
 });
 

@@ -4,6 +4,7 @@ import { createHmac, timingSafeEqual } from 'node:crypto';
 
 type PublicQuestionAssetClaims = {
   scope: 'public-question';
+  action: 'preview';
   questionId: string;
   exp: number;
 };
@@ -15,6 +16,7 @@ export class AssetTokenService {
   issuePublicQuestionToken(questionId: string) {
     const claims: PublicQuestionAssetClaims = {
       scope: 'public-question',
+      action: 'preview',
       questionId,
       exp: Math.floor((Date.now() + this.expiresInMs()) / 1000),
     };
@@ -37,7 +39,7 @@ export class AssetTokenService {
     } catch {
       throw new UnauthorizedException('资源访问令牌无效');
     }
-    if (claims.scope !== 'public-question' || claims.questionId !== questionId || claims.exp <= Date.now() / 1000) {
+    if (claims.scope !== 'public-question' || claims.action !== 'preview' || claims.questionId !== questionId || claims.exp <= Date.now() / 1000) {
       throw new UnauthorizedException('资源访问令牌已过期或作用域不匹配');
     }
     return claims;

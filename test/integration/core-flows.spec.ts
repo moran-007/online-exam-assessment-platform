@@ -1,5 +1,5 @@
 import { INestApplication } from '@nestjs/common';
-import { PrismaClient, UserStatus, UserType } from '@prisma/client';
+import { PrismaClient, ScoringEvaluationSource, ScoringEvaluationStatus, UserStatus, UserType } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
 import request = require('supertest');
 import { mkdir, rm, writeFile } from 'node:fs/promises';
@@ -136,6 +136,97 @@ describe('core API flows', () => {
       .auth(studentToken, { type: 'bearer' })
       .send({ answers: [{ questionId: question.id, answer: { selectedOptionIds: [] } }] })
       .expect(400);
+  });
+
+  it('runs material children, rubric history and preview-confirm regrading without AI score writes', async () => {
+    const course = await prisma.course.findFirstOrThrow({ where: { code: 'integration_course' } });
+    const choice = await api('post', '/api/v1/questions', adminToken, {
+      courseId: course.id, type: 'single_choice', title: 'Material choice', content: 'Choose A', difficulty: 1, defaultScore: 3,
+      options: [
+        { optionKey: 'A', content: 'Correct', isCorrect: true, sortOrder: 1 },
+        { optionKey: 'B', content: 'Wrong', isCorrect: false, sortOrder: 2 },
+      ],
+    });
+    const subjective = await api('post', '/api/v1/questions', adminToken, {
+      courseId: course.id, type: 'short_answer', title: 'Material explanation', content: 'Explain', difficulty: 2, defaultScore: 7,
+      answer: { reference: 'reference' },
+      scoringRule: { rubric: [{ id: 'accuracy', name: '准确性', maxScore: 5 }, { id: 'clarity', name: '表达', maxScore: 2 }] },
+    });
+    await api('post', `/api/v1/questions/${choice.id}/publish`, adminToken);
+    await api('post', `/api/v1/questions/${subjective.id}/publish`, adminToken);
+    const material = await api('post', '/api/v1/questions', adminToken, {
+      courseId: course.id, type: 'material', title: 'Material container', content: 'Read this material', difficulty: 2, defaultScore: 1,
+      children: [
+        { questionId: choice.id, score: 3, sortOrder: 1 },
+        { questionId: subjective.id, score: 7, sortOrder: 2 },
+      ],
+    });
+    await api('post', `/api/v1/questions/${material.id}/publish`, adminToken);
+    const materialDetail = await api('get', `/api/v1/questions/${material.id}`, adminToken);
+    expect(materialDetail.children).toHaveLength(2);
+    expect(Number(materialDetail.defaultScore)).toBe(10);
+
+    const paper = await api('post', '/api/v1/papers', adminToken, {
+      name: 'Material Paper', courseId: course.id, durationMinutes: 30, type: 'fixed',
+    });
+    await api('post', `/api/v1/papers/${paper.id}/questions`, adminToken, { questionId: material.id, score: 999, sortOrder: 1 });
+    await api('post', `/api/v1/papers/${paper.id}/publish`, adminToken);
+    const exam = await api('post', '/api/v1/exams', adminToken, {
+      paperId: paper.id, name: 'Material Exam', courseId: course.id,
+      startTime: new Date(Date.now() - 60_000).toISOString(), endTime: new Date(Date.now() + 30 * 60_000).toISOString(),
+      durationMinutes: 30, attemptLimit: 1, showScoreMode: 'after_graded',
+    });
+    await api('post', `/api/v1/exams/${exam.id}/publish`, adminToken);
+    await api('post', `/api/v1/exams/${exam.id}/start`, adminToken);
+    const attempt = await api('post', `/api/v1/student/exams/${exam.id}/enter`, studentToken);
+    expect(attempt.paper.sections[0].questions[0].children).toHaveLength(2);
+    const correct = await prisma.questionOption.findFirstOrThrow({ where: { questionId: choice.id, isCorrect: true } });
+    await api('post', `/api/v1/student/attempts/${attempt.attemptId}/save-answers`, studentToken, {
+      answers: [
+        { questionId: choice.id, answer: { selectedOptionIds: [correct.id] } },
+        { questionId: subjective.id, answer: { text: 'clear explanation' } },
+      ],
+    });
+    await api('post', `/api/v1/student/attempts/${attempt.attemptId}/submit`, studentToken);
+    const subjectiveRecord = await prisma.answerRecord.findUniqueOrThrow({
+      where: { attemptId_questionId: { attemptId: attempt.attemptId, questionId: subjective.id } },
+    });
+    await api('patch', `/api/v1/grading/answers/${subjectiveRecord.id}`, adminToken, {
+      rubricScores: [
+        { criterionId: 'accuracy', score: 5 },
+        { criterionId: 'clarity', score: 2 },
+      ],
+      comment: 'rubric complete',
+    });
+    const gradedAttempt = await prisma.examAttempt.findUniqueOrThrow({ where: { id: attempt.attemptId } });
+    expect(Number(gradedAttempt.totalScore)).toBe(10);
+    expect(await prisma.scoringEvaluation.count({ where: { answerRecord: { attemptId: attempt.attemptId }, status: ScoringEvaluationStatus.OFFICIAL } })).toBe(2);
+
+    const preview = await api('post', '/api/v1/grading/regrade-runs/preview', adminToken, {
+      examId: exam.id, attemptIds: [attempt.attemptId], questionIds: [choice.id], ruleSource: 'snapshot',
+    });
+    const choiceRecord = await prisma.answerRecord.findUniqueOrThrow({
+      where: { attemptId_questionId: { attemptId: attempt.attemptId, questionId: choice.id } },
+    });
+    await prisma.answerRecord.update({ where: { id: choiceRecord.id }, data: { score: 1 } });
+    await request(app.getHttpServer())
+      .post(`/api/v1/grading/regrade-runs/${preview.id}/confirm`)
+      .auth(adminToken, { type: 'bearer' })
+      .expect(400);
+    const retryPreview = await api('post', '/api/v1/grading/regrade-runs/preview', adminToken, {
+      examId: exam.id, attemptIds: [attempt.attemptId], questionIds: [choice.id], ruleSource: 'snapshot',
+    });
+    const confirmed = await api('post', `/api/v1/grading/regrade-runs/${retryPreview.id}/confirm`, adminToken);
+    expect(confirmed.appliedCount).toBe(1);
+    expect(Number((await prisma.answerRecord.findUniqueOrThrow({ where: { id: choiceRecord.id } })).score)).toBe(3);
+
+    await expect(prisma.scoringEvaluation.create({
+      data: {
+        answerRecordId: choiceRecord.id, source: ScoringEvaluationSource.AI_SUGGESTION,
+        status: ScoringEvaluationStatus.OFFICIAL, adapterKey: 'single_choice', adapterVersion: 1,
+        score: 3, maxScore: 3, isCorrect: true, detailJson: {}, answerFingerprint: '0'.repeat(64),
+      },
+    })).rejects.toThrow();
   });
 
   it('imports valid Excel rows, skips duplicates, and creates an authenticated export download', async () => {

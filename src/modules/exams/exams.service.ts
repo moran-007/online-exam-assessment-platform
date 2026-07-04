@@ -1,11 +1,13 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { AnswerRecordStatus, AttemptStatus, ExamStatus, PaperStatus, Prisma, QuestionType, UserStatus, UserType } from '@prisma/client';
+import { AnswerRecordStatus, AttemptStatus, ExamStatus, PaperStatus, Prisma, QuestionType, ScoringEvaluationSource, UserStatus, UserType } from '@prisma/client';
 import { toPagination } from '../../common/dto/pagination-query.dto';
 import { normalizeExamStatus, toApiEnum } from '../../common/utils/enum-normalizer';
 import { AuditService } from '../audit/audit.service';
 import { RequestUser } from '../../common/interfaces/request-user.interface';
 import { DataScopeService } from '../data-scope/data-scope.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { QuestionTypeRegistry } from '../question-types/question-type-registry.service';
+import { ScoringHistoryService } from '../question-types/scoring-history.service';
 import { BulkUpdateExamStatusDto } from './dto/bulk-update-exam-status.dto';
 import { CreateExamDto } from './dto/create-exam.dto';
 import { QueryExamDto } from './dto/query-exam.dto';
@@ -16,6 +18,10 @@ type SnapshotQuestion = {
   score: number;
   snapshot: {
     type: string;
+    scoringRule?: Prisma.JsonValue | null;
+    scoringRuleVersionId?: string | null;
+    engine?: { adapterKey?: string; adapterVersion?: number };
+    children?: SnapshotQuestion[];
     answer?: {
       correctOptionIds?: string[];
       blanks?: Array<{
@@ -39,6 +45,8 @@ export class ExamsService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly dataScope: DataScopeService,
+    private readonly questionTypes: QuestionTypeRegistry,
+    private readonly scoringHistory: ScoringHistoryService,
   ) {}
 
   async list(query: QueryExamDto, user: RequestUser) {
@@ -913,7 +921,7 @@ export class ExamsService {
         judgeScore += grading.score;
       }
 
-      await tx.answerRecord.upsert({
+      const answerRecord = await tx.answerRecord.upsert({
         where: {
           attemptId_questionId: {
             attemptId: attempt.id,
@@ -937,6 +945,20 @@ export class ExamsService {
           autoResultJson: grading.autoResult as Prisma.InputJsonObject,
         },
       });
+      await this.scoringHistory.recordOfficial(tx, {
+        answerRecordId: answerRecord.id,
+        answerJson: answerRecord.answerJson,
+        score: grading.score,
+        maxScore: paperQuestion.score,
+        isCorrect: grading.isCorrect,
+        status: grading.status,
+        details: grading.autoResult as Prisma.InputJsonObject,
+        adapterKey: String(paperQuestion.snapshot.type).toLowerCase(),
+        adapterVersion: this.questionTypes.descriptor(paperQuestion.snapshot.type).version,
+        source: grading.status === AnswerRecordStatus.JUDGE_DONE ? ScoringEvaluationSource.JUDGE : ScoringEvaluationSource.AUTO,
+        scoringRuleVersionId: (paperQuestion.snapshot as any).scoringRuleVersionId ?? null,
+        ruleSnapshot: (paperQuestion.snapshot as any).scoringRule ?? null,
+      });
     }
 
     await tx.examAttempt.update({
@@ -954,75 +976,20 @@ export class ExamsService {
   }
 
   private flattenPaperQuestions(snapshot: PaperSnapshot) {
-    return snapshot.sections.flatMap((section) => section.questions);
+    const flatten = (question: SnapshotQuestion): SnapshotQuestion[] => {
+      const children = Array.isArray(question.snapshot.children) ? question.snapshot.children : [];
+      return children.length ? children.flatMap(flatten) : [question];
+    };
+    return snapshot.sections.flatMap((section) => section.questions.flatMap(flatten));
   }
 
   private gradeQuestionForEnd(paperQuestion: SnapshotQuestion, answerJson: Record<string, unknown>) {
-    const type = String(paperQuestion.snapshot.type).toUpperCase();
-
-    if (
-      type === QuestionType.SINGLE_CHOICE ||
-      type === QuestionType.MULTIPLE_CHOICE ||
-      type === QuestionType.TRUE_FALSE
-    ) {
-      const selected = new Set((answerJson.selectedOptionIds as string[] | undefined) ?? []);
-      const correct = new Set(paperQuestion.snapshot.answer?.correctOptionIds ?? []);
-      const isCorrect = selected.size === correct.size && [...selected].every((optionId) => correct.has(optionId));
-      return {
-        score: isCorrect ? paperQuestion.score : 0,
-        isCorrect,
-        status: AnswerRecordStatus.AUTO_GRADED,
-        autoResult: { selectedOptionIds: [...selected], correctOptionIds: [...correct] },
-      };
-    }
-
-    if (type === QuestionType.FILL_BLANK) {
-      const blanks = (answerJson.blanks as Array<{ index: number; value: string }> | undefined) ?? [];
-      const rules = paperQuestion.snapshot.answer?.blanks ?? [];
-      let score = 0;
-      let allCorrect = true;
-
-      for (const rule of rules) {
-        const submitted = blanks.find((blank) => blank.index === rule.index)?.value ?? '';
-        const normalizedSubmitted = this.normalizeBlank(submitted, rule);
-        const matched = rule.answers.map((answer) => this.normalizeBlank(answer, rule)).includes(normalizedSubmitted);
-        if (matched) {
-          score += rule.score ?? paperQuestion.score / Math.max(rules.length, 1);
-        } else {
-          allCorrect = false;
-        }
-      }
-
-      return {
-        score,
-        isCorrect: allCorrect,
-        status: AnswerRecordStatus.AUTO_GRADED,
-        autoResult: { blanks, rules },
-      };
-    }
-
-    if (type === QuestionType.PROGRAMMING) {
-      return {
-        score: 0,
-        isCorrect: null,
-        status: AnswerRecordStatus.JUDGE_PENDING,
-        autoResult: {},
-      };
-    }
-
-    return {
-      score: 0,
-      isCorrect: null,
-      status: AnswerRecordStatus.MANUAL_NEEDED,
-      autoResult: {},
-    };
-  }
-
-  private normalizeBlank(value: string, rule: { ignoreCase?: boolean; trimSpace?: boolean }) {
-    let result = value;
-    if (rule.trimSpace ?? true) result = result.trim();
-    if (rule.ignoreCase) result = result.toLowerCase();
-    return result;
+    const result = this.questionTypes.grade({
+      snapshot: paperQuestion.snapshot,
+      answer: answerJson as Prisma.InputJsonObject,
+      maxScore: paperQuestion.score,
+    });
+    return { ...result, autoResult: result.details };
   }
 
   private attemptDurationSeconds(

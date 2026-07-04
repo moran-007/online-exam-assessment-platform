@@ -8,6 +8,10 @@
 - 可选“保持登录状态”、前后端闲置失效校验、服务端会话吊销和活动续期。
 - 管理员、教师、助教、学生等角色，以及菜单、角色、权限和数据范围控制。
 - 课程、班级、知识点、标签、题库、试卷、考试、批改、错题本、导出和统计分析。
+- 题型注册表与统一作答/判分基线，覆盖单选、多选、判断、填空、简答、编程、文件、Scratch、Arduino 和材料容器。
+- 单层材料/组合题：父题展示材料，子题独立分值、作答、判分、错题记录和快照。
+- 评分规则版本、评分历史、rubric 人工评分和试算重判；AI 只保留建议边界，不直接写入正式成绩。
+- 成绩、答案、解析、学生身份、导出和附件下载的细粒度字段/操作权限；权限名称面向用户显示中文，稳定 code 保持英文。
 - Prisma/PostgreSQL 数据模型、审计日志，以及 PostgreSQL、Redis、MinIO 本地依赖。
 - Helmet 安全头、分级限流、请求 ID、Pino 结构化日志和生产 CORS 白名单。
 - 私有附件鉴权/短时签名读取，以及 PostgreSQL + uploads 备份和隔离恢复校验。
@@ -96,6 +100,18 @@ POST /api/v1/auth/logout
 ```
 
 Swagger 文档默认地址：`http://localhost:3000/api/docs`。
+
+## 题型、材料题与评分
+
+```txt
+GET  /api/v1/question-types
+POST /api/v1/grading/regrade-runs/preview
+GET  /api/v1/grading/regrade-runs/:id
+POST /api/v1/grading/regrade-runs/:id/confirm
+POST /api/v1/grading/regrade-runs/:id/cancel
+```
+
+题型契约使用 JSON Schema 2020-12 元数据描述，数据库不保存或执行任意前端/后端代码。材料题当前只支持单层组合，父题不直接判分，总分按子题汇总。普通提交、人工批改、Judge 与重判都会保留评分历史，兼容字段 `AnswerRecord.score/status/autoResultJson` 继续作为页面和旧接口投影。
 
 ## 私有文件
 

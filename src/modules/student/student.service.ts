@@ -14,6 +14,7 @@ import {
   Prisma,
   QuestionStatus,
   QuestionType,
+  ScoringEvaluationSource,
   ShowAnswerMode,
   ShowScoreMode,
   UserStatus,
@@ -38,6 +39,8 @@ import {
   UpdateWrongQuestionStatusDto,
 } from './dto/save-answer.dto';
 import { QuestionsService } from '../questions/questions.service';
+import { QuestionTypeRegistry } from '../question-types/question-type-registry.service';
+import { ScoringHistoryService } from '../question-types/scoring-history.service';
 
 type QuestionSnapshot = {
   id: string;
@@ -73,6 +76,10 @@ type QuestionSnapshot = {
     memoryLimit?: number | null;
     judgeConfig?: Prisma.JsonValue | null;
   } | null;
+  scoringRule?: Prisma.JsonValue | null;
+  scoringRuleVersionId?: string | null;
+  engine?: { adapterKey?: string; adapterVersion?: number };
+  children?: PaperSnapshotQuestion[];
 };
 
 type SnapshotNormalizationResult = {
@@ -86,6 +93,7 @@ type PaperSnapshotQuestion = {
   score: number;
   sortOrder: number;
   snapshot: QuestionSnapshot;
+  materialContext?: Prisma.InputJsonObject;
 };
 
 type PaperSnapshotSection = {
@@ -123,6 +131,8 @@ export class StudentService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly questionsService: QuestionsService,
+    private readonly questionTypes: QuestionTypeRegistry,
+    private readonly scoringHistory: ScoringHistoryService,
   ) {}
 
   async myExams(user: RequestUser, query: QueryStudentExamDto) {
@@ -694,7 +704,7 @@ export class StudentService {
           judgeScore += grading.score;
         }
 
-        await tx.answerRecord.upsert({
+        const answerRecord = await tx.answerRecord.upsert({
           where: {
             attemptId_questionId: {
               attemptId,
@@ -718,6 +728,20 @@ export class StudentService {
             autoResultJson: grading.autoResult as Prisma.InputJsonObject,
           },
         });
+        await this.scoringHistory.recordOfficial(tx, {
+          answerRecordId: answerRecord.id,
+          answerJson: answerRecord.answerJson,
+          score: grading.score,
+          maxScore: paperQuestion.score,
+          isCorrect: grading.isCorrect,
+          status: grading.status,
+          details: grading.autoResult as Prisma.InputJsonObject,
+          adapterKey: String(paperQuestion.snapshot.type).toLowerCase(),
+          adapterVersion: this.questionTypes.descriptor(paperQuestion.snapshot.type).version,
+          source: grading.status === AnswerRecordStatus.JUDGE_DONE ? ScoringEvaluationSource.JUDGE : ScoringEvaluationSource.AUTO,
+          scoringRuleVersionId: (paperQuestion.snapshot as any).scoringRuleVersionId ?? null,
+          ruleSnapshot: (paperQuestion.snapshot as any).scoringRule ?? null,
+        });
 
         if (grading.isCorrect === false) {
           const wrongItem = await tx.wrongQuestion.upsert({
@@ -732,6 +756,7 @@ export class StudentService {
               sourceId: attempt.examId,
               wrongAnswerJson: answerJson as Prisma.InputJsonObject,
               correctAnswerJson: (paperQuestion.snapshot.answer ?? {}) as Prisma.InputJsonObject,
+              contextSnapshotJson: paperQuestion.materialContext ?? undefined,
               score: grading.score,
               masteryStatus: MasteryStatus.UNMASTERED,
               wrongCount: { increment: 1 },
@@ -744,6 +769,7 @@ export class StudentService {
               sourceId: attempt.examId,
               wrongAnswerJson: answerJson as Prisma.InputJsonObject,
               correctAnswerJson: (paperQuestion.snapshot.answer ?? {}) as Prisma.InputJsonObject,
+              contextSnapshotJson: paperQuestion.materialContext ?? undefined,
               score: grading.score,
             },
           });
@@ -1703,7 +1729,7 @@ export class StudentService {
           judgeScore += grading.score;
         }
 
-        await tx.answerRecord.upsert({
+        const answerRecord = await tx.answerRecord.upsert({
           where: {
             attemptId_questionId: {
               attemptId,
@@ -1726,6 +1752,20 @@ export class StudentService {
             status: grading.status,
             autoResultJson: grading.autoResult as Prisma.InputJsonObject,
           },
+        });
+        await this.scoringHistory.recordOfficial(tx, {
+          answerRecordId: answerRecord.id,
+          answerJson: answerRecord.answerJson,
+          score: grading.score,
+          maxScore: paperQuestion.score,
+          isCorrect: grading.isCorrect,
+          status: grading.status,
+          details: grading.autoResult as Prisma.InputJsonObject,
+          adapterKey: String(paperQuestion.snapshot.type).toLowerCase(),
+          adapterVersion: this.questionTypes.descriptor(paperQuestion.snapshot.type).version,
+          source: grading.status === AnswerRecordStatus.JUDGE_DONE ? ScoringEvaluationSource.JUDGE : ScoringEvaluationSource.AUTO,
+          scoringRuleVersionId: (paperQuestion.snapshot as any).scoringRuleVersionId ?? null,
+          ruleSnapshot: (paperQuestion.snapshot as any).scoringRule ?? null,
         });
       }
 
@@ -2083,6 +2123,9 @@ export class StudentService {
       };
     });
     const programmingRef = this.plainRecordOrNull(source.programmingRef ?? source.programming);
+    const children = (Array.isArray(source.children) ? source.children : [])
+      .map((child, index) => this.normalizePaperQuestion(child, 0, index))
+      .filter((child): child is PaperSnapshotQuestion => Boolean(child));
 
     return {
       id: questionId,
@@ -2108,6 +2151,10 @@ export class StudentService {
             languages: Array.isArray(programmingRef.languages) ? programmingRef.languages.map(String).filter(Boolean) : [],
           } as QuestionSnapshot['programmingRef'])
         : null,
+      scoringRule: (source.scoringRule as Prisma.JsonValue | null | undefined) ?? null,
+      scoringRuleVersionId: this.optionalString(source.scoringRuleVersionId),
+      engine: this.plainRecordOrNull(source.engine) as QuestionSnapshot['engine'],
+      children,
     };
   }
 
@@ -2353,31 +2400,31 @@ export class StudentService {
   }
 
   private publicPaper(paperSnapshot: PaperSnapshot, paperInstanceId: string) {
+    const publicQuestion = (paperQuestion: PaperSnapshotQuestion): Record<string, unknown> => ({
+      questionId: paperQuestion.questionId,
+      type: this.apiQuestionType(paperQuestion.snapshot.type),
+      title: paperQuestion.snapshot.title,
+      content: paperQuestion.snapshot.content,
+      score: paperQuestion.score,
+      blankCount: this.blankCount(paperQuestion.snapshot.answer),
+      programmingRef: paperQuestion.snapshot.programmingRef
+        ? {
+            ...paperQuestion.snapshot.programmingRef,
+            externalProblemUrl: paperQuestion.snapshot.programmingRef.externalProblemUrl ?? null,
+          }
+        : null,
+      options: (paperQuestion.snapshot.options ?? []).map((option) => ({
+        optionId: option.id,
+        label: option.optionKey,
+        content: option.content,
+      })),
+      children: (paperQuestion.snapshot.children ?? []).map(publicQuestion),
+    });
     return {
       paperInstanceId,
       sections: paperSnapshot.sections.map((section) => ({
         title: section.title,
-        questions: section.questions.map((paperQuestion) => ({
-          questionId: paperQuestion.questionId,
-          type: this.apiQuestionType(paperQuestion.snapshot.type),
-          title: paperQuestion.snapshot.title,
-          content: paperQuestion.snapshot.content,
-          score: paperQuestion.score,
-          blankCount: this.blankCount(paperQuestion.snapshot.answer),
-          programmingRef: paperQuestion.snapshot.programmingRef
-            ? {
-                ...paperQuestion.snapshot.programmingRef,
-                externalProblemUrl:
-                  paperQuestion.snapshot.programmingRef.externalProblemUrl ??
-                  null,
-              }
-            : null,
-          options: (paperQuestion.snapshot.options ?? []).map((option) => ({
-            optionId: option.id,
-            label: option.optionKey,
-            content: option.content,
-          })),
-        })),
+        questions: section.questions.map(publicQuestion),
       })),
     };
   }
@@ -2420,7 +2467,18 @@ export class StudentService {
   }
 
   private flattenPaperQuestions(paperSnapshot: PaperSnapshot) {
-    return paperSnapshot.sections.flatMap((section) => section.questions);
+    const flatten = (question: PaperSnapshotQuestion, materialContext?: Prisma.InputJsonObject): PaperSnapshotQuestion[] => {
+      const children = Array.isArray(question.snapshot.children) ? question.snapshot.children : [];
+      if (!children.length) return [{ ...question, materialContext }];
+      const context: Prisma.InputJsonObject = {
+        id: question.questionId,
+        title: question.snapshot.title,
+        content: question.snapshot.content,
+        resources: ((question.snapshot as any).resources ?? []) as Prisma.InputJsonArray,
+      };
+      return children.flatMap((child) => flatten(child, context));
+    };
+    return paperSnapshot.sections.flatMap((section) => section.questions.flatMap((question) => flatten(question)));
   }
 
   private prepareQuestionSnapshot(snapshotJson: Prisma.JsonValue, shuffleOptions: boolean) {
@@ -2507,81 +2565,12 @@ export class StudentService {
   }
 
   private gradeQuestion(paperQuestion: PaperSnapshotQuestion, answerJson: Record<string, unknown>) {
-    const type = paperQuestion.snapshot.type.toUpperCase();
-
-    if (
-      type === QuestionType.SINGLE_CHOICE ||
-      type === QuestionType.MULTIPLE_CHOICE ||
-      type === QuestionType.TRUE_FALSE
-    ) {
-      const selected = new Set((answerJson.selectedOptionIds as string[] | undefined) ?? []);
-      const correct = new Set(paperQuestion.snapshot.answer?.correctOptionIds ?? []);
-      const isCorrect =
-        selected.size === correct.size && [...selected].every((optionId) => correct.has(optionId));
-      return {
-        score: isCorrect ? paperQuestion.score : 0,
-        isCorrect,
-        status: AnswerRecordStatus.AUTO_GRADED,
-        autoResult: { selectedOptionIds: [...selected], correctOptionIds: [...correct] },
-      };
-    }
-
-    if (type === QuestionType.FILL_BLANK) {
-      const blanks = (answerJson.blanks as Array<{ index: number; value: string }> | undefined) ?? [];
-      const rules = paperQuestion.snapshot.answer?.blanks ?? [];
-      let score = 0;
-      let allCorrect = true;
-
-      for (const rule of rules) {
-        const submitted = blanks.find((blank) => blank.index === rule.index)?.value ?? '';
-        const normalizedSubmitted = this.normalizeBlank(submitted, rule);
-        const matched = rule.answers
-          .map((answer) => this.normalizeBlank(answer, rule))
-          .includes(normalizedSubmitted);
-        if (matched) {
-          score += rule.score ?? paperQuestion.score / Math.max(rules.length, 1);
-        } else {
-          allCorrect = false;
-        }
-      }
-
-      return {
-        score,
-        isCorrect: allCorrect,
-        status: AnswerRecordStatus.AUTO_GRADED,
-        autoResult: { blanks, rules },
-      };
-    }
-
-    if (type === QuestionType.PROGRAMMING) {
-      return {
-        score: 0,
-        isCorrect: null,
-        status: AnswerRecordStatus.JUDGE_PENDING,
-        autoResult: {},
-      };
-    }
-
-    return {
-      score: 0,
-      isCorrect: null,
-      status: AnswerRecordStatus.MANUAL_NEEDED,
-      autoResult: {},
-    };
-  }
-
-  private normalizeBlank(
-    value: string,
-    rule: { ignoreCase?: boolean; trimSpace?: boolean },
-  ) {
-    let result = value;
-    if (rule.trimSpace ?? true) {
-      result = result.trim();
-    }
-    if (rule.ignoreCase) {
-      result = result.toLowerCase();
-    }
-    return result;
+    const result = this.questionTypes.grade({
+      snapshot: paperQuestion.snapshot,
+      answer: answerJson as Prisma.InputJsonObject,
+      maxScore: paperQuestion.score,
+    });
+    return { ...result, autoResult: result.details };
   }
 
   private matchReviewRule(

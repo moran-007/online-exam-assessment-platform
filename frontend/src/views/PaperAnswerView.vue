@@ -62,6 +62,10 @@
               :class="{ 'is-programming-workspace': entry.snapshot.type === 'programming' }"
             >
               <template #statement>
+                <div v-if="entry.materialContext" class="material-context">
+                  <h3>{{ entry.materialContext.title }}</h3>
+                  <MarkdownRenderer :source="entry.materialContext.content" />
+                </div>
                 <h2 class="exam-question-title">{{ entry.snapshot.title || `第 ${entry.index + 1} 题` }}</h2>
                 <MarkdownRenderer :source="entry.snapshot.content" />
                 <div v-if="submitted" class="paper-analysis">
@@ -163,74 +167,14 @@
                       :rows="22"
                     />
                   </div>
-                  <div v-else-if="isSplitQuestion(entry.snapshot.type)" class="programming-answer">
-                    <div class="programming-toolbar">
-                      <span class="programming-language-label">作答</span>
-                      <el-tag>{{ typeLabel(entry.snapshot.type) }}</el-tag>
-                    </div>
-                    <el-input
-                      v-model="answers[entry.question.questionId].text"
-                      class="answer-input subjective-answer-input"
-                      type="textarea"
-                      :rows="22"
-                      placeholder="填写答案"
-                    />
-                  </div>
-                  <template v-else>
-                    <div class="programming-toolbar">
-                      <span class="programming-language-label">作答</span>
-                      <el-tag>{{ typeLabel(entry.snapshot.type) }}</el-tag>
-                    </div>
-                    <el-radio-group
-                      v-if="['single_choice', 'true_false'].includes(entry.snapshot.type)"
-                      v-model="answers[entry.question.questionId].selectedOptionIds[0]"
-                      class="answer-options"
-                    >
-                      <el-radio
-                        v-for="option in entry.snapshot.options || []"
-                        :key="optionIdFor(option)"
-                        :label="optionIdFor(option)"
-                        :class="['answer-option', submitted && option.isCorrect ? 'answer-correct' : '']"
-                      >
-                        <span class="option-choice">
-                          <strong>{{ optionLabelFor(option) }}.</strong>
-                          <MarkdownRenderer :source="option.content" />
-                        </span>
-                      </el-radio>
-                    </el-radio-group>
-
-                    <el-checkbox-group
-                      v-else-if="entry.snapshot.type === 'multiple_choice'"
-                      v-model="answers[entry.question.questionId].selectedOptionIds"
-                      class="answer-options"
-                    >
-                      <el-checkbox
-                        v-for="option in entry.snapshot.options || []"
-                        :key="optionIdFor(option)"
-                        :label="optionIdFor(option)"
-                        :class="['answer-option', submitted && option.isCorrect ? 'answer-correct' : '']"
-                      >
-                        <span class="option-choice">
-                          <strong>{{ optionLabelFor(option) }}.</strong>
-                          <MarkdownRenderer :source="option.content" />
-                        </span>
-                      </el-checkbox>
-                    </el-checkbox-group>
-
-                    <FillBlankAnswerInputs
-                      v-else-if="entry.snapshot.type === 'fill_blank'"
-                      v-model="answers[entry.question.questionId].blanks"
-                      :count="blankCountFor(entry.snapshot)"
-                    />
-                    <el-input
-                      v-else
-                      v-model="answers[entry.question.questionId].text"
-                      class="answer-input"
-                      type="textarea"
-                      :rows="6"
-                      placeholder="填写答案"
-                    />
-                  </template>
+                  <QuestionAnswerHost
+                    v-else
+                    v-model="answers[entry.question.questionId]"
+                    :question="entry.snapshot"
+                    :type="entry.snapshot.type"
+                    :rows="isSplitQuestion(entry.snapshot.type) ? 22 : 6"
+                    :show-correct="submitted"
+                  />
                 </div>
               </template>
             </QuestionAnswerLayout>
@@ -285,10 +229,10 @@ import { ElMessage } from 'element-plus';
 import { ArrowLeft, ArrowRight, Back, Check, Delete, Link, Notebook, Upload } from '@element-plus/icons-vue';
 import { api, getCurrentUser } from '../api';
 import CodeAnswerEditor from '../components/CodeAnswerEditor.vue';
-import FillBlankAnswerInputs from '../components/FillBlankAnswerInputs.vue';
 import MarkdownRenderer from '../components/MarkdownRenderer.vue';
 import ProgrammingToolbarShell from '../components/ProgrammingToolbarShell.vue';
 import QuestionAnswerLayout from '../components/QuestionAnswerLayout.vue';
+import QuestionAnswerHost from '../components/QuestionAnswerHost.vue';
 
 const route = useRoute();
 const router = useRouter();
@@ -331,14 +275,23 @@ const displaySections = computed(() => {
 
 const flatQuestions = computed(() => {
   let index = 0;
+  const flatten = (question, snapshot, sectionTitle, materialContext = null) => {
+    const children = Array.isArray(snapshot.children) ? snapshot.children : [];
+    if (children.length) {
+      const context = { title: snapshot.title, content: snapshot.content };
+      return children.flatMap((child) => {
+        const childQuestion = {
+          ...child,
+          id: child.paperQuestionId || child.questionId,
+          questionSnapshotJson: child.snapshot || {},
+        };
+        return flatten(childQuestion, child.snapshot || {}, sectionTitle, context);
+      });
+    }
+    return [{ question, snapshot, sectionTitle, materialContext, index: index++, result: gradeQuestion(question) }];
+  };
   return displaySections.value.flatMap((section) =>
-    section.questions.map((question) => ({
-      question,
-      snapshot: question.questionSnapshotJson ?? {},
-      sectionTitle: section.title,
-      index: index++,
-      result: gradeQuestion(question),
-    })),
+    section.questions.flatMap((question) => flatten(question, question.questionSnapshotJson ?? {}, section.title)),
   );
 });
 const totalCount = computed(() => flatQuestions.value.length);
@@ -695,26 +648,6 @@ function openHydroProblem(snapshot) {
 
 function optionIdFor(option) {
   return option?.id ?? option?.optionId ?? option?.optionKey ?? '';
-}
-
-function optionLabelFor(option) {
-  return option?.optionKey ?? option?.label ?? optionIdFor(option);
-}
-
-function typeLabel(value) {
-  const map = {
-    single_choice: '单选题',
-    multiple_choice: '多选题',
-    true_false: '判断题',
-    fill_blank: '填空题',
-    short_answer: '简答题',
-    programming: '编程题',
-    material: '材料题',
-    file_upload: '文件上传题',
-    scratch_project: 'Scratch 项目题',
-    arduino_project: 'Arduino 项目题',
-  };
-  return map[value] ?? value;
 }
 
 function blankCountFor(snapshot) {

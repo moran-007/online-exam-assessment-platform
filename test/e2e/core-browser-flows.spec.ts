@@ -7,6 +7,7 @@ import { rm } from 'node:fs/promises';
 const prisma = new PrismaClient();
 const password = '123456';
 let examId = '';
+let materialExamId = '';
 let paperName = '';
 
 test.beforeAll(async ({ request }) => {
@@ -61,6 +62,44 @@ test.beforeAll(async ({ request }) => {
   examId = exam.id;
   await api(request, 'post', `/exams/${examId}/publish`, token);
   await api(request, 'post', `/exams/${examId}/start`, token);
+
+  const materialChoice = await api(request, 'post', '/questions', token, {
+    courseId: course.id, type: 'single_choice', title: 'E2E material child choice', content: 'Material child choice',
+    difficulty: 1, defaultScore: 3,
+    options: [
+      { optionKey: 'A', content: 'Correct material option', isCorrect: true, sortOrder: 1 },
+      { optionKey: 'B', content: 'Wrong material option', isCorrect: false, sortOrder: 2 },
+    ],
+  });
+  const materialShort = await api(request, 'post', '/questions', token, {
+    courseId: course.id, type: 'short_answer', title: 'E2E rubric child', content: 'Explain the material',
+    difficulty: 2, defaultScore: 7, answer: { reference: 'reference' },
+    scoringRule: { rubric: [{ id: 'accuracy', name: '准确性', maxScore: 5 }, { id: 'clarity', name: '表达', maxScore: 2 }] },
+  });
+  await api(request, 'post', `/questions/${materialChoice.id}/publish`, token);
+  await api(request, 'post', `/questions/${materialShort.id}/publish`, token);
+  const material = await api(request, 'post', '/questions', token, {
+    courseId: course.id, type: 'material', title: 'E2E material title', content: 'E2E shared material context',
+    difficulty: 2, defaultScore: 10,
+    children: [
+      { questionId: materialChoice.id, score: 3, sortOrder: 1 },
+      { questionId: materialShort.id, score: 7, sortOrder: 2 },
+    ],
+  });
+  await api(request, 'post', `/questions/${material.id}/publish`, token);
+  const materialPaper = await api(request, 'post', '/papers', token, {
+    name: 'E2E material paper', courseId: course.id, durationMinutes: 30, type: 'fixed',
+  });
+  await api(request, 'post', `/papers/${materialPaper.id}/questions`, token, { questionId: material.id, score: 10, sortOrder: 1 });
+  await api(request, 'post', `/papers/${materialPaper.id}/publish`, token);
+  const materialExam = await api(request, 'post', '/exams', token, {
+    paperId: materialPaper.id, name: 'E2E material rubric exam', courseId: course.id,
+    startTime: new Date(Date.now() - 60_000).toISOString(), endTime: new Date(Date.now() + 30 * 60_000).toISOString(),
+    durationMinutes: 30, attemptLimit: 1, showScoreMode: 'after_graded',
+  });
+  materialExamId = materialExam.id;
+  await api(request, 'post', `/exams/${materialExamId}/publish`, token);
+  await api(request, 'post', `/exams/${materialExamId}/start`, token);
 });
 
 test.afterAll(async () => {
@@ -124,6 +163,48 @@ test('expired local session returns to login with a clear reason', async ({ page
   await page.goto('/student/profile');
   await expect(page).toHaveURL(/\/login\?reason=expired$/);
   await expect(page.locator('.el-alert').getByText('登录已失效，请重新登录')).toBeVisible();
+});
+
+test('material context keeps child answers independent and rubric grading is available in the browser', async ({ browser }) => {
+  const student = await browser.newContext();
+  const admin = await browser.newContext();
+  const studentPage = await student.newPage();
+  const adminPage = await admin.newPage();
+  await login(studentPage, 'e2e_student');
+  await studentPage.goto(`/student/exams/${materialExamId}`);
+  await expect(studentPage.getByText('E2E shared material context', { exact: true })).toBeVisible();
+  await expect(studentPage.getByRole('heading', { name: 'E2E material child choice' })).toBeVisible();
+  await studentPage.getByText('Correct material option', { exact: true }).click();
+  await studentPage.getByRole('button', { name: '下一题' }).click();
+  await expect(studentPage.getByRole('heading', { name: 'E2E rubric child' })).toBeVisible();
+  await studentPage.getByPlaceholder('填写答案').fill('A clear browser explanation');
+  await studentPage.locator('.aside-actions').getByRole('button', { name: '提交试卷', exact: true }).click();
+  const confirmation = studentPage.getByRole('dialog', { name: '确认提交' });
+  await expect(confirmation).toBeVisible();
+  await confirmation.locator('.el-message-box__btns .el-button--primary').click();
+  await expect(studentPage).toHaveURL(/\/student\/attempts\/.+\/result$/, { timeout: 20_000 });
+
+  await login(adminPage, 'e2e_admin');
+  await adminPage.goto('/grading');
+  await adminPage.locator('.grading-filters .el-select').first().click();
+  const examOption = adminPage.locator('.el-select-dropdown__item:visible', { hasText: 'E2E material rubric exam' });
+  await expect(examOption).toBeVisible();
+  await examOption.click();
+  await expect(adminPage.getByText('E2E rubric child', { exact: true })).toBeVisible();
+  await adminPage.getByText('E2E rubric child', { exact: true }).click();
+  await expect(adminPage.getByText('准确性（5 分）', { exact: true })).toBeVisible();
+  const rubricInputs = adminPage.locator('.rubric-row .el-input-number input');
+  await rubricInputs.nth(0).fill('5');
+  await rubricInputs.nth(1).fill('2');
+  await adminPage.getByRole('button', { name: '保存并批改下一题' }).click();
+  await expect(adminPage.getByText(/整份试卷已完成批改|已保存/)).toBeVisible();
+
+  await adminPage.getByRole('button', { name: '试算重判' }).click();
+  await adminPage.getByRole('button', { name: '生成试算' }).click();
+  await expect(adminPage.getByText('试算完成，正式成绩尚未改变')).toBeVisible();
+  await expect(adminPage.getByText('扫描答案')).toBeVisible();
+  await admin.close();
+  await student.close();
 });
 
 async function login(page: Page, username: string) {
