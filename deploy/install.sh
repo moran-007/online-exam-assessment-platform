@@ -157,14 +157,26 @@ install_base_packages() {
   log "Installing base packages"
   if has_command apt-get; then
     apt-get update
-    DEBIAN_FRONTEND=noninteractive apt-get install -y ca-certificates curl git gnupg gzip nginx openssl postgresql-client tar docker.io docker-compose-plugin
-    systemctl enable --now docker nginx
+    DEBIAN_FRONTEND=noninteractive apt-get install -y ca-certificates curl git gnupg gzip nginx openssl postgresql-client tar
+    if ! has_command docker; then
+      DEBIAN_FRONTEND=noninteractive apt-get install -y docker.io docker-compose-plugin
+    fi
+    systemctl enable --now nginx
+    systemctl enable --now docker || true
   elif has_command dnf; then
-    dnf install -y ca-certificates curl git gzip nginx openssl postgresql tar docker docker-compose-plugin
-    systemctl enable --now docker nginx
+    dnf install -y ca-certificates curl git gzip nginx openssl postgresql tar
+    if ! has_command docker; then
+      dnf install -y docker docker-compose-plugin
+    fi
+    systemctl enable --now nginx
+    systemctl enable --now docker || true
   elif has_command yum; then
-    yum install -y ca-certificates curl git gzip nginx openssl postgresql tar docker nginx
-    systemctl enable --now docker nginx
+    yum install -y ca-certificates curl git gzip nginx openssl postgresql tar nginx
+    if ! has_command docker; then
+      yum install -y docker
+    fi
+    systemctl enable --now nginx
+    systemctl enable --now docker || true
   else
     echo "Unsupported Linux distribution: apt-get/dnf/yum not found." >&2
     exit 1
