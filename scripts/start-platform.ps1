@@ -9,8 +9,8 @@ $ErrorActionPreference = "Stop"
 
 $Root = Split-Path -Parent $PSScriptRoot
 $Runtime = Join-Path $Root "runtime"
-$BackendUrl = "http://localhost:3000/api/v1/health"
-$FrontendUrl = "http://localhost:5173"
+$BackendUrl = "http://127.0.0.1:3000/api/v1/health"
+$FrontendUrl = "http://127.0.0.1:5173"
 
 New-Item -ItemType Directory -Force -Path $Runtime | Out-Null
 Set-Location -Path $Root
@@ -246,7 +246,11 @@ if (!$backendReady -or !$frontendReady) {
 }
 
 if (!$NoBrowser) {
-  Start-Process $FrontendUrl
+  try {
+    Start-Process -FilePath $FrontendUrl -ErrorAction Stop
+  } catch {
+    Write-Warning "Platform is running, but the browser could not be opened automatically. Open $FrontendUrl manually."
+  }
 }
 
 Write-Host ""

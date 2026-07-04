@@ -574,53 +574,14 @@
                   :rows="18"
                 />
               </div>
-              <div v-else-if="isSplitPracticeQuestion(practiceDetail.type)" class="programming-answer">
-                <div class="programming-toolbar">
-                  <span class="programming-language-label">作答</span>
-                  <el-tag>{{ typeLabel(practiceDetail.type) }}</el-tag>
-                </div>
-                <el-input
-                  v-model="practiceAnswer.text"
-                  class="answer-input subjective-answer-input"
-                  type="textarea"
-                  :rows="18"
-                  placeholder="填写答案"
-                />
-              </div>
-              <template v-else>
-                <div class="programming-toolbar">
-                  <span class="programming-language-label">作答</span>
-                  <el-tag>{{ typeLabel(practiceDetail.type) }}</el-tag>
-                </div>
-                <el-radio-group
-                  v-if="['single_choice', 'true_false'].includes(practiceDetail.type)"
-                  v-model="practiceAnswer.selectedOptionIds[0]"
-                  class="answer-options"
-                >
-                  <el-radio v-for="option in practiceOptions" :key="option.optionId" :label="option.optionId" class="answer-option">
-                    <span class="option-choice">
-                      <strong>{{ option.label }}.</strong>
-                      <MarkdownRenderer :source="option.content" />
-                    </span>
-                  </el-radio>
-                </el-radio-group>
-
-                <el-checkbox-group v-else-if="practiceDetail.type === 'multiple_choice'" v-model="practiceAnswer.selectedOptionIds" class="answer-options">
-                  <el-checkbox v-for="option in practiceOptions" :key="option.optionId" :label="option.optionId" class="answer-option">
-                    <span class="option-choice">
-                      <strong>{{ option.label }}.</strong>
-                      <MarkdownRenderer :source="option.content" />
-                    </span>
-                  </el-checkbox>
-                </el-checkbox-group>
-
-                <FillBlankAnswerInputs
-                  v-else-if="practiceDetail.type === 'fill_blank'"
-                  v-model="practiceAnswer.blanks"
-                  :count="blankCountFor(practiceDetail)"
-                />
-                <el-input v-else v-model="practiceAnswer.text" type="textarea" :rows="5" placeholder="填写答案" />
-              </template>
+              <QuestionAnswerHost
+                v-else
+                :model-value="practiceAnswer"
+                :question="practiceDetail"
+                :type="practiceDetail.type"
+                :rows="18"
+                @update:model-value="updatePracticeAnswer"
+              />
             </div>
           </template>
         </QuestionAnswerLayout>
@@ -715,9 +676,9 @@ import {
 import { api, buildQuery } from '../api';
 import AnswerFeedback from '../components/AnswerFeedback.vue';
 import CodeAnswerEditor from '../components/CodeAnswerEditor.vue';
-import FillBlankAnswerInputs from '../components/FillBlankAnswerInputs.vue';
 import MarkdownRenderer from '../components/MarkdownRenderer.vue';
 import ProgrammingToolbarShell from '../components/ProgrammingToolbarShell.vue';
+import QuestionAnswerHost from '../components/QuestionAnswerHost.vue';
 import QuestionAnswerLayout from '../components/QuestionAnswerLayout.vue';
 import { useResponsiveColumns } from '../composables/useResponsiveColumns';
 import {
@@ -749,7 +710,6 @@ const statusOptions = [
   { label: '已隐藏', value: 'disabled' },
 ];
 const statusSegmentOptions = statusOptions.map((item) => ({ label: item.label, value: item.value }));
-const objectiveQuestionTypes = new Set(['single_choice', 'multiple_choice', 'true_false', 'fill_blank']);
 
 const courses = ref([]);
 const tags = ref([]);
@@ -931,13 +891,6 @@ function isFullProgrammingScore(result) {
   return result?.status === 'accepted';
 }
 
-const practiceOptions = computed(() =>
-  (practiceDetail.value?.options ?? []).map((option, index) => ({
-    optionId: option.id ?? option.optionId,
-    label: option.optionKey ?? option.label ?? optionKeyForIndex(index),
-    content: option.content ?? '',
-  })),
-);
 const correctChoiceKey = computed({
   get() {
     return form.options.find((option) => option.isCorrect)?.optionKey ?? '';
@@ -1924,10 +1877,6 @@ function openHydroProblem(question) {
   window.open(url, '_blank', 'noopener,noreferrer');
 }
 
-function isSplitPracticeQuestion(type) {
-  return Boolean(type) && !objectiveQuestionTypes.has(type);
-}
-
 function emptyPracticeAnswer(question = null) {
   return {
     selectedOptionIds: [],
@@ -1942,6 +1891,16 @@ function clearPracticeAnswer() {
   Object.assign(practiceAnswer, emptyPracticeAnswer(practiceDetail.value));
   practiceResult.value = null;
   practiceProgrammingResult.value = null;
+}
+
+function updatePracticeAnswer(value) {
+  Object.assign(practiceAnswer, {
+    selectedOptionIds: Array.isArray(value?.selectedOptionIds) ? value.selectedOptionIds : [],
+    blanks: Array.isArray(value?.blanks) ? value.blanks : blankAnswerList(practiceDetail.value),
+    text: value?.text ?? '',
+    code: value?.code ?? practiceAnswer.code ?? '',
+    language: value?.language ?? practiceAnswer.language ?? languageOptionsFor(practiceDetail.value)[0] ?? 'cc.cc17o2',
+  });
 }
 
 function payloadForPracticeAnswer() {
