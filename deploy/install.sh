@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
+ulimit -c 0
 
 APP_NAME="online-exam-platform"
 APP_ROOT="/opt/online-exam-platform"
@@ -97,6 +98,18 @@ has_command() {
   command -v "$1" >/dev/null 2>&1
 }
 
+wait_for_url() {
+  local url="$1"
+  local attempt
+  for attempt in $(seq 1 30); do
+    if curl -fsS --max-time 5 "$url" >/dev/null; then
+      return 0
+    fi
+    sleep 2
+  done
+  return 1
+}
+
 configure_package_mirror() {
   export PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
   export npm_config_registry="$NPM_REGISTRY"
@@ -113,11 +126,38 @@ configure_package_mirror() {
   fi
 }
 
+install_dependencies() {
+  local registry
+  local install_ok="false"
+  local -a registries=(
+    "$NPM_REGISTRY"
+    "https://registry.npmmirror.com"
+    "https://repo.huaweicloud.com/repository/npm"
+    "https://registry.npmjs.org"
+  )
+
+  for registry in "${registries[@]}"; do
+    log "Installing dependencies from $registry"
+    if timeout 420 env \
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 \
+      npm_config_registry="$registry" \
+      pnpm install --frozen-lockfile --prefer-offline --reporter=append-only \
+        --child-concurrency=1 --network-concurrency=4 --fetch-retries=2 \
+        --fetch-timeout=60000; then
+      install_ok="true"
+      break
+    fi
+    log "Registry failed or timed out; switching mirror"
+  done
+
+  [[ "$install_ok" == "true" ]]
+}
+
 install_base_packages() {
   log "Installing base packages"
   if has_command apt-get; then
     apt-get update
-    DEBIAN_FRONTEND=noninteractive apt-get install -y ca-certificates curl git gzip nginx openssl postgresql-client tar docker.io docker-compose-plugin
+    DEBIAN_FRONTEND=noninteractive apt-get install -y ca-certificates curl git gnupg gzip nginx openssl postgresql-client tar docker.io docker-compose-plugin
     systemctl enable --now docker nginx
   elif has_command dnf; then
     dnf install -y ca-certificates curl git gzip nginx openssl postgresql tar docker docker-compose-plugin
@@ -157,6 +197,50 @@ install_node_runtime() {
     npm install -g pm2 --registry="$NPM_REGISTRY"
   fi
   configure_package_mirror
+}
+
+ensure_postgresql_client() {
+  local major="0"
+  if has_command pg_dump; then
+    major="$(pg_dump --version | sed -E 's/.* ([0-9]+)(\..*)?$/\1/' || printf '0')"
+  fi
+  if [[ "$major" =~ ^[0-9]+$ ]] && (( major >= 16 )); then
+    return
+  fi
+
+  if ! has_command apt-get; then
+    echo "PostgreSQL client 16 or newer is required for production backups." >&2
+    return 1
+  fi
+
+  local codename key_url repository
+  # shellcheck disable=SC1091
+  source /etc/os-release
+  codename="${UBUNTU_CODENAME:-${VERSION_CODENAME:-}}"
+  [[ -n "$codename" ]]
+  install -d -m 755 /usr/share/postgresql-common/pgdg
+
+  for key_url in \
+    https://mirrors.aliyun.com/postgresql/repos/apt/ACCC4CF8.asc \
+    https://apt.postgresql.org/pub/repos/apt/ACCC4CF8.asc; do
+    if curl -fsSL --max-time 30 "$key_url" | gpg --dearmor --yes -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.gpg; then
+      break
+    fi
+  done
+  test -s /usr/share/postgresql-common/pgdg/apt.postgresql.org.gpg
+
+  for repository in \
+    https://mirrors.aliyun.com/postgresql/repos/apt \
+    https://apt.postgresql.org/pub/repos/apt; do
+    printf 'deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.gpg] %s %s-pgdg main\n' \
+      "$repository" "$codename" >/etc/apt/sources.list.d/pgdg.list
+    if apt-get update -o Acquire::Retries=2 && \
+      DEBIAN_FRONTEND=noninteractive apt-get install -y postgresql-client-16; then
+      return
+    fi
+    log "PostgreSQL package mirror failed; switching mirror"
+  done
+  return 1
 }
 
 install_node22() {
@@ -299,6 +383,9 @@ deploy_release() {
 
   cp "$env_file" "$release/.env"
   ln -sfn "$APP_ROOT/shared/uploads" "$release/uploads"
+  if [[ -d "$APP_ROOT/current/node_modules" ]]; then
+    cp -al "$APP_ROOT/current/node_modules" "$release/node_modules"
+  fi
 
   local pg_user pg_password pg_db
   pg_user="$(load_env_value POSTGRES_USER "$env_file")"
@@ -315,9 +402,9 @@ deploy_release() {
   log "Installing dependencies and building"
   (
     cd "$release"
-    PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 pnpm install --frozen-lockfile --registry="$NPM_REGISTRY"
-    pnpm build:all
-    pnpm prisma generate
+    install_dependencies
+    NODE_OPTIONS=--max-old-space-size=512 pnpm prisma generate
+    NODE_OPTIONS=--max-old-space-size=1280 pnpm build:all
     if [[ -e "$APP_ROOT/current" ]]; then
       log "Creating a pre-migration backup"
       pnpm backup:create
@@ -464,12 +551,13 @@ TIMER
 
 smoke_test() {
   log "Running smoke tests"
-  curl -fsS "http://127.0.0.1:$PORT/api/v1/health" >/dev/null
-  curl -fsS "http://127.0.0.1/" >/dev/null
+  wait_for_url "http://127.0.0.1:$PORT/api/v1/health"
+  wait_for_url "http://127.0.0.1/"
   pm2 status "$APP_NAME"
 }
 
 install_base_packages
+ensure_postgresql_client
 install_node_runtime
 create_shared_env
 deploy_release
