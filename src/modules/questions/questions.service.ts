@@ -730,7 +730,26 @@ export class QuestionsService {
     }
 
     const answerJson = (question.answer?.answerJson ?? {}) as QuestionAnswerJson;
-    const grading = this.gradeStandaloneQuestion(question.type, Number(question.defaultScore), answerJson, dto);
+    const scoreResult = this.questionTypes.grade({
+      snapshot: {
+        id: question.id,
+        type: toApiEnum(question.type),
+        answer: answerJson as Prisma.JsonObject,
+        scoringRule: (question.answer?.scoringRuleJson ?? {}) as Prisma.JsonObject,
+        options: question.options,
+      },
+      answer: dto,
+      maxScore: Number(question.defaultScore),
+    });
+    const grading = {
+      isCorrect: scoreResult.isCorrect,
+      score: scoreResult.score,
+      status: toApiEnum(scoreResult.status),
+      message: this.scoreResultMessage(scoreResult),
+      details: scoreResult.details,
+      warnings: scoreResult.warnings,
+      engine: scoreResult.engine,
+    };
     const answerSummary = this.buildAnswerSummary(question.type, answerJson, dto, question.options);
 
     await this.audit.log({
@@ -2466,6 +2485,16 @@ export class QuestionsService {
       status: type === QuestionType.PROGRAMMING ? 'judge_pending' : 'manual_needed',
       message: type === QuestionType.PROGRAMMING ? '该题型需要外部评测，已提供参考答案' : '该题型需要人工批改，已提供参考答案',
     };
+  }
+
+  private scoreResultMessage(result: { isCorrect: boolean | null; status: unknown; warnings?: string[] }) {
+    if (result.warnings?.length) return result.warnings[0];
+    if (result.isCorrect === true) return '回答正确';
+    if (result.isCorrect === false) return '回答错误';
+    const status = toApiEnum(result.status as never);
+    if (status === 'judge_pending') return '该题型需要外部评测，已提供参考答案';
+    if (status === 'submitted') return '该题型已提交，成绩由子题或后续流程汇总';
+    return '该题型需要人工批改，已提供参考答案';
   }
 
   private buildAnswerSummary(

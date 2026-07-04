@@ -275,6 +275,42 @@
                   </div>
                 </div>
               </el-form-item>
+              <el-form-item v-else-if="singleForm.type === 'material'" label="子题">
+                <div class="material-child-editor">
+                  <el-alert
+                    type="info"
+                    :closable="false"
+                    title="材料题必须选择至少一道已发布的非材料题；父题只展示材料，得分由子题分值相加。"
+                  />
+                  <div v-if="!sharedCourseId" class="mini-muted">请先在顶部选择课程，再选择该课程下的子题。</div>
+                  <div v-for="(child, index) in singleForm.children" :key="`${child.questionId}-${index}`" class="material-child-row">
+                    <el-tag>{{ index + 1 }}</el-tag>
+                    <el-select
+                      v-model="child.questionId"
+                      filterable
+                      placeholder="选择已发布子题"
+                      style="flex: 1"
+                      @change="syncMaterialChildScore(child)"
+                    >
+                      <el-option
+                        v-for="candidate in materialCandidates"
+                        :key="candidate.id"
+                        :label="`${candidate.title}（${typeLabel(candidate.type)} · ${Number(candidate.defaultScore || 0)}分）`"
+                        :value="candidate.id"
+                        :disabled="singleForm.children.some((item, childIndex) => childIndex !== index && item.questionId === candidate.id)"
+                      />
+                    </el-select>
+                    <el-input-number v-model="child.score" :min="0.01" :precision="2" :step="1" />
+                    <el-button plain :icon="Delete" @click="removeSingleMaterialChild(index)">删除</el-button>
+                  </div>
+                  <div class="toolbar">
+                    <el-button plain :icon="Plus" :disabled="!sharedCourseId" @click="addSingleMaterialChild">增加子题</el-button>
+                    <el-button plain :icon="Refresh" :disabled="!sharedCourseId" @click="loadMaterialCandidates">刷新子题</el-button>
+                    <span class="muted">当前总分：{{ singleMaterialScore }} 分</span>
+                  </div>
+                  <el-empty v-if="sharedCourseId && !materialCandidates.length" description="当前课程暂无已发布的非材料题，请先导入并发布子题" />
+                </div>
+              </el-form-item>
               <el-form-item v-else label="参考答案">
                 <el-input v-model="answerReference" type="textarea" :rows="3" resize="vertical" />
               </el-form-item>
@@ -674,6 +710,7 @@ const sharedKnowledgePointIds = ref([]);
 const sharedTagNames = ref([]);
 const publishAfterImport = ref(true);
 const singleForm = reactive(baseSingleForm());
+const materialCandidates = ref([]);
 const blankAnswerRows = ref(emptyFillBlankRows());
 const blankAnswerText = computed({
   get: () => fillBlankAnswerTextFromRows(blankAnswerRows.value),
@@ -725,6 +762,9 @@ const importableBatchCount = computed(
 );
 const selectedBatchQuestion = computed(() => batchPreview.value[selectedPreviewIndex.value] ?? batchPreview.value[0]);
 const singlePreviewQuestion = computed(() => buildSinglePreview());
+const singleMaterialScore = computed(() =>
+  singleForm.children.reduce((sum, child) => sum + Math.max(0, Number(child.score) || 0), 0),
+);
 const singleHydroProblemUrl = computed(() => {
   const explicit = effectiveHydroProblemUrl(singleForm.programmingRef);
   const problemId = singleForm.programmingRef.externalProblemId?.trim();
@@ -822,6 +862,7 @@ function baseSingleForm() {
     defaultScore: 2,
     analysis: '',
     programmingRef: emptyProgrammingRef(),
+    children: [],
     options: [
       { optionKey: 'A', content: '', isCorrect: false, sortOrder: 1 },
       { optionKey: 'B', content: '', isCorrect: true, sortOrder: 2 },
@@ -878,6 +919,7 @@ async function loadBaseData() {
   hydroPlatforms.value = Array.isArray(platformPage) ? platformPage : [];
   sharedCourseId.value = sharedCourseId.value || courses.value[0]?.id || '';
   await loadKnowledgeTree();
+  if (singleForm.type === 'material') await loadMaterialCandidates();
   await loadHydroAccounts();
   syncSingleHydroAccountForSite();
   refreshPreview();
@@ -1003,8 +1045,19 @@ watch(
 async function handleSharedCourseChange() {
   sharedCourseTouched.value = true;
   sharedKnowledgePointIds.value = [];
+  singleForm.children = [];
   await loadKnowledgeTree();
+  if (singleForm.type === 'material') await loadMaterialCandidates();
   refreshPreview();
+}
+
+async function loadMaterialCandidates() {
+  if (!sharedCourseId.value) {
+    materialCandidates.value = [];
+    return;
+  }
+  const data = await api(`/questions${buildQuery({ page: 1, pageSize: 200, courseId: sharedCourseId.value, scope: 'published' })}`);
+  materialCandidates.value = (data.items ?? []).filter((item) => item.type !== 'material');
 }
 
 async function loadKnowledgeTree() {
@@ -1033,7 +1086,9 @@ function buildSinglePreview() {
     tagNames: [...sharedTagNames.value],
     content: singleForm.content,
     difficulty: Number(singleForm.difficulty),
-    defaultScore: Number(singleForm.defaultScore),
+    defaultScore: singleForm.type === 'material' && singleForm.children.length
+      ? singleMaterialScore.value
+      : Number(singleForm.defaultScore),
     analysis: singleForm.analysis,
     options,
     answerText: getSingleAnswerText(),
@@ -1044,9 +1099,17 @@ function buildSinglePreview() {
     payload.programmingRef = buildSingleProgrammingRefPayload();
   }
 
+  if (singleForm.type === 'material') {
+    payload.children = singleForm.children.map((child, index) => ({
+      questionId: child.questionId,
+      score: Number(child.score),
+      sortOrder: index + 1,
+    }));
+  }
+
   if (singleForm.type === 'fill_blank') {
     payload.answer = buildSingleFillBlankPreviewAnswer(payload.defaultScore);
-  } else if (!isChoiceType(singleForm.type) && answerReference.value.trim()) {
+  } else if (singleForm.type !== 'material' && !isChoiceType(singleForm.type) && answerReference.value.trim()) {
     payload.answer = { reference: answerReference.value.trim() };
   }
 
@@ -1170,6 +1233,14 @@ function scheduleSingleDuplicateCheck() {
 }
 
 function resetSingleOptions() {
+  if (singleForm.type === 'material') {
+    singleForm.options = [];
+    void loadMaterialCandidates().then(() => {
+      if (!singleForm.children.length) addSingleMaterialChild();
+    });
+    return;
+  }
+
   if (singleForm.type === 'true_false') {
     singleForm.options = [
       { optionKey: 'A', content: '正确', isCorrect: true, sortOrder: 1 },
@@ -1186,10 +1257,41 @@ function resetSingleOptions() {
   singleForm.options = [];
 }
 
-function handleSingleTypeChange() {
+async function handleSingleTypeChange() {
   resetSingleOptions();
   if (singleForm.type === 'fill_blank' && !blankAnswerRows.value.length) {
     blankAnswerRows.value = emptyFillBlankRows();
+  }
+  if (singleForm.type === 'material') {
+    answerReference.value = '';
+    await loadMaterialCandidates();
+    if (!singleForm.children.length) addSingleMaterialChild();
+  } else {
+    singleForm.children = [];
+  }
+}
+
+function addSingleMaterialChild() {
+  const used = new Set(singleForm.children.map((child) => child.questionId));
+  const candidate = materialCandidates.value.find((item) => !used.has(item.id));
+  singleForm.children.push({
+    questionId: candidate?.id || '',
+    score: Number(candidate?.defaultScore || 1),
+    sortOrder: singleForm.children.length + 1,
+  });
+}
+
+function removeSingleMaterialChild(index) {
+  singleForm.children.splice(index, 1);
+  singleForm.children.forEach((child, childIndex) => {
+    child.sortOrder = childIndex + 1;
+  });
+}
+
+function syncMaterialChildScore(child) {
+  const candidate = materialCandidates.value.find((item) => item.id === child.questionId);
+  if (candidate && (!Number.isFinite(Number(child.score)) || Number(child.score) <= 0)) {
+    child.score = Number(candidate.defaultScore || 1);
   }
 }
 
@@ -1245,6 +1347,7 @@ function countBlankMarkers(content) {
 
 function resetSingleForm() {
   Object.assign(singleForm, baseSingleForm());
+  materialCandidates.value = [];
   blankAnswerRows.value = emptyFillBlankRows();
   blankCaseSensitive.value = false;
   blankSpaceSensitive.value = false;
@@ -1842,6 +1945,19 @@ function validatePayload(payload, label) {
     const blanks = payload.answer?.blanks ?? [];
     if (!blanks.length || blanks.every((blank) => !blank.answers?.length)) {
       throw new Error(`${label}：请至少填写一个空位答案`);
+    }
+  }
+
+  if (payload.type === 'material') {
+    const children = payload.children ?? [];
+    if (!children.length) {
+      throw new Error(`${label}：材料/组合题至少需要选择一道子题`);
+    }
+    if (children.some((child) => !child.questionId || !Number.isFinite(Number(child.score)) || Number(child.score) <= 0)) {
+      throw new Error(`${label}：请为每一道子题选择题目并填写大于 0 的分值`);
+    }
+    if (new Set(children.map((child) => child.questionId)).size !== children.length) {
+      throw new Error(`${label}：材料/组合题不能重复引用同一道子题`);
     }
   }
 }
@@ -3150,5 +3266,17 @@ onMounted(async () => {
 
 .asset-reference-locations {
   overflow-wrap: anywhere;
+}
+
+.material-child-editor {
+  display: grid;
+  width: 100%;
+  gap: 10px;
+}
+
+.material-child-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
 }
 </style>
