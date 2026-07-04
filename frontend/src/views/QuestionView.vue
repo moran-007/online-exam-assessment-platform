@@ -309,7 +309,7 @@
               </el-form-item>
               <el-form-item v-else-if="form.type === 'material'" label="子题">
                 <div class="material-child-editor">
-                  <el-alert type="info" :closable="false" title="当前仅支持单层组合；材料题本身不计分，总分由子题分值相加。" />
+                  <el-alert type="info" :closable="false" title="当前仅支持单层组合；材料/组合题本身不计分，总分由子题分值相加。" />
                   <div v-for="(child, index) in form.children" :key="`${child.questionId}-${index}`" class="material-child-row">
                     <el-tag>{{ index + 1 }}</el-tag>
                     <el-select v-model="child.questionId" filterable placeholder="选择已发布子题" style="flex: 1">
@@ -574,6 +574,14 @@
                   :rows="18"
                 />
               </div>
+              <MaterialQuestionAnswerPanel
+                v-else-if="practiceDetail.type === 'material'"
+                :model-value="practiceChildAnswers"
+                :results="practiceChildResults"
+                :material="practiceDetail"
+                :rows="18"
+                @update:model-value="updatePracticeChildAnswers"
+              />
               <QuestionAnswerHost
                 v-else
                 :model-value="practiceAnswer"
@@ -676,6 +684,7 @@ import {
 import { api, buildQuery } from '../api';
 import AnswerFeedback from '../components/AnswerFeedback.vue';
 import CodeAnswerEditor from '../components/CodeAnswerEditor.vue';
+import MaterialQuestionAnswerPanel from '../components/MaterialQuestionAnswerPanel.vue';
 import MarkdownRenderer from '../components/MarkdownRenderer.vue';
 import ProgrammingToolbarShell from '../components/ProgrammingToolbarShell.vue';
 import QuestionAnswerHost from '../components/QuestionAnswerHost.vue';
@@ -698,7 +707,7 @@ const typeOptions = [
   { label: '填空题', value: 'fill_blank' },
   { label: '简答题', value: 'short_answer' },
   { label: '编程题', value: 'programming' },
-  { label: '材料题', value: 'material' },
+  { label: '材料/组合题', value: 'material' },
   { label: '文件上传题', value: 'file_upload' },
   { label: 'Scratch 项目题', value: 'scratch_project' },
   { label: 'Arduino 项目题', value: 'arduino_project' },
@@ -764,6 +773,8 @@ const practiceProgrammingSubmitLoading = ref(false);
 const practiceHydroAccountId = ref('');
 const answerLayout = ref('side');
 const practiceAnswer = reactive(emptyPracticeAnswer());
+const practiceChildAnswers = reactive({});
+const practiceChildResults = reactive({});
 
 const isEditing = computed(() => Boolean(editingId.value));
 const isChoice = computed(() => isChoiceType(form.type));
@@ -1090,7 +1101,15 @@ async function loadMaterialCandidates() {
     materialCandidates.value = [];
     return;
   }
-  const data = await api(`/questions${buildQuery({ page: 1, pageSize: 200, courseId: form.courseId, scope: 'published' })}`);
+  const data = await api(
+    `/questions${buildQuery({
+      page: 1,
+      pageSize: 200,
+      courseId: form.courseId,
+      scope: 'published',
+      includeChildItems: true,
+    })}`,
+  );
   materialCandidates.value = (data.items ?? []).filter((item) => item.type !== 'material' && item.id !== editingId.value);
 }
 
@@ -1829,6 +1848,10 @@ async function checkPracticeAnswer() {
     await submitPracticeProgrammingAnswer();
     return;
   }
+  if (practiceDetail.value.type === 'material') {
+    await checkMaterialPracticeAnswer();
+    return;
+  }
   try {
     practiceResult.value = await api(`/questions/${practiceDetail.value.id}/check-answer`, {
       method: 'POST',
@@ -1889,6 +1912,12 @@ function emptyPracticeAnswer(question = null) {
 
 function clearPracticeAnswer() {
   Object.assign(practiceAnswer, emptyPracticeAnswer(practiceDetail.value));
+  resetPracticeChildState();
+  if (practiceDetail.value?.type === 'material') {
+    for (const child of materialChildren(practiceDetail.value)) {
+      practiceChildAnswers[materialChildId(child)] = emptyPracticeAnswer(materialChildQuestion(child));
+    }
+  }
   practiceResult.value = null;
   practiceProgrammingResult.value = null;
 }
@@ -1904,23 +1933,144 @@ function updatePracticeAnswer(value) {
 }
 
 function payloadForPracticeAnswer() {
-  if (practiceAnswer.selectedOptionIds.filter(Boolean).length) {
-    return { selectedOptionIds: practiceAnswer.selectedOptionIds.filter(Boolean) };
+  return payloadForAnswer(practiceAnswer);
+}
+
+function payloadForAnswer(answerValue) {
+  if (answerValue?.selectedOptionIds?.filter(Boolean).length) {
+    return { selectedOptionIds: answerValue.selectedOptionIds.filter(Boolean) };
   }
-  if (practiceAnswer.blanks.some((blank) => String(blank.value ?? '').trim())) {
-    return { blanks: practiceAnswer.blanks };
+  if (answerValue?.blanks?.some((blank) => String(blank.value ?? '').trim())) {
+    return { blanks: answerValue.blanks };
   }
-  if (String(practiceAnswer.text ?? '').trim()) {
-    return { text: practiceAnswer.text };
+  if (String(answerValue?.text ?? '').trim()) {
+    return { text: answerValue.text };
   }
-  if (String(practiceAnswer.code ?? '').trim()) {
+  if (String(answerValue?.code ?? '').trim()) {
     return {
-      text: practiceAnswer.code,
-      code: practiceAnswer.code,
-      language: practiceAnswer.language || 'cc.cc17o2',
+      text: answerValue.code,
+      code: answerValue.code,
+      language: answerValue.language || 'cc.cc17o2',
     };
   }
   return {};
+}
+
+function resetPracticeChildState() {
+  Object.keys(practiceChildAnswers).forEach((key) => delete practiceChildAnswers[key]);
+  Object.keys(practiceChildResults).forEach((key) => delete practiceChildResults[key]);
+}
+
+function updatePracticeChildAnswers(value) {
+  Object.keys(practiceChildAnswers).forEach((key) => delete practiceChildAnswers[key]);
+  Object.entries(value || {}).forEach(([key, childAnswer]) => {
+    practiceChildAnswers[key] = childAnswer || {};
+  });
+}
+
+function materialChildren(question) {
+  return Array.isArray(question?.children) ? question.children : [];
+}
+
+function materialChildQuestion(child) {
+  const question = child?.question || child?.snapshot || child || {};
+  return {
+    ...question,
+    id: question.id || question.questionId || child?.questionId,
+    questionId: question.questionId || question.id || child?.questionId,
+    defaultScore: materialChildScore(child),
+  };
+}
+
+function materialChildId(child) {
+  const question = materialChildQuestion(child);
+  return question.questionId || question.id || child?.questionId;
+}
+
+function materialChildScore(child) {
+  const explicit = Number(child?.score);
+  if (Number.isFinite(explicit) && explicit > 0) return explicit;
+  const fallback = Number((child?.question || child?.snapshot || child || {}).defaultScore);
+  return Number.isFinite(fallback) && fallback > 0 ? fallback : 0;
+}
+
+function hasPracticeAnswer(answerValue) {
+  return Boolean(
+    answerValue?.selectedOptionIds?.filter(Boolean).length
+    || answerValue?.blanks?.some((blank) => String(blank.value ?? '').trim())
+    || String(answerValue?.text ?? '').trim()
+    || String(answerValue?.code ?? '').trim(),
+  );
+}
+
+async function checkMaterialPracticeAnswer() {
+  const children = materialChildren(practiceDetail.value);
+  if (!children.length) {
+    ElMessage.warning('该材料/组合题尚未配置子题');
+    return;
+  }
+
+  const missingIndex = children.findIndex((child) => !hasPracticeAnswer(practiceChildAnswers[materialChildId(child)]));
+  if (missingIndex >= 0) {
+    ElMessage.warning(`请先完成第 ${missingIndex + 1} 道子题`);
+    return;
+  }
+
+  try {
+    const results = [];
+    Object.keys(practiceChildResults).forEach((key) => delete practiceChildResults[key]);
+    for (const child of children) {
+      const childId = materialChildId(child);
+      const response = await api(`/questions/${childId}/check-answer`, {
+        method: 'POST',
+        body: payloadForAnswer(practiceChildAnswers[childId] || {}),
+      });
+      const scaled = scaleMaterialChildResult(response, materialChildScore(child));
+      practiceChildResults[childId] = scaled;
+      results.push(scaled);
+    }
+
+    const score = roundScore(results.reduce((sum, item) => sum + Number(item.score || 0), 0));
+    const totalScore = roundScore(children.reduce((sum, child) => sum + materialChildScore(child), 0));
+    const hasWrong = results.some((item) => item.isCorrect === false);
+    const hasPending = results.some((item) => item.isCorrect === null || item.status === 'manual_needed');
+    practiceResult.value = {
+      isCorrect: hasPending ? null : !hasWrong,
+      score,
+      totalScore,
+      status: hasPending ? 'manual_needed' : 'auto_graded',
+      message: hasPending ? '材料/组合题已提交，部分子题待批改' : hasWrong ? '材料/组合题存在错误' : '材料/组合题回答正确',
+      details: results.map((item, index) => ({
+        childIndex: index + 1,
+        questionId: materialChildId(children[index]),
+        score: item.score,
+        totalScore: item.totalScore,
+        isCorrect: item.isCorrect,
+        status: item.status,
+      })),
+    };
+  } catch (error) {
+    ElMessage.error(error.message);
+  }
+}
+
+function scaleMaterialChildResult(result, targetScore) {
+  const sourceTotal = Number(result?.totalScore);
+  const score = Number(result?.score);
+  if (!Number.isFinite(sourceTotal) || sourceTotal <= 0 || !Number.isFinite(score)) {
+    return { ...result, score: 0, totalScore: targetScore };
+  }
+  if (Math.abs(sourceTotal - targetScore) < 0.0001) return result;
+  return {
+    ...result,
+    score: roundScore((score / sourceTotal) * targetScore),
+    totalScore: targetScore,
+  };
+}
+
+function roundScore(value) {
+  const numberValue = Number(value);
+  return Number.isFinite(numberValue) ? Number(numberValue.toFixed(2)) : 0;
 }
 
 function blankCountFor(question) {

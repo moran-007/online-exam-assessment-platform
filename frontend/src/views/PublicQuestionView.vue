@@ -212,6 +212,16 @@
                   :rows="18"
                 />
               </div>
+              <MaterialQuestionAnswerPanel
+                v-else-if="detail.type === 'material'"
+                :model-value="childAnswers"
+                :results="childResults"
+                :material="detail"
+                :rows="18"
+                :public-question-id="detail.id"
+                :asset-access-token="detail.assetAccessToken"
+                @update:model-value="mergeChildAnswers"
+              />
               <QuestionAnswerHost
                 v-else
                 :model-value="answer"
@@ -261,6 +271,7 @@ import { Check, Delete, Refresh, Search, View } from '@element-plus/icons-vue';
 import { api, buildQuery, getCurrentUser, getToken, onSessionChange } from '../api';
 import AnswerFeedback from '../components/AnswerFeedback.vue';
 import CodeAnswerEditor from '../components/CodeAnswerEditor.vue';
+import MaterialQuestionAnswerPanel from '../components/MaterialQuestionAnswerPanel.vue';
 import MarkdownRenderer from '../components/MarkdownRenderer.vue';
 import ProgrammingToolbarShell from '../components/ProgrammingToolbarShell.vue';
 import QuestionAnswerHost from '../components/QuestionAnswerHost.vue';
@@ -282,6 +293,8 @@ const answerLayout = ref('side');
 const hydroAccounts = ref([]);
 const selectedHydroAccountId = ref('');
 const answer = reactive(emptyAnswer());
+const childAnswers = reactive({});
+const childResults = reactive({});
 const user = ref(getCurrentUser());
 const filter = reactive({
   keyword: '',
@@ -392,9 +405,13 @@ async function checkAnswer() {
     router.push('/login');
     return;
   }
+  if (detail.value?.type === 'material') {
+    await checkMaterialAnswer();
+    return;
+  }
   result.value = await api(`/questions/${detail.value.id}/check-answer`, {
     method: 'POST',
-    body: payloadForAnswer(),
+    body: payloadForAnswer(answer),
   });
 }
 
@@ -410,6 +427,12 @@ function emptyAnswer(question = null) {
 
 function clearAnswer() {
   Object.assign(answer, emptyAnswer(detail.value));
+  resetChildState();
+  if (detail.value?.type === 'material') {
+    for (const child of materialChildren(detail.value)) {
+      childAnswers[materialChildId(child)] = emptyAnswer(materialChildQuestion(child));
+    }
+  }
   result.value = null;
   programmingResult.value = null;
 }
@@ -418,17 +441,136 @@ function mergeAnswer(nextAnswer) {
   Object.assign(answer, nextAnswer || {});
 }
 
-function payloadForAnswer() {
-  if (answer.selectedOptionIds.filter(Boolean).length) {
-    return { selectedOptionIds: answer.selectedOptionIds.filter(Boolean) };
+function mergeChildAnswers(value) {
+  Object.keys(childAnswers).forEach((key) => delete childAnswers[key]);
+  Object.entries(value || {}).forEach(([key, childAnswer]) => {
+    childAnswers[key] = childAnswer || {};
+  });
+}
+
+function payloadForAnswer(answerValue) {
+  if (answerValue?.selectedOptionIds?.filter(Boolean).length) {
+    return { selectedOptionIds: answerValue.selectedOptionIds.filter(Boolean) };
   }
-  if (answer.blanks.some((blank) => String(blank.value ?? '').trim())) {
-    return { blanks: answer.blanks };
+  if (answerValue?.blanks?.some((blank) => String(blank.value ?? '').trim())) {
+    return { blanks: answerValue.blanks };
   }
-  if (String(answer.text ?? '').trim()) {
-    return { text: answer.text };
+  if (String(answerValue?.text ?? '').trim()) {
+    return { text: answerValue.text };
+  }
+  if (String(answerValue?.code ?? '').trim()) {
+    return {
+      text: answerValue.code,
+      code: answerValue.code,
+      language: answerValue.language || 'cc.cc17o2',
+    };
   }
   return {};
+}
+
+function resetChildState() {
+  Object.keys(childAnswers).forEach((key) => delete childAnswers[key]);
+  Object.keys(childResults).forEach((key) => delete childResults[key]);
+}
+
+function materialChildren(question) {
+  return Array.isArray(question?.children) ? question.children : [];
+}
+
+function materialChildQuestion(child) {
+  const question = child?.question || child?.snapshot || child || {};
+  return {
+    ...question,
+    id: question.id || question.questionId || child?.questionId,
+    questionId: question.questionId || question.id || child?.questionId,
+    defaultScore: materialChildScore(child),
+  };
+}
+
+function materialChildId(child) {
+  const question = materialChildQuestion(child);
+  return question.questionId || question.id || child?.questionId;
+}
+
+function materialChildScore(child) {
+  const explicit = Number(child?.score);
+  if (Number.isFinite(explicit) && explicit > 0) return explicit;
+  const fallback = Number((child?.question || child?.snapshot || child || {}).defaultScore);
+  return Number.isFinite(fallback) && fallback > 0 ? fallback : 0;
+}
+
+function hasAnswer(answerValue) {
+  return Boolean(
+    answerValue?.selectedOptionIds?.filter(Boolean).length
+    || answerValue?.blanks?.some((blank) => String(blank.value ?? '').trim())
+    || String(answerValue?.text ?? '').trim()
+    || String(answerValue?.code ?? '').trim(),
+  );
+}
+
+async function checkMaterialAnswer() {
+  const children = materialChildren(detail.value);
+  if (!children.length) {
+    ElMessage.warning('该材料/组合题尚未配置子题');
+    return;
+  }
+  const missingIndex = children.findIndex((child) => !hasAnswer(childAnswers[materialChildId(child)]));
+  if (missingIndex >= 0) {
+    ElMessage.warning(`请先完成第 ${missingIndex + 1} 道子题`);
+    return;
+  }
+
+  const results = [];
+  Object.keys(childResults).forEach((key) => delete childResults[key]);
+  for (const child of children) {
+    const childId = materialChildId(child);
+    const response = await api(`/questions/${childId}/check-answer`, {
+      method: 'POST',
+      body: payloadForAnswer(childAnswers[childId] || {}),
+    });
+    const scaled = scaleMaterialChildResult(response, materialChildScore(child));
+    childResults[childId] = scaled;
+    results.push(scaled);
+  }
+
+  const score = roundScore(results.reduce((sum, item) => sum + Number(item.score || 0), 0));
+  const totalScore = roundScore(children.reduce((sum, child) => sum + materialChildScore(child), 0));
+  const hasWrong = results.some((item) => item.isCorrect === false);
+  const hasPending = results.some((item) => item.isCorrect === null || item.status === 'manual_needed');
+  result.value = {
+    isCorrect: hasPending ? null : !hasWrong,
+    score,
+    totalScore,
+    status: hasPending ? 'manual_needed' : 'auto_graded',
+    message: hasPending ? '材料/组合题已提交，部分子题待批改' : hasWrong ? '材料/组合题存在错误' : '材料/组合题回答正确',
+    details: results.map((item, index) => ({
+      childIndex: index + 1,
+      questionId: materialChildId(children[index]),
+      score: item.score,
+      totalScore: item.totalScore,
+      isCorrect: item.isCorrect,
+      status: item.status,
+    })),
+  };
+}
+
+function scaleMaterialChildResult(childResult, targetScore) {
+  const sourceTotal = Number(childResult?.totalScore);
+  const score = Number(childResult?.score);
+  if (!Number.isFinite(sourceTotal) || sourceTotal <= 0 || !Number.isFinite(score)) {
+    return { ...childResult, score: 0, totalScore: targetScore };
+  }
+  if (Math.abs(sourceTotal - targetScore) < 0.0001) return childResult;
+  return {
+    ...childResult,
+    score: roundScore((score / sourceTotal) * targetScore),
+    totalScore: targetScore,
+  };
+}
+
+function roundScore(value) {
+  const numberValue = Number(value);
+  return Number.isFinite(numberValue) ? Number(numberValue.toFixed(2)) : 0;
 }
 
 async function submitProgrammingAnswer() {

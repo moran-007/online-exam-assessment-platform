@@ -112,7 +112,7 @@ POST /api/v1/auth/logout
 
 Swagger 文档默认地址：`http://localhost:3000/api/docs`。
 
-## 题型、材料题与评分
+## 题型、材料/组合题与评分
 
 ```txt
 GET  /api/v1/question-types
@@ -122,7 +122,7 @@ POST /api/v1/grading/regrade-runs/:id/confirm
 POST /api/v1/grading/regrade-runs/:id/cancel
 ```
 
-题型契约使用 JSON Schema 2020-12 元数据描述，数据库不保存或执行任意前端/后端代码。材料题当前只支持单层组合，父题不直接判分，总分按子题汇总。普通提交、人工批改、Judge 与重判都会保留评分历史，兼容字段 `AnswerRecord.score/status/autoResultJson` 继续作为页面和旧接口投影。
+题型契约使用 JSON Schema 2020-12 元数据描述，数据库不保存或执行任意前端/后端代码。材料/组合题当前只支持单层组合，可表达阅读材料题，也可表达多问简答题组；父题作为大题说明/材料容器不直接判分，总分按子题汇总。单题导入支持在父题内联添加多个简答、填空、选择等小题；Excel 批量导入仍使用题目标识/父题标识两遍组装。普通提交、人工批改、Judge 与重判都会保留评分历史，兼容字段 `AnswerRecord.score/status/autoResultJson` 继续作为页面和旧接口投影。
 
 ## 私有文件
 

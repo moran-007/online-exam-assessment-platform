@@ -108,6 +108,62 @@ export class QuestionChildDto {
   sortOrder = 0;
 }
 
+export class InlineQuestionChildDto {
+  @IsString()
+  type: string;
+
+  @IsString()
+  @MaxLength(255)
+  title: string;
+
+  @IsString()
+  content: string;
+
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(5)
+  difficulty: number;
+
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0.01)
+  score: number;
+
+  @IsOptional()
+  @IsString()
+  analysis?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  allowOptionShuffle?: boolean;
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => QuestionOptionDto)
+  options?: QuestionOptionDto[];
+
+  @IsOptional()
+  @IsObject()
+  answer?: Record<string, unknown>;
+
+  @IsOptional()
+  @IsObject()
+  scoringRule?: Record<string, unknown>;
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => ProgrammingProblemRefDto)
+  programmingRef?: ProgrammingProblemRefDto | null;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  sortOrder = 0;
+}
+
 export class CreateQuestionDto {
   @IsOptional()
   @Transform(({ value }) => value || undefined)
@@ -198,4 +254,10 @@ export class CreateQuestionDto {
   @ValidateNested({ each: true })
   @Type(() => QuestionChildDto)
   children?: QuestionChildDto[];
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => InlineQuestionChildDto)
+  inlineChildren?: InlineQuestionChildDto[];
 }

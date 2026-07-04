@@ -28,7 +28,7 @@
       v-if="isMaterial"
       type="info"
       :closable="false"
-      title="材料题按子题独立作答与计分，父题仅作为材料容器展示"
+      title="材料/组合题按子题独立作答与计分，父题作为大题说明或材料容器展示"
     />
     <el-alert v-else-if="!definition" type="warning" :closable="false" title="该题型尚未注册，当前按原始答案只读展示" />
   </div>

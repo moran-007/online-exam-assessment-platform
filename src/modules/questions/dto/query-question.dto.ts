@@ -1,5 +1,5 @@
-import { Type } from 'class-transformer';
-import { IsInt, IsOptional, IsString, IsUUID, Max, Min } from 'class-validator';
+import { Transform, Type } from 'class-transformer';
+import { IsBoolean, IsInt, IsOptional, IsString, IsUUID, Max, Min } from 'class-validator';
 import { PaginationQueryDto } from '../../../common/dto/pagination-query.dto';
 
 export class QueryQuestionDto extends PaginationQueryDto {
@@ -30,6 +30,14 @@ export class QueryQuestionDto extends PaginationQueryDto {
   @IsOptional()
   @IsUUID()
   knowledgePointId?: string;
+
+  @IsOptional()
+  @Transform(({ value }) => {
+    if (value === true || value === false) return value;
+    return ['true', '1', 'yes', 'on', '是'].includes(String(value ?? '').trim().toLowerCase());
+  })
+  @IsBoolean()
+  includeChildItems?: boolean;
 
   @IsOptional()
   @Type(() => Number)

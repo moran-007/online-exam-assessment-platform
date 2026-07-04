@@ -190,7 +190,7 @@ const questionTypes = [
   { label: '填空题', value: 'fill_blank' },
   { label: '简答题', value: 'short_answer' },
   { label: '编程题', value: 'programming' },
-  { label: '材料题', value: 'material' },
+  { label: '材料/组合题', value: 'material' },
   { label: '文件上传题', value: 'file_upload' },
 ];
 const reviewStatuses = ['manual_needed', 'manual_graded', 'judge_pending', 'judge_done'];
@@ -459,7 +459,7 @@ function questionTypeLabel(type) {
     fill_blank: '填空题',
     short_answer: '简答题',
     programming: '编程题',
-    material: '材料题',
+    material: '材料/组合题',
     file_upload: '文件上传题',
   }[type] ?? type;
 }

@@ -54,7 +54,7 @@
             <el-option v-for="tag in tags" :key="tag.id" :label="tag.name" :value="tag.name" />
           </el-select>
         </el-form-item>
-        <el-form-item v-if="importMode === 'batch' || singleForm.type === 'fill_blank'" label="填空规则" class="compact-form-item">
+        <el-form-item v-if="importMode === 'batch' || singleForm.type === 'fill_blank' || hasMaterialFillBlankChild" label="填空规则" class="compact-form-item">
           <div class="inline-control">
             <el-checkbox v-model="blankCaseSensitive">区分大小写</el-checkbox>
             <el-checkbox v-model="blankSpaceSensitive">区分首尾空格</el-checkbox>
@@ -170,7 +170,7 @@
                   <el-input v-model="singleForm.programmingRef.languagesText" placeholder="cc.cc17o2, py.py3, java" />
                 </el-form-item>
               </template>
-              <el-form-item label="题干">
+              <el-form-item :label="singleForm.type === 'material' ? '大题说明' : '题干'">
                 <div style="width: 100%">
                   <div class="toolbar" style="margin-bottom: 8px">
                     <el-button size="small" :icon="DocumentAdd" @click="insertCodeBlock(singleForm, 'content')">
@@ -204,7 +204,7 @@
                     type="textarea"
                     :rows="8"
                     resize="vertical"
-                    placeholder="支持 Markdown 和代码块"
+                    :placeholder="singleForm.type === 'material' ? '填写材料正文、阅读背景或多问简答题的统一说明，支持 Markdown 和代码块' : '支持 Markdown 和代码块'"
                     @focus="setImageInsertTarget(singleForm, 'content')"
                     @paste="handleImagePaste($event, singleForm, 'content')"
                   />
@@ -280,39 +280,145 @@
                   <el-alert
                     type="info"
                     :closable="false"
-                    title="材料题必须选择至少一道已发布的非材料题；父题只展示材料，得分由子题分值相加。"
+                    title="材料/组合题按“大题说明 + 多个小题”一次录入；可用于阅读材料题，也可用于多问简答题组。子题默认不在题库列表中单独展示。"
                   />
-                  <div v-if="!sharedCourseId" class="mini-muted">请先在顶部选择课程，再选择该课程下的子题。</div>
-                  <div v-for="(child, index) in singleForm.children" :key="`${child.questionId}-${index}`" class="material-child-row">
-                    <el-tag>{{ index + 1 }}</el-tag>
-                    <el-select
-                      v-model="child.questionId"
-                      filterable
-                      placeholder="选择已发布子题"
-                      style="flex: 1"
-                      @change="syncMaterialChildScore(child)"
-                    >
-                      <el-option
-                        v-for="candidate in materialCandidates"
-                        :key="candidate.id"
-                        :label="`${candidate.title}（${typeLabel(candidate.type)} · ${Number(candidate.defaultScore || 0)}分）`"
-                        :value="candidate.id"
-                        :disabled="singleForm.children.some((item, childIndex) => childIndex !== index && item.questionId === candidate.id)"
+                  <div
+                    v-for="(child, index) in singleForm.children"
+                    :key="child.localId"
+                    class="material-inline-child-card"
+                  >
+                    <div class="material-inline-child-head">
+                      <el-tag>子题 {{ index + 1 }}</el-tag>
+                      <el-select v-model="child.type" filterable style="width: 140px" @change="resetMaterialInlineChild(child)">
+                        <el-option
+                          v-for="type in materialChildTypeOptions"
+                          :key="type.value"
+                          :label="type.label"
+                          :value="type.value"
+                        />
+                      </el-select>
+                      <span class="muted">分值</span>
+                      <el-input-number v-model="child.score" :min="0.01" :precision="2" :step="1" />
+                      <el-button plain :icon="Delete" :disabled="singleForm.children.length <= 1" @click="removeSingleMaterialChild(index)">
+                        删除
+                      </el-button>
+                    </div>
+
+                    <el-input v-model="child.title" placeholder="子题标题，例如：根据材料判断输出结果" />
+                    <div>
+                      <div class="toolbar compact-toolbar">
+                        <el-button size="small" :icon="DocumentAdd" @click="insertCodeBlock(child, 'content')">代码块</el-button>
+                        <el-button v-if="child.type === 'fill_blank'" size="small" :icon="Plus" @click="insertMaterialChildBlankMarker(child)">
+                          插入空位
+                        </el-button>
+                      </div>
+                      <el-input
+                        v-model="child.content"
+                        type="textarea"
+                        :rows="4"
+                        resize="vertical"
+                        placeholder="子题题干。这里只写小题问题，材料正文写在上方题干里。"
+                        @focus="setImageInsertTarget(child, 'content')"
+                        @paste="handleImagePaste($event, child, 'content')"
                       />
-                    </el-select>
-                    <el-input-number v-model="child.score" :min="0.01" :precision="2" :step="1" />
-                    <el-button plain :icon="Delete" @click="removeSingleMaterialChild(index)">删除</el-button>
+                    </div>
+
+                    <div v-if="isChoiceType(child.type)" class="choice-editor material-child-choice-editor">
+                      <div class="toolbar compact-toolbar">
+                        <el-button v-if="child.type !== 'true_false'" size="small" :icon="Plus" @click="addMaterialChildOption(child)">
+                          增加选项
+                        </el-button>
+                        <span class="muted">单选/判断选一个正确项，多选至少两个正确项。</span>
+                      </div>
+                      <div v-for="(option, optionIndex) in child.options" :key="option.optionKey" class="option-editor">
+                        <el-radio
+                          v-if="child.type === 'single_choice' || child.type === 'true_false'"
+                          :model-value="materialChildCorrectChoiceKey(child)"
+                          :label="option.optionKey"
+                          @update:model-value="setMaterialChildCorrectChoice(child, $event)"
+                        />
+                        <el-checkbox v-else v-model="option.isCorrect" />
+                        <el-tag>{{ option.optionKey }}</el-tag>
+                        <div class="option-content">
+                          <el-input v-model="option.content" type="textarea" :rows="2" resize="vertical" />
+                          <MarkdownRenderer v-if="option.content" :source="option.content" />
+                        </div>
+                        <el-button
+                          v-if="child.type !== 'true_false'"
+                          size="small"
+                          plain
+                          :icon="Delete"
+                          :disabled="child.options.length <= 2"
+                          @click="removeMaterialChildOption(child, optionIndex)"
+                        >
+                          删除
+                        </el-button>
+                      </div>
+                    </div>
+
+                    <div v-else-if="child.type === 'fill_blank'" class="fill-blank-answer-editor material-child-fill-blank-editor">
+                      <div class="toolbar compact-toolbar">
+                        <el-button size="small" :icon="Plus" @click="addMaterialChildBlankAnswerRow(child)">增加空位</el-button>
+                        <el-button size="small" :icon="DocumentAdd" @click="insertMaterialChildBlankMarker(child)">插入题干空位</el-button>
+                        <span class="muted">与普通填空题一致：题干中的 ____ 对应学生看到的填空横线。</span>
+                      </div>
+                      <div v-for="(blank, blankIndex) in child.blankRows" :key="blankIndex" class="blank-answer-row">
+                        <el-tag>第 {{ blankIndex + 1 }} 空</el-tag>
+                        <el-input v-model="blank.answerText" placeholder="正确答案；多个答案用逗号分隔" />
+                        <el-button
+                          size="small"
+                          plain
+                          :icon="Delete"
+                          :disabled="child.blankRows.length <= 1"
+                          @click="removeMaterialChildBlankAnswerRow(child, blankIndex)"
+                        >
+                          删除
+                        </el-button>
+                      </div>
+                    </div>
+                    <el-input
+                      v-else
+                      v-model="child.answerText"
+                      type="textarea"
+                      :rows="3"
+                      resize="vertical"
+                      placeholder="参考答案或评分说明"
+                    />
+
+                    <el-input
+                      v-model="child.analysis"
+                      type="textarea"
+                      :rows="2"
+                      resize="vertical"
+                      placeholder="子题解析，可选"
+                      @focus="setImageInsertTarget(child, 'analysis')"
+                      @paste="handleImagePaste($event, child, 'analysis')"
+                    />
                   </div>
                   <div class="toolbar">
-                    <el-button plain :icon="Plus" :disabled="!sharedCourseId" @click="addSingleMaterialChild">增加子题</el-button>
-                    <el-button plain :icon="Refresh" :disabled="!sharedCourseId" @click="loadMaterialCandidates">刷新子题</el-button>
+                    <el-button plain :icon="Plus" @click="addSingleMaterialChild('short_answer')">增加简答小题</el-button>
+                    <el-button plain :icon="Plus" @click="addSingleMaterialChild('fill_blank')">增加填空小题</el-button>
+                    <el-button plain :icon="Plus" @click="addSingleMaterialChild('single_choice')">增加选择小题</el-button>
                     <span class="muted">当前总分：{{ singleMaterialScore }} 分</span>
                   </div>
-                  <el-empty v-if="sharedCourseId && !materialCandidates.length" description="当前课程暂无已发布的非材料题，请先导入并发布子题" />
                 </div>
               </el-form-item>
               <el-form-item v-else label="参考答案">
-                <el-input v-model="answerReference" type="textarea" :rows="3" resize="vertical" />
+                <div class="subjective-answer-editor">
+                  <el-alert
+                    v-if="singleForm.type === 'short_answer'"
+                    type="info"
+                    :closable="false"
+                    show-icon
+                    title="单问简答题只对应一个作答框；如果是 1、2、3 多个小问，请改为大题/组合题并按小题独立给分。"
+                  />
+                  <div v-if="singleForm.type === 'short_answer'" class="toolbar compact-toolbar">
+                    <el-button plain :icon="Plus" @click="convertShortAnswerToMaterial">
+                      改为多问组合题
+                    </el-button>
+                  </div>
+                  <el-input v-model="answerReference" type="textarea" :rows="3" resize="vertical" />
+                </div>
               </el-form-item>
               <el-form-item label="解析">
                 <el-input
@@ -449,6 +555,28 @@
             </div>
             <h3>{{ singlePreviewQuestion.title || '未命名题目' }}</h3>
             <MarkdownRenderer :source="singlePreviewQuestion.content || ''" />
+            <div v-if="singlePreviewQuestion.type === 'material' && singlePreviewQuestion.inlineChildren?.length" class="material-preview-children">
+              <section v-for="(child, index) in singlePreviewQuestion.inlineChildren" :key="`${child.type}-${index}`" class="material-preview-child">
+                <div class="paper-question-meta">
+                  <el-tag>子题 {{ index + 1 }}</el-tag>
+                  <el-tag>{{ typeLabel(child.type) }}</el-tag>
+                  <el-tag type="info">{{ child.score }} 分</el-tag>
+                </div>
+                <h4>{{ child.title || `子题 ${index + 1}` }}</h4>
+                <MarkdownRenderer :source="child.content || ''" />
+                <div v-if="child.options?.length" class="paper-option-list">
+                  <div
+                    v-for="option in child.options"
+                    :key="option.optionKey"
+                    :class="['paper-option', option.isCorrect ? 'correct' : '']"
+                  >
+                    <strong>{{ option.optionKey }}.</strong>
+                    <MarkdownRenderer :source="option.content" />
+                    <span v-if="option.isCorrect" class="answer-mark success">正确答案</span>
+                  </div>
+                </div>
+              </section>
+            </div>
             <div v-if="singlePreviewQuestion.options?.length" class="paper-option-list">
               <div
                 v-for="option in singlePreviewQuestion.options"
@@ -682,12 +810,22 @@ const typeOptions = [
   { label: '多选题', value: 'multiple_choice' },
   { label: '判断题', value: 'true_false' },
   { label: '填空题', value: 'fill_blank' },
-  { label: '简答题', value: 'short_answer' },
+  { label: '简答题（单问）', value: 'short_answer' },
   { label: '编程题', value: 'programming' },
-  { label: '材料题', value: 'material' },
+  { label: '大题/组合题（材料/多问）', value: 'material' },
   { label: '文件上传题', value: 'file_upload' },
   { label: 'Scratch 项目题', value: 'scratch_project' },
   { label: 'Arduino 项目题', value: 'arduino_project' },
+];
+const materialChildTypeOptions = [
+  { label: '单选小题', value: 'single_choice' },
+  { label: '多选小题', value: 'multiple_choice' },
+  { label: '判断小题', value: 'true_false' },
+  { label: '填空小题', value: 'fill_blank' },
+  { label: '简答小题', value: 'short_answer' },
+  { label: '文件上传小题', value: 'file_upload' },
+  { label: 'Scratch 小题', value: 'scratch_project' },
+  { label: 'Arduino 小题', value: 'arduino_project' },
 ];
 const LAST_SINGLE_TYPE_KEY = 'question-import-last-single-type';
 
@@ -710,7 +848,6 @@ const sharedKnowledgePointIds = ref([]);
 const sharedTagNames = ref([]);
 const publishAfterImport = ref(true);
 const singleForm = reactive(baseSingleForm());
-const materialCandidates = ref([]);
 const blankAnswerRows = ref(emptyFillBlankRows());
 const blankAnswerText = computed({
   get: () => fillBlankAnswerTextFromRows(blankAnswerRows.value),
@@ -750,6 +887,7 @@ const assetUploadKey = ref(0);
 const assetReport = ref(null);
 const assetReportLoading = ref(false);
 const assetCleanupLoading = ref(false);
+let materialChildLocalId = 1;
 
 const knowledgeTreeOptions = computed(() => convertKnowledgeTree(knowledgeTree.value));
 const selectedKnowledgeNames = computed(() => {
@@ -764,6 +902,9 @@ const selectedBatchQuestion = computed(() => batchPreview.value[selectedPreviewI
 const singlePreviewQuestion = computed(() => buildSinglePreview());
 const singleMaterialScore = computed(() =>
   singleForm.children.reduce((sum, child) => sum + Math.max(0, Number(child.score) || 0), 0),
+);
+const hasMaterialFillBlankChild = computed(() =>
+  singleForm.type === 'material' && singleForm.children.some((child) => child.type === 'fill_blank'),
 );
 const singleHydroProblemUrl = computed(() => {
   const explicit = effectiveHydroProblemUrl(singleForm.programmingRef);
@@ -919,7 +1060,6 @@ async function loadBaseData() {
   hydroPlatforms.value = Array.isArray(platformPage) ? platformPage : [];
   sharedCourseId.value = sharedCourseId.value || courses.value[0]?.id || '';
   await loadKnowledgeTree();
-  if (singleForm.type === 'material') await loadMaterialCandidates();
   await loadHydroAccounts();
   syncSingleHydroAccountForSite();
   refreshPreview();
@@ -1045,19 +1185,8 @@ watch(
 async function handleSharedCourseChange() {
   sharedCourseTouched.value = true;
   sharedKnowledgePointIds.value = [];
-  singleForm.children = [];
   await loadKnowledgeTree();
-  if (singleForm.type === 'material') await loadMaterialCandidates();
   refreshPreview();
-}
-
-async function loadMaterialCandidates() {
-  if (!sharedCourseId.value) {
-    materialCandidates.value = [];
-    return;
-  }
-  const data = await api(`/questions${buildQuery({ page: 1, pageSize: 200, courseId: sharedCourseId.value, scope: 'published' })}`);
-  materialCandidates.value = (data.items ?? []).filter((item) => item.type !== 'material');
 }
 
 async function loadKnowledgeTree() {
@@ -1100,9 +1229,12 @@ function buildSinglePreview() {
   }
 
   if (singleForm.type === 'material') {
-    payload.children = singleForm.children.map((child, index) => ({
-      questionId: child.questionId,
-      score: Number(child.score),
+    payload.inlineChildren = buildMaterialInlineChildrenPayload();
+    payload.children = payload.inlineChildren.map((child, index) => ({
+      inline: true,
+      title: child.title,
+      type: child.type,
+      score: child.score,
       sortOrder: index + 1,
     }));
   }
@@ -1135,6 +1267,55 @@ function buildSingleFillBlankPreviewAnswer(score) {
   }
 }
 
+function buildMaterialInlineChildrenPayload() {
+  return singleForm.children.map((child, index) => {
+    const payload = {
+      type: child.type,
+      title: String(child.title || '').trim(),
+      content: String(child.content || '').trim(),
+      difficulty: Number(child.difficulty || singleForm.difficulty || 1),
+      score: Number(child.score || 0),
+      analysis: String(child.analysis || '').trim(),
+      allowOptionShuffle: true,
+      sortOrder: index + 1,
+    };
+
+    if (isChoiceType(child.type)) {
+      payload.options = (child.options ?? []).map((option, optionIndex) => ({
+        optionKey: option.optionKey || optionKeyForIndex(optionIndex),
+        content: String(option.content || '').trim(),
+        isCorrect: Boolean(option.isCorrect),
+        sortOrder: optionIndex + 1,
+      }));
+    } else if (child.type === 'fill_blank') {
+      payload.answer = buildMaterialChildFillBlankAnswer(child);
+    } else if (String(child.answerText || '').trim()) {
+      payload.answer = { reference: String(child.answerText).trim() };
+    }
+
+    return payload;
+  });
+}
+
+function buildMaterialChildFillBlankAnswer(child) {
+  try {
+    return buildFillBlankAnswer(fillBlankAnswerTextFromRows(child.blankRows ?? []), child.score, blankAnswerOptions());
+  } catch {
+    const markerCount = countBlankMarkers(child.content);
+    const rowCount = Math.max(1, markerCount);
+    const blankScore = rowCount ? Number(child.score || 0) / rowCount : Number(child.score || 0);
+    return {
+      blanks: Array.from({ length: rowCount }, (_, index) => ({
+        index: index + 1,
+        answers: [],
+        ignoreCase: !blankCaseSensitive.value,
+        trimSpace: !blankSpaceSensitive.value,
+        score: blankScore,
+      })),
+    };
+  }
+}
+
 function questionPayload(preview) {
   const payload = { ...preview };
   for (const key of [
@@ -1142,6 +1323,9 @@ function questionPayload(preview) {
     'conflictStatus', 'conflictMessage', 'conflictMatches', 'batchKey',
   ]) {
     delete payload[key];
+  }
+  if (payload.inlineChildren?.length) {
+    delete payload.children;
   }
   return payload;
 }
@@ -1169,6 +1353,9 @@ async function importSingle() {
     payload.tagIds = await resolveTagIds(tagNames);
     const created = await api('/questions', { method: 'POST', body: payload });
     if (publishAfterImport.value) {
+      for (const childId of created.childIds ?? []) {
+        await api(`/questions/${childId}/publish`, { method: 'POST' });
+      }
       await api(`/questions/${created.id}/publish`, { method: 'POST' });
     }
     rememberSingleType(payload.type || singleForm.type);
@@ -1235,9 +1422,7 @@ function scheduleSingleDuplicateCheck() {
 function resetSingleOptions() {
   if (singleForm.type === 'material') {
     singleForm.options = [];
-    void loadMaterialCandidates().then(() => {
-      if (!singleForm.children.length) addSingleMaterialChild();
-    });
+    if (!singleForm.children.length) addSingleMaterialChild();
     return;
   }
 
@@ -1264,21 +1449,29 @@ async function handleSingleTypeChange() {
   }
   if (singleForm.type === 'material') {
     answerReference.value = '';
-    await loadMaterialCandidates();
     if (!singleForm.children.length) addSingleMaterialChild();
   } else {
     singleForm.children = [];
   }
 }
 
-function addSingleMaterialChild() {
-  const used = new Set(singleForm.children.map((child) => child.questionId));
-  const candidate = materialCandidates.value.find((item) => !used.has(item.id));
-  singleForm.children.push({
-    questionId: candidate?.id || '',
-    score: Number(candidate?.defaultScore || 1),
-    sortOrder: singleForm.children.length + 1,
-  });
+function convertShortAnswerToMaterial() {
+  const child = baseMaterialInlineChild(1, 'short_answer');
+  child.title = singleForm.title ? `${singleForm.title}：第 1 问` : '第 1 问';
+  child.content = '请根据大题说明作答。';
+  child.difficulty = Number(singleForm.difficulty || 1);
+  child.score = Number(singleForm.defaultScore || 2);
+  child.answerText = answerReference.value;
+  child.analysis = singleForm.analysis;
+  singleForm.type = 'material';
+  singleForm.children = [child];
+  singleForm.options = [];
+  answerReference.value = '';
+  ElMessage.success('已改为大题/组合题，可继续添加多个简答、填空或选择小题');
+}
+
+function addSingleMaterialChild(type = 'short_answer') {
+  singleForm.children.push(baseMaterialInlineChild(singleForm.children.length + 1, type));
 }
 
 function removeSingleMaterialChild(index) {
@@ -1288,11 +1481,99 @@ function removeSingleMaterialChild(index) {
   });
 }
 
-function syncMaterialChildScore(child) {
-  const candidate = materialCandidates.value.find((item) => item.id === child.questionId);
-  if (candidate && (!Number.isFinite(Number(child.score)) || Number(child.score) <= 0)) {
-    child.score = Number(candidate.defaultScore || 1);
+function baseMaterialInlineChild(sortOrder = 1, type = 'short_answer') {
+  const child = {
+    localId: `material-child-${materialChildLocalId++}`,
+    type,
+    title: '',
+    content: '',
+    difficulty: Number(singleForm.difficulty || 1),
+    score: 2,
+    analysis: '',
+    answerText: '',
+    blankRows: emptyFillBlankRows(),
+    sortOrder,
+    options: [],
+  };
+  resetMaterialInlineChild(child);
+  return child;
+}
+
+function baseChoiceOptions() {
+  return [
+    { optionKey: 'A', content: '', isCorrect: false, sortOrder: 1 },
+    { optionKey: 'B', content: '', isCorrect: true, sortOrder: 2 },
+    { optionKey: 'C', content: '', isCorrect: false, sortOrder: 3 },
+    { optionKey: 'D', content: '', isCorrect: false, sortOrder: 4 },
+  ];
+}
+
+function resetMaterialInlineChild(child) {
+  if (child.type === 'true_false') {
+    child.options = [
+      { optionKey: 'A', content: '正确', isCorrect: true, sortOrder: 1 },
+      { optionKey: 'B', content: '错误', isCorrect: false, sortOrder: 2 },
+    ];
+  } else if (isChoiceType(child.type)) {
+    child.options = baseChoiceOptions();
+  } else {
+    child.options = [];
   }
+  child.answerText = '';
+  if (child.type === 'fill_blank') {
+    child.blankRows = emptyFillBlankRows();
+  }
+}
+
+function materialChildCorrectChoiceKey(child) {
+  return child.options.find((option) => option.isCorrect)?.optionKey ?? '';
+}
+
+function setMaterialChildCorrectChoice(child, value) {
+  child.options.forEach((option) => {
+    option.isCorrect = option.optionKey === value;
+  });
+}
+
+function addMaterialChildOption(child) {
+  child.options.push({
+    optionKey: optionKeyForIndex(child.options.length),
+    content: '',
+    isCorrect: false,
+    sortOrder: child.options.length + 1,
+  });
+}
+
+function removeMaterialChildOption(child, index) {
+  child.options.splice(index, 1);
+  child.options.forEach((option, optionIndex) => {
+    option.optionKey = optionKeyForIndex(optionIndex);
+    option.sortOrder = optionIndex + 1;
+  });
+  if ((child.type === 'single_choice' || child.type === 'true_false') && !child.options.some((option) => option.isCorrect)) {
+    child.options[0].isCorrect = true;
+  }
+}
+
+function insertMaterialChildBlankMarker(child) {
+  if (child.type !== 'fill_blank') return;
+  if (!child.blankRows?.length) child.blankRows = emptyFillBlankRows();
+  const marker = '____';
+  const current = String(child.content || '');
+  const needsSpace = current && !/[\s([{（【]$/.test(current);
+  child.content = `${current}${needsSpace ? ' ' : ''}${marker}`;
+  if (countBlankMarkers(child.content) > child.blankRows.length) {
+    addMaterialChildBlankAnswerRow(child);
+  }
+}
+
+function addMaterialChildBlankAnswerRow(child) {
+  child.blankRows = [...(child.blankRows?.length ? child.blankRows : []), { answerText: '' }];
+}
+
+function removeMaterialChildBlankAnswerRow(child, index) {
+  if (!child.blankRows?.length || child.blankRows.length <= 1) return;
+  child.blankRows = child.blankRows.filter((_, rowIndex) => rowIndex !== index);
 }
 
 function addSingleOption() {
@@ -1347,7 +1628,6 @@ function countBlankMarkers(content) {
 
 function resetSingleForm() {
   Object.assign(singleForm, baseSingleForm());
-  materialCandidates.value = [];
   blankAnswerRows.value = emptyFillBlankRows();
   blankCaseSensitive.value = false;
   blankSpaceSensitive.value = false;
@@ -1949,15 +2229,25 @@ function validatePayload(payload, label) {
   }
 
   if (payload.type === 'material') {
-    const children = payload.children ?? [];
+    const children = payload.inlineChildren ?? payload.children ?? [];
     if (!children.length) {
-      throw new Error(`${label}：材料/组合题至少需要选择一道子题`);
+      throw new Error(`${label}：材料/组合题至少需要添加一道子题`);
     }
-    if (children.some((child) => !child.questionId || !Number.isFinite(Number(child.score)) || Number(child.score) <= 0)) {
-      throw new Error(`${label}：请为每一道子题选择题目并填写大于 0 的分值`);
-    }
-    if (new Set(children.map((child) => child.questionId)).size !== children.length) {
-      throw new Error(`${label}：材料/组合题不能重复引用同一道子题`);
+    children.forEach((child, index) => {
+      validatePayload({
+        ...child,
+        courseId: payload.courseId,
+        courseName: payload.courseName,
+        defaultScore: child.score,
+        knowledgePointIds: payload.knowledgePointIds,
+        knowledgePointNames: payload.knowledgePointNames,
+      }, `${label}子题 ${index + 1}`);
+      if (!Number.isFinite(Number(child.score)) || Number(child.score) <= 0) {
+        throw new Error(`${label}：第 ${index + 1} 道子题分值必须大于 0`);
+      }
+    });
+    if (new Set(children.map((child) => `${child.type}:${child.title}:${child.content}`)).size !== children.length) {
+      throw new Error(`${label}：材料/组合题不能重复添加完全相同的子题`);
     }
   }
 }
@@ -2772,6 +3062,7 @@ function getSingleAnswerText() {
     return singleForm.options.filter((option) => option.isCorrect).map((option) => option.optionKey).join(',');
   }
   if (singleForm.type === 'fill_blank') return blankAnswerText.value;
+  if (singleForm.type === 'material') return `${singleForm.children.length} 道子题`;
   return answerReference.value;
 }
 
@@ -3038,6 +3329,12 @@ function normalizeType(value) {
     programming: 'programming',
     材料: 'material',
     材料题: 'material',
+    '材料/组合题': 'material',
+    组合题: 'material',
+    大题: 'material',
+    '大题/组合题': 'material',
+    多问题: 'material',
+    多问简答: 'material',
     material: 'material',
     文件上传: 'file_upload',
     文件上传题: 'file_upload',
@@ -3238,6 +3535,43 @@ onMounted(async () => {
   font-size: 12px;
 }
 
+.material-inline-child-card,
+.material-preview-child {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--el-border-color-light);
+  border-radius: 10px;
+  background: var(--el-bg-color);
+}
+
+.material-inline-child-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
+.material-child-choice-editor {
+  padding: 10px;
+  border-radius: 8px;
+  background: var(--el-fill-color-lighter);
+}
+
+.compact-toolbar {
+  margin-bottom: 8px;
+}
+
+.material-preview-children {
+  display: grid;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.material-preview-child h4 {
+  margin: 0;
+}
+
 .asset-report-list {
   display: grid;
   gap: 8px;
@@ -3269,6 +3603,12 @@ onMounted(async () => {
 }
 
 .material-child-editor {
+  display: grid;
+  width: 100%;
+  gap: 10px;
+}
+
+.subjective-answer-editor {
   display: grid;
   width: 100%;
   gap: 10px;

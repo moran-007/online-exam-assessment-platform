@@ -2674,7 +2674,7 @@ export class ExportsService implements OnModuleInit {
       fill_blank: '填空题',
       short_answer: '简答题',
       programming: '编程题',
-      material: '材料题',
+      material: '材料/组合题',
       file_upload: '文件上传题',
       scratch_project: 'Scratch 项目题',
       arduino_project: 'Arduino 项目题',
