@@ -175,10 +175,10 @@ install_node_runtime() {
   if has_command node; then
     local major
     major="$(node -p 'process.versions.node.split(".")[0]' 2>/dev/null || echo 0)"
-    if [[ "$major" -ge 20 ]]; then
+    if [[ "$major" -ge 22 ]]; then
       log "Node.js $(node -v) is available"
     else
-      log "Node.js is too old; installing Node.js 22"
+      log "Node.js $(node -v 2>/dev/null || echo unknown) is below required major 22; installing Node.js 22"
       install_node22
     fi
   else

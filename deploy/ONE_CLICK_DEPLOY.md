@@ -14,6 +14,8 @@ curl -fsSL https://raw.githubusercontent.com/<owner>/<repo>/main/deploy/install.
 
 依赖安装会复用上一 release 和 pnpm 缓存；单个源 7 分钟无结果时，按淘宝镜像、华为云、npm 官方源继续尝试。PostgreSQL 16 客户端同样支持阿里云镜像与官方源回退。低于 2 GiB 内存的服务器应先配置至少 2 GiB swap，生产构建会限制安装并发与 Node 堆大小。
 
+脚本会强制校验 Node.js 主版本不低于 22；低于 22 会自动安装 Node.js 22，避免 pnpm/corepack 与项目 `engines` 不匹配。
+
 如果需要部署当前开发分支，可以把 `--branch main` 改为对应分支名，例如：
 
 ```bash
