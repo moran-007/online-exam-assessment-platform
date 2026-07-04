@@ -179,7 +179,7 @@ install_base_packages() {
     wait_for_apt
     apt-get update
     wait_for_apt
-    DEBIAN_FRONTEND=noninteractive apt-get install -y ca-certificates curl git gnupg gzip nginx openssl postgresql-client tar
+    DEBIAN_FRONTEND=noninteractive apt-get install -y ca-certificates curl git gnupg gzip nginx openssl tar
     if ! has_command docker; then
       wait_for_apt
       DEBIAN_FRONTEND=noninteractive apt-get install -y docker.io docker-compose-plugin
@@ -362,6 +362,9 @@ create_shared_env() {
     upsert_env "$env_file" BACKUP_DIR "$APP_ROOT/shared/backups"
     upsert_env "$env_file" BACKUP_DAILY_RETENTION "14"
     upsert_env "$env_file" BACKUP_WEEKLY_RETENTION "8"
+    if [[ -x /usr/lib/postgresql/16/bin/pg_dump ]]; then
+      upsert_env "$env_file" POSTGRES_BIN_DIR "/usr/lib/postgresql/16/bin"
+    fi
     if ! grep -qE '^ASSET_URL_SECRET=.{32,}$' "$env_file"; then
       upsert_env "$env_file" ASSET_URL_SECRET "$(random_secret)"
     fi
@@ -420,6 +423,9 @@ POSTGRES_USER=online_exam
 POSTGRES_PASSWORD=$postgres_password
 POSTGRES_DB=online_exam
 ENV
+  if [[ -x /usr/lib/postgresql/16/bin/pg_dump ]]; then
+    upsert_env "$env_file" POSTGRES_BIN_DIR "/usr/lib/postgresql/16/bin"
+  fi
   chmod 600 "$env_file"
 }
 

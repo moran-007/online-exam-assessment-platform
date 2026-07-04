@@ -1,6 +1,7 @@
 import { PrismaClient } from '@prisma/client';
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { chmod, mkdir, open, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { basename, dirname, join, resolve } from 'node:path';
 
@@ -259,6 +260,8 @@ function postgresBinary(name: string) {
   const configured = process.env.POSTGRES_BIN_DIR;
   if (configured) return join(configured, `${name}${extension}`);
   if (process.platform === 'win32') return join('D:\\PostgreSQL\\pgsql\\bin', `${name}.exe`);
+  const pg16 = join('/usr/lib/postgresql/16/bin', name);
+  if (existsSync(pg16)) return pg16;
   return name;
 }
 
