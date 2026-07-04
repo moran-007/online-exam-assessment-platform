@@ -278,6 +278,21 @@ ensure_postgresql_client() {
   return 1
 }
 
+clone_release() {
+  local target="$1"
+  local attempt
+  for attempt in 1 2 3; do
+    log "Cloning $REPO_URL ($BRANCH), attempt $attempt/3"
+    if git -c http.version=HTTP/1.1 clone --depth 1 --single-branch --branch "$BRANCH" "$REPO_URL" "$target"; then
+      return
+    fi
+    rm -rf "$target"
+    sleep $((attempt * 5))
+  done
+  echo "Failed to clone repository after 3 attempts." >&2
+  return 1
+}
+
 install_node22() {
   if has_command apt-get; then
     wait_for_apt
@@ -420,9 +435,8 @@ deploy_release() {
   release="$APP_ROOT/releases/$stamp"
   env_file="$APP_ROOT/shared/.env"
 
-  log "Cloning $REPO_URL ($BRANCH)"
   mkdir -p "$APP_ROOT/releases"
-  git clone --depth 1 --branch "$BRANCH" "$REPO_URL" "$release"
+  clone_release "$release"
 
   cp "$env_file" "$release/.env"
   ln -sfn "$APP_ROOT/shared/uploads" "$release/uploads"
