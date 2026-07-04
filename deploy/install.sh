@@ -159,7 +159,11 @@ wait_for_apt() {
   fi
   local attempt
   for attempt in $(seq 1 90); do
-    if ! ps -eo comm= | grep -Eq '^(apt|apt-get|dpkg|unattended-upgr)$'; then
+    if has_command fuser; then
+      if ! fuser /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock /var/lib/apt/lists/lock /var/cache/apt/archives/lock >/dev/null 2>&1; then
+        return
+      fi
+    elif ! ps -eo comm= | grep -Eq '^(apt|apt-get|dpkg)$'; then
       return
     fi
     log "Waiting for another apt/dpkg process to finish ($attempt/90)"
