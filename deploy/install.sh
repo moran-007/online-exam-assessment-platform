@@ -153,12 +153,31 @@ install_dependencies() {
   [[ "$install_ok" == "true" ]]
 }
 
+wait_for_apt() {
+  if ! has_command apt-get; then
+    return
+  fi
+  local attempt
+  for attempt in $(seq 1 90); do
+    if ! ps -eo comm= | grep -Eq '^(apt|apt-get|dpkg|unattended-upgr)$'; then
+      return
+    fi
+    log "Waiting for another apt/dpkg process to finish ($attempt/90)"
+    sleep 2
+  done
+  echo "Timed out waiting for apt/dpkg lock." >&2
+  return 1
+}
+
 install_base_packages() {
   log "Installing base packages"
   if has_command apt-get; then
+    wait_for_apt
     apt-get update
+    wait_for_apt
     DEBIAN_FRONTEND=noninteractive apt-get install -y ca-certificates curl git gnupg gzip nginx openssl postgresql-client tar
     if ! has_command docker; then
+      wait_for_apt
       DEBIAN_FRONTEND=noninteractive apt-get install -y docker.io docker-compose-plugin
     fi
     systemctl enable --now nginx
@@ -257,7 +276,15 @@ ensure_postgresql_client() {
 
 install_node22() {
   if has_command apt-get; then
-    curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
+    wait_for_apt
+    install -d -m 755 /usr/share/keyrings
+    curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | \
+      gpg --dearmor --yes -o /usr/share/keyrings/nodesource.gpg
+    rm -f /etc/apt/sources.list.d/nodesource.list /etc/apt/sources.list.d/nodesource.sources
+    printf 'deb [signed-by=/usr/share/keyrings/nodesource.gpg] https://deb.nodesource.com/node_22.x nodistro main\n' \
+      >/etc/apt/sources.list.d/nodesource.list
+    apt-get update
+    wait_for_apt
     DEBIAN_FRONTEND=noninteractive apt-get install -y nodejs
   elif has_command dnf; then
     dnf module reset -y nodejs || true
