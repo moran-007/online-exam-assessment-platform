@@ -12,7 +12,15 @@ curl -fsSL https://raw.githubusercontent.com/<owner>/<repo>/main/deploy/install.
 curl -fsSL https://raw.githubusercontent.com/<owner>/<repo>/main/deploy/install.sh | bash -s -- --repo https://github.com/<owner>/<repo>.git --branch main --server-name <SERVER_IP_OR_DOMAIN> --china-mirror
 ```
 
-依赖安装会复用上一 release 和 pnpm 缓存；单个源 7 分钟无结果时，按淘宝镜像、华为云、npm 官方源继续尝试。PostgreSQL 16 客户端同样支持阿里云镜像与官方源回退。低于 2 GiB 内存的服务器应先配置至少 2 GiB swap，生产构建会限制安装并发与 Node 堆大小。
+依赖安装会复用上一 release 和 pnpm 缓存；单个源 7 分钟无结果时，按淘宝镜像、华为云、npm 官方源继续尝试。PostgreSQL 16 客户端同样支持阿里云镜像与官方源回退。GitHub clone 会使用 HTTP/1.1、浅克隆、低速超时和官方源码包 fallback；低于 2 GiB 内存的服务器应先配置至少 2 GiB swap，生产构建会限制安装并发与 Node 堆大小。
+
+如果服务器访问 GitHub 持续超时，可在本机把当前 Git 提交打包后通过 SSH 上传部署，避免服务器直接拉取 GitHub：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/deploy-server.ps1 -Server aliyun -ChinaMirror
+```
+
+如需使用自有可信 GitHub 归档代理，可在服务器环境中设置逗号分隔的 `GITHUB_ARCHIVE_MIRRORS`，脚本会在官方源码包失败后按顺序尝试；不建议默认使用未知第三方源码代理。
 
 脚本会强制校验 Node.js 主版本不低于 22；低于 22 会自动安装 Node.js 22，避免 pnpm/corepack 与项目 `engines` 不匹配。
 
@@ -32,6 +40,8 @@ curl -fsSL https://raw.githubusercontent.com/<owner>/<repo>/<branch>/deploy/inst
 --port PORT         后端端口，默认 3000
 --seed              显式初始化演示数据（默认不执行）
 --china-mirror      使用 registry.npmmirror.com 加速 npm/pnpm/corepack
+--source-archive    使用服务器上的源码 tar/tar.gz，跳过 git clone
+--archive-url       git clone 失败时使用的源码包 URL
 ```
 
 默认部署目录：
