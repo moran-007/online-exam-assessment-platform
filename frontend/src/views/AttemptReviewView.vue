@@ -52,25 +52,17 @@
           <MarkdownRenderer v-if="result.visibility?.content" :source="question.content || ''" />
           <p v-else class="muted">题干暂未开放</p>
 
-          <div v-if="question.options?.length && result.visibility?.content" class="review-options">
-            <div v-for="option in question.options" :key="option.optionId" :class="optionClass(question, option)">
-              <strong>{{ option.label }}.</strong>
-              <MarkdownRenderer :source="option.content || ''" />
-              <span v-if="isSelectedOption(question, option)" class="answer-mark">你的选择</span>
-              <span v-if="isCorrectOption(question, option)" class="answer-mark success">正确答案</span>
-            </div>
-          </div>
-
-          <div v-if="result.visibility?.studentAnswer" class="review-answer-block">
-            <strong>你的作答</strong>
-            <pre v-if="question.studentAnswer?.code" class="review-code"><code>{{ question.studentAnswer.code }}</code></pre>
-            <pre v-else>{{ displayStudentAnswer(question) }}</pre>
-          </div>
-
-          <div v-if="result.visibility?.correctAnswer && !question.studentAnswer?.code" class="review-answer-block reference">
-            <strong>参考答案</strong>
-            <pre>{{ displayCorrectAnswer(question) }}</pre>
-          </div>
+          <QuestionReviewHost
+            v-if="result.visibility?.content || result.visibility?.studentAnswer || result.visibility?.correctAnswer"
+            :question="question"
+            :answer="result.visibility?.studentAnswer ? question.studentAnswer : null"
+            :correct-answer="result.visibility?.correctAnswer ? question.correctAnswer : null"
+            :type="question.type"
+            :show-correct="Boolean(result.visibility?.correctAnswer)"
+            :show-reference="Boolean(result.visibility?.correctAnswer && !question.studentAnswer?.code)"
+            :show-student-answer="Boolean(result.visibility?.studentAnswer)"
+            student-label="你的作答"
+          />
 
           <div v-if="result.visibility?.analysis" class="review-analysis">
             <strong>解析</strong>
@@ -92,6 +84,8 @@ import { Back } from '@element-plus/icons-vue';
 import { useRoute, useRouter } from 'vue-router';
 import { api } from '../api';
 import MarkdownRenderer from '../components/MarkdownRenderer.vue';
+import QuestionReviewHost from '../components/QuestionReviewHost.vue';
+import { questionTypeLabel } from '../question-engine/registry';
 import { statusLabel, statusTagType } from '../statusMeta';
 
 const route = useRoute();
@@ -161,68 +155,6 @@ function resultText(question) {
 function resultTagType(question) {
   if (!result.visibility?.correctness || question.isCorrect == null) return 'warning';
   return question.isCorrect ? 'success' : 'danger';
-}
-
-function questionTypeLabel(type) {
-  return {
-    single_choice: '单选题',
-    multiple_choice: '多选题',
-    true_false: '判断题',
-    fill_blank: '填空题',
-    short_answer: '简答题',
-    programming: '编程题',
-    material: '材料题',
-    file_upload: '文件上传题',
-  }[String(type || '').toLowerCase()] || type;
-}
-
-function selectedOptionIds(question) {
-  return question.studentAnswer?.selectedOptionIds ?? [];
-}
-
-function correctOptionIds(question) {
-  return question.correctAnswer?.correctOptionIds ?? [];
-}
-
-function isSelectedOption(question, option) {
-  return result.visibility?.studentAnswer && selectedOptionIds(question).includes(option.optionId);
-}
-
-function isCorrectOption(question, option) {
-  return result.visibility?.correctAnswer && (correctOptionIds(question).includes(option.optionId) || option.isCorrect);
-}
-
-function optionClass(question, option) {
-  return {
-    'review-option': true,
-    selected: isSelectedOption(question, option),
-    correct: isCorrectOption(question, option),
-    wrong: isSelectedOption(question, option) && !isCorrectOption(question, option),
-  };
-}
-
-function displayStudentAnswer(question) {
-  const answer = question.studentAnswer ?? {};
-  if (answer.selectedOptionIds?.length) return answer.selectedOptionIds.map((id) => optionText(question, id)).join('\n');
-  if (answer.blanks?.length) return answer.blanks.map((blank) => `第 ${blank.index} 空：${blank.value ?? ''}`).join('\n');
-  if (answer.text) return answer.text;
-  if (answer.fileName || answer.fileUrl) return answer.fileName || answer.fileUrl;
-  return Object.keys(answer).length ? JSON.stringify(answer, null, 2) : '未作答';
-}
-
-function displayCorrectAnswer(question) {
-  const answer = question.correctAnswer ?? {};
-  if (answer.correctOptionIds?.length) return answer.correctOptionIds.map((id) => optionText(question, id)).join('\n');
-  if (answer.blanks?.length) {
-    return answer.blanks.map((blank) => `第 ${blank.index} 空：${blank.answers?.join(' / ') ?? ''}`).join('\n');
-  }
-  if (answer.reference) return answer.reference;
-  return Object.keys(answer).length ? JSON.stringify(answer, null, 2) : '待人工批改';
-}
-
-function optionText(question, optionId) {
-  const option = question.options?.find((item) => item.optionId === optionId);
-  return option ? `${option.label}. ${option.content}` : optionId;
 }
 
 onMounted(load);

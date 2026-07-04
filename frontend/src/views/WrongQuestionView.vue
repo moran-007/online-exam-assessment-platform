@@ -200,53 +200,14 @@
                   :rows="18"
                 />
               </div>
-              <div v-else-if="isSplitPracticeQuestion(practice.question.type)" class="programming-answer">
-                <div class="programming-toolbar">
-                  <span class="programming-language-label">作答</span>
-                  <el-tag>{{ typeLabel(practice.question.type) }}</el-tag>
-                </div>
-                <el-input
-                  v-model="answer.text"
-                  class="answer-input subjective-answer-input"
-                  type="textarea"
-                  :rows="18"
-                  placeholder="填写答案"
-                />
-              </div>
-              <template v-else>
-                <div class="programming-toolbar">
-                  <span class="programming-language-label">作答</span>
-                  <el-tag>{{ typeLabel(practice.question.type) }}</el-tag>
-                </div>
-                <el-radio-group
-                  v-if="['single_choice', 'true_false'].includes(practice.question.type)"
-                  v-model="answer.selectedOptionIds[0]"
-                  class="answer-options"
-                >
-                  <el-radio v-for="option in practice.question.options || []" :key="option.optionId" :label="option.optionId" class="answer-option">
-                    <span class="option-choice">
-                      <strong>{{ option.label }}.</strong>
-                      <MarkdownRenderer :source="option.content" />
-                    </span>
-                  </el-radio>
-                </el-radio-group>
-
-                <el-checkbox-group v-else-if="practice.question.type === 'multiple_choice'" v-model="answer.selectedOptionIds" class="answer-options">
-                  <el-checkbox v-for="option in practice.question.options || []" :key="option.optionId" :label="option.optionId" class="answer-option">
-                    <span class="option-choice">
-                      <strong>{{ option.label }}.</strong>
-                      <MarkdownRenderer :source="option.content" />
-                    </span>
-                  </el-checkbox>
-                </el-checkbox-group>
-
-                <FillBlankAnswerInputs
-                  v-else-if="practice.question.type === 'fill_blank'"
-                  v-model="answer.blanks"
-                  :count="blankCountFor(practice.question)"
-                />
-                <el-input v-else v-model="answer.text" class="answer-input" type="textarea" :rows="5" placeholder="填写答案" />
-              </template>
+              <QuestionAnswerHost
+                v-else
+                :model-value="answer"
+                :question="practice.question"
+                :type="practice.question.type"
+                :rows="isObjectiveQuestionType(practice.question.type) ? 5 : 18"
+                @update:model-value="mergeAnswer"
+              />
             </div>
           </template>
         </QuestionAnswerLayout>
@@ -325,11 +286,12 @@ import { Aim, Check, Delete, Document, Download, Hide, Link, Plus, Refresh, Sear
 import { api, buildQuery } from '../api';
 import AnswerFeedback from '../components/AnswerFeedback.vue';
 import CodeAnswerEditor from '../components/CodeAnswerEditor.vue';
-import FillBlankAnswerInputs from '../components/FillBlankAnswerInputs.vue';
 import MarkdownRenderer from '../components/MarkdownRenderer.vue';
 import ProgrammingToolbarShell from '../components/ProgrammingToolbarShell.vue';
+import QuestionAnswerHost from '../components/QuestionAnswerHost.vue';
 import QuestionAnswerLayout from '../components/QuestionAnswerLayout.vue';
 import { useResponsiveColumns } from '../composables/useResponsiveColumns';
+import { isObjectiveQuestionType, questionTypeLabel } from '../question-engine/registry';
 
 const items = ref([]);
 const router = useRouter();
@@ -359,7 +321,6 @@ const exportForm = reactive({
   includeAnalysis: true,
   includeWrongInfo: true,
 });
-const objectiveQuestionTypes = new Set(['single_choice', 'multiple_choice', 'true_false', 'fill_blank']);
 const practiceDialogWidth = computed(() => (answerLayout.value === 'side' ? '1180px' : '860px'));
 const canUseActiveActions = computed(() => wrongTab.value === 'active' && items.value.length > 0);
 
@@ -541,6 +502,10 @@ function clearPracticeAnswer() {
   practiceResult.value = null;
 }
 
+function mergeAnswer(nextAnswer) {
+  Object.assign(answer, nextAnswer || {});
+}
+
 function payloadForAnswer() {
   if (answer.selectedOptionIds.filter(Boolean).length) {
     return { selectedOptionIds: answer.selectedOptionIds.filter(Boolean) };
@@ -561,10 +526,6 @@ function payloadForAnswer() {
     };
   }
   return {};
-}
-
-function isSplitPracticeQuestion(type) {
-  return Boolean(type) && !objectiveQuestionTypes.has(type);
 }
 
 function languageOptionsFor(question) {
@@ -627,19 +588,7 @@ function countBlankMarkers(content) {
 }
 
 function typeLabel(value) {
-  const map = {
-    single_choice: '单选题',
-    multiple_choice: '多选题',
-    true_false: '判断题',
-    fill_blank: '填空题',
-    short_answer: '简答题',
-    programming: '编程题',
-    material: '材料题',
-    file_upload: '文件上传题',
-    scratch_project: 'Scratch 项目题',
-    arduino_project: 'Arduino 项目题',
-  };
-  return map[value] ?? value;
+  return questionTypeLabel(value);
 }
 
 function masteryLabel(value) {

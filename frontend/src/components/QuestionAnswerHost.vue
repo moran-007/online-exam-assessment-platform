@@ -19,7 +19,11 @@
       >
         <span class="option-choice">
           <strong>{{ optionLabel(option) }}.</strong>
-          <MarkdownRenderer :source="option.content || ''" />
+          <MarkdownRenderer
+            :source="option.content || ''"
+            :public-question-id="publicQuestionId"
+            :asset-access-token="assetAccessToken"
+          />
         </span>
       </el-radio>
     </el-radio-group>
@@ -38,7 +42,11 @@
       >
         <span class="option-choice">
           <strong>{{ optionLabel(option) }}.</strong>
-          <MarkdownRenderer :source="option.content || ''" />
+          <MarkdownRenderer
+            :source="option.content || ''"
+            :public-question-id="publicQuestionId"
+            :asset-access-token="assetAccessToken"
+          />
         </span>
       </el-checkbox>
     </el-checkbox-group>
@@ -69,7 +77,7 @@
 import { computed } from 'vue';
 import FillBlankAnswerInputs from './FillBlankAnswerInputs.vue';
 import MarkdownRenderer from './MarkdownRenderer.vue';
-import { questionTypeDefinition } from '../question-engine/registry';
+import { normalizeQuestionType, questionTypeDefinition } from '../question-engine/registry';
 
 const props = defineProps({
   modelValue: { type: Object, default: () => ({}) },
@@ -77,9 +85,11 @@ const props = defineProps({
   type: { type: String, default: '' },
   rows: { type: Number, default: 6 },
   showCorrect: { type: Boolean, default: false },
+  publicQuestionId: { type: String, default: '' },
+  assetAccessToken: { type: String, default: '' },
 });
 const emit = defineEmits(['update:modelValue']);
-const normalizedType = computed(() => String(props.type || props.question.type || '').replaceAll('-', '_').toLowerCase());
+const normalizedType = computed(() => normalizeQuestionType(props.type || props.question.type || ''));
 const definition = computed(() => questionTypeDefinition(normalizedType.value));
 const answer = computed(() => props.modelValue || {});
 const options = computed(() => props.question.options || []);
