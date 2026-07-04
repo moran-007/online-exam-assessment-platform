@@ -5,6 +5,8 @@ ulimit -c 0
 APP_NAME="online-exam-platform"
 APP_ROOT="/opt/online-exam-platform"
 REPO_URL=""
+SOURCE_ARCHIVE=""
+ARCHIVE_URL=""
 BRANCH="main"
 SERVER_NAME="_"
 PORT="3000"
@@ -18,6 +20,8 @@ Usage: bash deploy/install.sh [options]
 
 Options:
   --repo URL          Git repository URL.
+  --source-archive    Existing source .tar/.tar.gz path on the server; skips git clone.
+  --archive-url URL   Source archive URL used if git clone fails.
   --branch NAME      Git branch or tag to deploy.
   --app-root PATH    Install path. Default: /opt/online-exam-platform
   --server-name NAME Nginx server_name. Default: _
@@ -32,6 +36,14 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --repo)
       REPO_URL="${2:?Missing value for --repo}"
+      shift 2
+      ;;
+    --source-archive)
+      SOURCE_ARCHIVE="${2:?Missing value for --source-archive}"
+      shift 2
+      ;;
+    --archive-url)
+      ARCHIVE_URL="${2:?Missing value for --archive-url}"
       shift 2
       ;;
     --branch)
@@ -80,8 +92,8 @@ if [[ "$(id -u)" != "0" ]]; then
   exit 1
 fi
 
-if [[ -z "$REPO_URL" ]]; then
-  echo "Please pass --repo https://github.com/<owner>/<repo>.git" >&2
+if [[ -z "$REPO_URL" && -z "$SOURCE_ARCHIVE" && -z "$ARCHIVE_URL" ]]; then
+  echo "Please pass --repo https://github.com/<owner>/<repo>.git or --source-archive /path/source.tar.gz" >&2
   exit 1
 fi
 
@@ -278,17 +290,103 @@ ensure_postgresql_client() {
   return 1
 }
 
+extract_release_archive() {
+  local target="$1"
+  local archive="$2"
+  local temp_dir
+  temp_dir="$(mktemp -d)"
+
+  log "Extracting source archive: $archive"
+  if [[ "$archive" == *.tar ]]; then
+    tar -xf "$archive" -C "$temp_dir"
+  else
+    tar -xzf "$archive" -C "$temp_dir"
+  fi
+
+  rm -rf "$target"
+  mkdir -p "$target"
+  shopt -s dotglob nullglob
+  local entries=("$temp_dir"/*)
+  if (( ${#entries[@]} == 1 )) && [[ -d "${entries[0]}" ]]; then
+    mv "${entries[0]}"/* "$target"/
+  else
+    mv "$temp_dir"/* "$target"/
+  fi
+  shopt -u dotglob nullglob
+  rm -rf "$temp_dir"
+}
+
+github_archive_url() {
+  local repo="$REPO_URL"
+  repo="${repo%.git}"
+  if [[ "$repo" =~ ^https://github\.com/([^/]+)/([^/]+)$ ]]; then
+    printf 'https://codeload.github.com/%s/%s/tar.gz/%s\n' "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}" "$BRANCH"
+  fi
+}
+
+download_release_archive() {
+  local target="$1"
+  local url archive mirror
+  local -a urls=()
+  if [[ -n "$ARCHIVE_URL" ]]; then
+    urls+=("$ARCHIVE_URL")
+  fi
+  url="$(github_archive_url || true)"
+  if [[ -n "$url" ]]; then
+    urls+=("$url")
+    if [[ -n "${GITHUB_ARCHIVE_MIRRORS:-}" ]]; then
+      IFS=',' read -r -a archive_mirrors <<< "$GITHUB_ARCHIVE_MIRRORS"
+      for mirror in "${archive_mirrors[@]}"; do
+        mirror="${mirror//[[:space:]]/}"
+        [[ -n "$mirror" ]] || continue
+        urls+=("${mirror}${url}")
+      done
+    fi
+  fi
+
+  (( ${#urls[@]} > 0 )) || return 1
+
+  archive="$(mktemp --suffix=.tar.gz)"
+  for url in "${urls[@]}"; do
+    log "Downloading source archive from $url"
+    if curl -fL --retry 3 --retry-delay 5 --connect-timeout 20 --max-time 420 "$url" -o "$archive"; then
+      extract_release_archive "$target" "$archive"
+      rm -f "$archive"
+      return 0
+    fi
+    log "Archive download failed or timed out; switching source"
+  done
+  rm -f "$archive"
+  return 1
+}
+
 clone_release() {
   local target="$1"
   local attempt
+
+  if [[ -n "$SOURCE_ARCHIVE" ]]; then
+    extract_release_archive "$target" "$SOURCE_ARCHIVE"
+    return
+  fi
+
   for attempt in 1 2 3; do
     log "Cloning $REPO_URL ($BRANCH), attempt $attempt/3"
-    if git -c http.version=HTTP/1.1 clone --depth 1 --single-branch --branch "$BRANCH" "$REPO_URL" "$target"; then
+    if timeout 420 git \
+      -c http.version=HTTP/1.1 \
+      -c http.lowSpeedLimit=1024 \
+      -c http.lowSpeedTime=60 \
+      clone --depth 1 --filter=blob:none --single-branch --branch "$BRANCH" "$REPO_URL" "$target"; then
       return
     fi
     rm -rf "$target"
     sleep $((attempt * 5))
   done
+
+  log "Git clone failed; trying source archive fallback"
+  if download_release_archive "$target"; then
+    return
+  fi
+
   echo "Failed to clone repository after 3 attempts." >&2
   return 1
 }

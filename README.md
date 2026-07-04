@@ -56,7 +56,18 @@ pnpm dev
 pnpm frontend:dev
 ```
 
-Windows 本机也可以直接双击根目录的 `启动平台.bat`；停止服务使用 `停止平台.bat`。
+Windows 本机也可以直接双击根目录的 `启动平台.bat`；停止服务使用 `停止平台.bat`。启动脚本会自动检查 PostgreSQL、同步迁移、构建后端，并分别启动后端与 Vite 前端；如果本地库已有用户，会跳过 seed，避免每次启动覆盖数据。需要重置示例数据时执行：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/start-platform.ps1 -Seed
+```
+
+如果 PostgreSQL 不在默认的 `D:\PostgreSQL\pgsql\bin` / `D:\PostgreSQL\data`，先设置：
+
+```powershell
+$env:POSTGRES_BIN_DIR="D:\PostgreSQL\pgsql\bin"
+$env:POSTGRES_DATA_DIR="D:\PostgreSQL\data"
+```
 
 默认开发账号密码：
 
@@ -127,7 +138,13 @@ pnpm backup:restore -- --backup <backup-directory> --target-database online_exam
 
 备份包含 `pg_dump -Fc`、uploads `tar.gz` 和 SHA-256 manifest。恢复命令拒绝覆盖当前生产库/目录；一键部署默认安装北京时间 02:30 定时器，保留 14 个日备份和 8 个周备份。未配置 `BACKUP_REMOTE` 时本地备份仍成功，但会记录远端未启用警告。
 
-一键部署会优先复用上一 release 与 pnpm 缓存，并按淘宝镜像、华为云、npm 官方源自动超时回退；PostgreSQL 16 客户端也会在阿里云镜像和官方源之间回退。低于 2 GiB 内存的主机建议预先配置至少 2 GiB swap，避免 Vite 生产构建挤占线上服务资源。
+一键部署会优先复用上一 release 与 pnpm 缓存，并按淘宝镜像、华为云、npm 官方源自动超时回退；PostgreSQL 16 客户端也会在阿里云镜像和官方源之间回退。GitHub clone 会设置低速超时并在失败后尝试官方源码包 fallback；如果服务器访问 GitHub 仍不稳定，可从本机直接打包当前 Git 提交并通过 SSH 上传部署：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/deploy-server.ps1 -Server aliyun -ChinaMirror
+```
+
+低于 2 GiB 内存的主机建议预先配置至少 2 GiB swap，避免 Vite 生产构建挤占线上服务资源。
 
 ## 项目文档
 
