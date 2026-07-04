@@ -28,12 +28,12 @@ function Invoke-Checked($FilePath, [string[]]$ArgumentList) {
   }
 }
 
-$head = (& git rev-parse --short HEAD).Trim()
+$head = ((& git rev-parse --short HEAD) -join "`n").Trim()
 if ($LASTEXITCODE -ne 0 -or !$head) {
   throw "Cannot read current git commit."
 }
 
-$dirty = (& git status --porcelain).Trim()
+$dirty = ((& git status --porcelain) -join "`n").Trim()
 if ($dirty) {
   Write-Warning "Working tree has uncommitted changes. This script packages committed HEAD only: $head"
 }
