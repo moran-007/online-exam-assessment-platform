@@ -235,7 +235,15 @@
             show-checkbox
             default-expand-all
             :props="treeProps"
-          />
+          >
+            <template #default="{ data }">
+              <span v-if="data.group" class="permission-tree-group">{{ data.label }}</span>
+              <span v-else class="permission-tree-label">
+                <span>{{ data.name }}</span>
+                <small>{{ data.code }}</small>
+              </span>
+            </template>
+          </el-tree>
         </div>
         <div class="permission-drawer-footer">
           <el-button @click="permissionDrawerVisible = false">关闭</el-button>
@@ -318,6 +326,10 @@ const permissionGroupNames = {
   exam: '考试',
   class: '班级',
   grading: '批改',
+  student: '学生信息',
+  export: '导出',
+  attachment: '附件',
+  hydro: '外部判题',
   statistics: '统计',
   'audit-log': '审计',
 };
@@ -332,14 +344,16 @@ const permissionTree = computed(() => {
       groups.set(groupCode, {
         id: `group:${groupCode}`,
         label: permissionGroupNames[groupCode] || groupCode,
+        group: true,
         children: [],
       });
     }
     groups.get(groupCode).children.push({
       id: permission.id,
-      label: `${permission.name}（${permission.code}）`,
+      label: permission.name,
       code: permission.code,
       name: permission.name,
+      description: permission.description || '',
     });
   });
 
@@ -728,6 +742,21 @@ function formatDateTime(value) {
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 8px;
+}
+
+.permission-tree-label {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.permission-tree-label small {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.permission-tree-group {
+  font-weight: 600;
 }
 
 .permission-drawer-footer {

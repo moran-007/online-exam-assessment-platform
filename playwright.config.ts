@@ -25,7 +25,7 @@ export default defineConfig({
       timeout: 120_000,
     },
     {
-      command: 'pnpm --dir frontend dev',
+      command: 'pnpm --dir frontend build && pnpm --dir frontend preview:e2e',
       url: 'http://127.0.0.1:5173/login',
       reuseExistingServer: !process.env.CI,
       timeout: 120_000,

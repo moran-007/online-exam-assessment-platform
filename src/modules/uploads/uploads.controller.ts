@@ -21,11 +21,13 @@ export class UploadsController {
   @Get('question-assets/:filename/content')
   async content(
     @Param('filename') filename: string,
+    @Query('action') action: 'preview' | 'download' = 'preview',
     @CurrentUser() user: RequestUser,
     @Res({ passthrough: true }) response: any,
   ) {
-    const file = await this.uploadsService.authenticatedQuestionAsset(filename, user);
-    this.setContentHeaders(response, file.mimeType, file.displayName, 'inline');
+    const normalizedAction = action === 'download' ? 'download' : 'preview';
+    const file = await this.uploadsService.authenticatedQuestionAsset(filename, user, normalizedAction);
+    this.setContentHeaders(response, file.mimeType, file.displayName, normalizedAction === 'download' ? 'attachment' : 'inline');
     return new StreamableFile(createReadStream(file.path));
   }
 

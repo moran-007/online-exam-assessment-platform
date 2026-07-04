@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import ExcelJS = require('exceljs');
 import { ExamStatus, Prisma, QuestionStatus, QuestionType, TagType } from '@prisma/client';
+import { createHash } from 'node:crypto';
 import { toPagination } from '../../common/dto/pagination-query.dto';
 import {
   normalizeQuestionStatus,
@@ -13,6 +14,7 @@ import {
 } from '../../common/utils/enum-normalizer';
 import { AuditService } from '../audit/audit.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { QuestionTypeRegistry } from '../question-types/question-type-registry.service';
 import { AssetTokenService } from '../uploads/asset-token.service';
 import { CheckQuestionAnswerDto } from './dto/check-question-answer.dto';
 import { CreateQuestionDto } from './dto/create-question.dto';
@@ -71,6 +73,10 @@ type ExcelQuestionRow = {
   answerText: string;
   optionValues: Array<{ optionKey: string; content: string }>;
   allowOptionShuffle?: boolean;
+  identifier: string;
+  parentIdentifier: string;
+  childScore: number;
+  childOrder: number;
 };
 
 @Injectable()
@@ -79,6 +85,7 @@ export class QuestionsService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly assetTokens: AssetTokenService,
+    private readonly questionTypes: QuestionTypeRegistry,
   ) {}
 
   async list(query: QueryQuestionDto) {
@@ -270,6 +277,20 @@ export class QuestionsService {
         answer: { select: { answerJson: true } },
         programmingRef: true,
         tags: { include: { tag: true } },
+        compositionChildren: {
+          orderBy: { sortOrder: 'asc' },
+          include: {
+            childQuestion: {
+              include: {
+                course: true,
+                options: { orderBy: { sortOrder: 'asc' } },
+                answer: { select: { answerJson: true } },
+                programmingRef: true,
+                tags: { include: { tag: true } },
+              },
+            },
+          },
+        },
       },
     });
 
@@ -294,6 +315,25 @@ export class QuestionsService {
         label: option.optionKey,
         content: option.content,
       })),
+      children: question.compositionChildren.map((relation) => ({
+        questionId: relation.childQuestionId,
+        score: Number(relation.score),
+        sortOrder: relation.sortOrder,
+        assetAccessToken: this.assetTokens.issuePublicQuestionToken(relation.childQuestionId),
+        title: relation.childQuestion.title,
+        content: relation.childQuestion.content,
+        type: toApiEnum(relation.childQuestion.type),
+        difficulty: relation.childQuestion.difficulty,
+        blankCount: this.blankCount(relation.childQuestion.answer?.answerJson),
+        programmingRef: relation.childQuestion.programmingRef
+          ? this.formatProgrammingRef(relation.childQuestion.programmingRef)
+          : null,
+        options: relation.childQuestion.options.map((option) => ({
+          optionId: option.id,
+          label: option.optionKey,
+          content: option.content,
+        })),
+      })),
     };
   }
 
@@ -308,6 +348,21 @@ export class QuestionsService {
         knowledgePoints: { include: { knowledgePoint: true } },
         tags: { include: { tag: true } },
         versions: { orderBy: { version: 'desc' }, take: 10 },
+        compositionChildren: {
+          orderBy: { sortOrder: 'asc' },
+          include: {
+            childQuestion: {
+              include: {
+                course: true,
+                options: { orderBy: { sortOrder: 'asc' } },
+                answer: true,
+                programmingRef: true,
+                knowledgePoints: { include: { knowledgePoint: true } },
+                tags: { include: { tag: true } },
+              },
+            },
+          },
+        },
       },
     });
 
@@ -322,6 +377,22 @@ export class QuestionsService {
       programmingRef: question.programmingRef ? this.formatProgrammingRef(question.programmingRef) : null,
       knowledgePoints: question.knowledgePoints.map((relation) => relation.knowledgePoint),
       tags: question.tags.map((relation) => relation.tag),
+      children: question.compositionChildren.map((relation) => ({
+        questionId: relation.childQuestionId,
+        score: Number(relation.score),
+        sortOrder: relation.sortOrder,
+        question: {
+          ...relation.childQuestion,
+          type: toApiEnum(relation.childQuestion.type),
+          status: toApiEnum(relation.childQuestion.status),
+          defaultScore: Number(relation.childQuestion.defaultScore),
+          programmingRef: relation.childQuestion.programmingRef
+            ? this.formatProgrammingRef(relation.childQuestion.programmingRef)
+            : null,
+          knowledgePoints: relation.childQuestion.knowledgePoints.map((item) => item.knowledgePoint),
+          tags: relation.childQuestion.tags.map((item) => item.tag),
+        },
+      })),
     };
   }
 
@@ -452,6 +523,10 @@ export class QuestionsService {
     workbook.creator = 'online-exam-assessment-platform';
     const worksheet = workbook.addWorksheet('题库导入模板');
     worksheet.columns = [
+      { header: '题目标识', key: 'identifier', width: 16 },
+      { header: '父题标识', key: 'parentIdentifier', width: 16 },
+      { header: '子题分值', key: 'childScore', width: 12 },
+      { header: '子题顺序', key: 'childOrder', width: 12 },
       { header: '题型', key: 'type', width: 16 },
       { header: '标题', key: 'title', width: 28 },
       { header: '题干', key: 'content', width: 48 },
@@ -470,6 +545,7 @@ export class QuestionsService {
     ];
     worksheet.addRows([
       {
+        identifier: 'Q-001',
         type: '单选题',
         title: 'Python 输出',
         content: '以下哪个函数用于输出内容？',
@@ -487,6 +563,7 @@ export class QuestionsService {
         allowOptionShuffle: '是',
       },
       {
+        identifier: 'Q-002',
         type: '多选题',
         title: '循环语句',
         content: '下面哪些是 Python 循环语句？',
@@ -504,6 +581,7 @@ export class QuestionsService {
         allowOptionShuffle: '是',
       },
       {
+        identifier: 'Q-003',
         type: '填空题',
         title: '变量赋值',
         content: '把数字 3 赋值给变量 a：a = ____',
@@ -557,9 +635,30 @@ export class QuestionsService {
       message: string;
     }> = [];
 
-    for (const row of rows) {
+    const importedIds = new Map<string, string>();
+    const orderedRows = [
+      ...rows.filter((row) => this.excelQuestionType(row.type) !== 'material'),
+      ...rows.filter((row) => this.excelQuestionType(row.type) === 'material'),
+    ];
+    for (const row of orderedRows) {
       try {
         const payload = this.excelRowToCreateDto(row);
+        if (this.excelQuestionType(row.type) === 'material') {
+          if (!row.identifier) throw new BadRequestException(`第 ${row.rowNumber} 行材料题缺少题目标识`);
+          const childRows = rows
+            .filter((child) => child.parentIdentifier === row.identifier)
+            .sort((a, b) => a.childOrder - b.childOrder || a.rowNumber - b.rowNumber);
+          payload.children = childRows.map((child, index) => {
+            const questionId = importedIds.get(child.identifier);
+            if (!questionId) throw new BadRequestException(`子题标识 ${child.identifier || `第 ${child.rowNumber} 行`} 尚未成功导入`);
+            return {
+              questionId,
+              score: child.childScore > 0 ? child.childScore : child.defaultScore,
+              sortOrder: child.childOrder || index + 1,
+            };
+          });
+          if (!payload.children.length) throw new BadRequestException(`材料题 ${row.identifier} 没有匹配到子题`);
+        }
         const duplicate = (await this.checkDuplicates([payload])).items[0];
         if (duplicate && duplicate.status !== 'ok') {
           const message = duplicate.message || '发现重复或冲突题目';
@@ -571,6 +670,7 @@ export class QuestionsService {
         }
 
         const created = await this.create(payload, userId);
+        if (row.identifier) importedIds.set(row.identifier, created.id);
         if (publish) {
           await this.publish(created.id, userId);
         }
@@ -783,6 +883,7 @@ export class QuestionsService {
   async create(dto: CreateQuestionDto, userId: string) {
     const type = normalizeQuestionType(dto.type);
     this.validateQuestionInput(type, dto);
+    this.questionTypes.validate(toApiEnum(type), dto);
 
     const question = await this.prisma.$transaction(async (tx) => {
       const courseId = await this.resolveCourseIdForQuestion(tx, dto, userId);
@@ -812,7 +913,7 @@ export class QuestionsService {
       const options = await this.replaceOptions(tx, created.id, dto.options);
       const answerJson = this.resolveAnswerJson(type, dto, options);
 
-      await tx.questionAnswer.create({
+      const questionAnswer = await tx.questionAnswer.create({
         data: {
           questionId: created.id,
           answerJson,
@@ -821,6 +922,23 @@ export class QuestionsService {
       });
       await this.replaceRelations(tx, created.id, knowledgePointIds, tagIds);
       await this.upsertProgrammingRef(tx, created.id, type, dto.programmingRef);
+      const materialScore = await this.replaceComposition(tx, created.id, type, dto.children);
+      if (materialScore !== null) {
+        await tx.question.update({ where: { id: created.id }, data: { defaultScore: materialScore } });
+      }
+      const ruleVersion = await this.createScoringRuleVersion(
+        tx,
+        created.id,
+        type,
+        1,
+        answerJson,
+        dto.scoringRule ?? { mode: 'strict' },
+        userId,
+      );
+      await tx.questionAnswer.update({
+        where: { id: questionAnswer.id },
+        data: { currentRuleVersionId: ruleVersion.id },
+      });
 
       const snapshot = await this.buildSnapshot(tx, created.id);
       await tx.questionVersion.create({
@@ -850,6 +968,12 @@ export class QuestionsService {
   async update(id: string, dto: UpdateQuestionDto, userId: string) {
     const current = await this.prisma.question.findFirst({
       where: { id, deletedAt: null },
+      include: {
+        answer: true,
+        compositionChildren: {
+          include: { childQuestion: { include: { answer: true } } },
+        },
+      },
     });
 
     if (!current) {
@@ -861,11 +985,12 @@ export class QuestionsService {
     const hasOptionsPatch = dto.options !== undefined;
     const hasAnswerPatch = dto.answer !== undefined;
     const hasScoringRulePatch = dto.scoringRule !== undefined;
+    const hasChildrenPatch = dto.children !== undefined;
     const hasKnowledgePatch = dto.knowledgePointIds !== undefined || dto.knowledgePointNames !== undefined;
     const hasTagPatch = dto.tagIds !== undefined || dto.tagNames !== undefined;
     const hasProgrammingRefPatch = dto.programmingRef !== undefined || type !== QuestionType.PROGRAMMING;
 
-    if (hasOptionsPatch || dto.type) {
+    if (hasOptionsPatch || hasChildrenPatch || dto.type) {
       const existingOptions = dto.options
         ? []
         : await this.prisma.questionOption.findMany({
@@ -888,6 +1013,7 @@ export class QuestionsService {
             sortOrder: option.sortOrder,
           })),
       } as CreateQuestionDto);
+      this.questionTypes.validate(toApiEnum(type), { ...dto, type: toApiEnum(type) });
     }
 
     const updated = await this.prisma.$transaction(async (tx) => {
@@ -950,25 +1076,43 @@ export class QuestionsService {
         options = await this.replaceOptions(tx, id, dto.options);
       }
 
-      if (hasAnswerPatch || hasOptionsPatch || hasScoringRulePatch) {
+      if (hasAnswerPatch || hasOptionsPatch || hasScoringRulePatch || dto.type) {
         const currentOptions =
           options ??
           (await tx.questionOption.findMany({
             where: { questionId: id },
             orderBy: { sortOrder: 'asc' },
           }));
-        await tx.questionAnswer.upsert({
+        const nextAnswerJson =
+          hasAnswerPatch || hasOptionsPatch
+            ? this.resolveAnswerJson(type, dto as CreateQuestionDto, currentOptions)
+            : (current.answer?.answerJson ?? {});
+        const nextRuleJson =
+          hasScoringRulePatch
+            ? (dto.scoringRule as Prisma.InputJsonObject)
+            : ((current.answer?.scoringRuleJson ?? { mode: 'strict' }) as Prisma.InputJsonObject);
+        const answer = await tx.questionAnswer.upsert({
           where: { questionId: id },
           update: {
-            answerJson: this.resolveAnswerJson(type, dto as CreateQuestionDto, currentOptions),
-            scoringRuleJson: dto.scoringRule as Prisma.InputJsonObject | undefined,
+            answerJson: nextAnswerJson,
+            scoringRuleJson: nextRuleJson,
           },
           create: {
             questionId: id,
-            answerJson: this.resolveAnswerJson(type, dto as CreateQuestionDto, currentOptions),
-            scoringRuleJson: (dto.scoringRule ?? { mode: 'strict' }) as Prisma.InputJsonObject,
+            answerJson: nextAnswerJson,
+            scoringRuleJson: nextRuleJson,
           },
         });
+        const ruleVersion = await this.createScoringRuleVersion(
+          tx,
+          id,
+          type,
+          question.version,
+          nextAnswerJson,
+          nextRuleJson,
+          userId,
+        );
+        await tx.questionAnswer.update({ where: { id: answer.id }, data: { currentRuleVersionId: ruleVersion.id } });
       }
 
       if (hasKnowledgePatch || hasTagPatch) {
@@ -991,6 +1135,13 @@ export class QuestionsService {
 
       if (hasProgrammingRefPatch) {
         await this.upsertProgrammingRef(tx, id, type, dto.programmingRef);
+      }
+
+      if (hasChildrenPatch || dto.type) {
+        const materialScore = await this.replaceComposition(tx, id, type, dto.children);
+        if (materialScore !== null) {
+          await tx.question.update({ where: { id }, data: { defaultScore: materialScore } });
+        }
       }
 
       const snapshot = await this.buildSnapshot(tx, id);
@@ -1022,14 +1173,26 @@ export class QuestionsService {
   async publish(id: string, userId: string) {
     const question = await this.prisma.question.findFirst({
       where: { id, deletedAt: null },
-      include: { answer: true },
+      include: {
+        answer: true,
+        compositionChildren: {
+          orderBy: { sortOrder: 'asc' },
+          include: { childQuestion: { include: { answer: true } } },
+        },
+      },
     });
 
     if (!question) {
       throw new NotFoundException('题目不存在');
     }
 
-    if (!question.answer) {
+    if (question.type === QuestionType.MATERIAL) {
+      if (!question.compositionChildren.length) throw new BadRequestException('材料/组合题至少需要一道子题');
+      const unavailable = question.compositionChildren.filter(
+        (item) => item.childQuestion.status !== QuestionStatus.PUBLISHED || !item.childQuestion.answer,
+      );
+      if (unavailable.length) throw new BadRequestException('材料/组合题存在未发布或缺少答案的子题');
+    } else if (!question.answer) {
       throw new BadRequestException('题目缺少答案，不能发布');
     }
 
@@ -1061,6 +1224,10 @@ export class QuestionsService {
 
     if (!exists) {
       throw new NotFoundException('题目不存在');
+    }
+    const parentReferences = await this.prisma.questionComposition.count({ where: { childQuestionId: id } });
+    if (parentReferences > 0) {
+      throw new BadRequestException(`该题目正被 ${parentReferences} 道材料/组合题引用，请先移除子题关系`);
     }
 
     const deletion = await this.prisma.$transaction(async (tx) => {
@@ -1186,6 +1353,94 @@ export class QuestionsService {
     };
   }
 
+  private async replaceComposition(
+    tx: Prisma.TransactionClient,
+    parentQuestionId: string,
+    type: QuestionType,
+    children: CreateQuestionDto['children'],
+  ) {
+    if (type !== QuestionType.MATERIAL) {
+      if (children?.length) throw new BadRequestException('只有材料/组合题可以配置子题');
+      await tx.questionComposition.deleteMany({ where: { parentQuestionId } });
+      return null;
+    }
+    if (!children?.length) throw new BadRequestException('材料/组合题至少需要一道子题');
+    if (children.length > 100) throw new BadRequestException('单道材料/组合题最多包含 100 道子题');
+
+    const uniqueIds = [...new Set(children.map((item) => item.questionId))];
+    if (uniqueIds.length !== children.length) throw new BadRequestException('材料/组合题不能重复引用同一道子题');
+    if (uniqueIds.includes(parentQuestionId)) throw new BadRequestException('材料/组合题不能引用自身');
+    const questions = await tx.question.findMany({
+      where: { id: { in: uniqueIds }, deletedAt: null },
+      select: { id: true, type: true },
+    });
+    if (questions.length !== uniqueIds.length) throw new BadRequestException('部分子题不存在或已删除');
+    if (questions.some((item) => item.type === QuestionType.MATERIAL)) {
+      throw new BadRequestException('当前版本只支持单层组合，子题不能再是材料/组合题');
+    }
+
+    await tx.questionComposition.deleteMany({ where: { parentQuestionId } });
+    await tx.questionComposition.createMany({
+      data: children.map((item, index) => ({
+        parentQuestionId,
+        childQuestionId: item.questionId,
+        score: item.score,
+        sortOrder: item.sortOrder ?? index,
+      })),
+    });
+    return children.reduce((sum, item) => sum + item.score, 0);
+  }
+
+  private async createScoringRuleVersion(
+    tx: Prisma.TransactionClient,
+    questionId: string,
+    type: QuestionType,
+    version: number,
+    answerJson: Prisma.InputJsonValue,
+    ruleJson: unknown,
+    userId: string,
+  ) {
+    const rule = this.toPlainRecord(ruleJson);
+    return tx.scoringRuleVersion.create({
+      data: {
+        questionId,
+        version,
+        adapterKey: toApiEnum(type),
+        adapterVersion: this.questionTypes.descriptor(toApiEnum(type)).version,
+        answerJson,
+        ruleJson: rule as Prisma.InputJsonObject,
+        rubricJson: Array.isArray(rule.rubric) ? (rule.rubric as Prisma.InputJsonArray) : Prisma.JsonNull,
+        checksum: createHash('sha256').update(JSON.stringify({ answerJson, rule })).digest('hex'),
+        createdBy: userId,
+      },
+    });
+  }
+
+  private async buildResourceSnapshot(
+    tx: Prisma.TransactionClient | PrismaService,
+    ...values: unknown[]
+  ): Promise<Prisma.InputJsonArray> {
+    const urls = this.extractResourceReferences(...values);
+    const objectKeys = urls.map((url) => url.replace(/^\/?uploads\//, ''));
+    const assets = objectKeys.length
+      ? await tx.fileAsset.findMany({ where: { objectKey: { in: objectKeys }, deletedAt: null } })
+      : [];
+    const byKey = new Map(assets.map((asset) => [asset.objectKey, asset]));
+    return urls.map((url) => {
+      const objectKey = url.replace(/^\/?uploads\//, '');
+      const asset = byKey.get(objectKey);
+      return {
+        logicalUrl: url,
+        assetId: asset?.id ?? null,
+        objectKey,
+        version: asset?.version ?? 1,
+        sha256: asset?.sha256 ?? null,
+        fileSize: asset ? Number(asset.fileSize) : null,
+        mimeType: asset?.mimeType ?? null,
+      } as Prisma.InputJsonObject;
+    });
+  }
+
   async buildSnapshot(
     tx: Prisma.TransactionClient | PrismaService,
     questionId: string,
@@ -1199,8 +1454,26 @@ export class QuestionsService {
         programmingRef: true,
         knowledgePoints: { include: { knowledgePoint: true } },
         tags: { include: { tag: true } },
+        compositionChildren: { orderBy: { sortOrder: 'asc' } },
       },
     });
+
+    const children = await Promise.all(
+      question.compositionChildren.map(async (relation) => ({
+        questionId: relation.childQuestionId,
+        score: Number(relation.score),
+        sortOrder: relation.sortOrder,
+        snapshot: await this.buildSnapshot(tx, relation.childQuestionId),
+      })),
+    );
+    const resources = await this.buildResourceSnapshot(
+      tx,
+      question.content,
+      question.analysis,
+      question.options,
+      question.answer?.answerJson,
+      question.answer?.scoringRuleJson,
+    );
 
     return {
       id: question.id,
@@ -1214,6 +1487,11 @@ export class QuestionsService {
       analysis: question.analysis,
       allowOptionShuffle: question.allowOptionShuffle,
       version: question.version,
+      engine: {
+        adapterKey: toApiEnum(question.type),
+        adapterVersion: this.questionTypes.descriptor(toApiEnum(question.type)).version,
+        schemaVersion: 1,
+      },
       options: question.options.map((option) => ({
         id: option.id,
         optionKey: option.optionKey,
@@ -1223,6 +1501,7 @@ export class QuestionsService {
       })),
       answer: question.answer?.answerJson ?? null,
       scoringRule: question.answer?.scoringRuleJson ?? null,
+      scoringRuleVersionId: question.answer?.currentRuleVersionId ?? null,
       programmingRef: question.programmingRef
         ? this.formatProgrammingRef(question.programmingRef)
         : null,
@@ -1234,6 +1513,8 @@ export class QuestionsService {
         id: relation.tag.id,
         name: relation.tag.name,
       })),
+      resources,
+      children,
     };
   }
 
@@ -2345,6 +2626,10 @@ export class QuestionsService {
         allowOptionShuffle: this.optionalBooleanFromExcel(
           this.excelValue(row, headerMap, ['allowOptionShuffle', '允许选项随机']),
         ),
+        identifier: this.excelValue(row, headerMap, ['identifier', '题目标识']),
+        parentIdentifier: this.excelValue(row, headerMap, ['parentIdentifier', '父题标识']),
+        childScore: this.nonNegativeImportNumber(this.excelValue(row, headerMap, ['childScore', '子题分值']), 0),
+        childOrder: this.nonNegativeImportNumber(this.excelValue(row, headerMap, ['childOrder', '子题顺序']), rowNumber),
       });
     });
     return rows;

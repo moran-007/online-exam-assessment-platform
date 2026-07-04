@@ -92,6 +92,22 @@ export class ProgrammingProblemRefDto {
   judgeConfig?: Record<string, unknown>;
 }
 
+export class QuestionChildDto {
+  @IsUUID()
+  questionId: string;
+
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0.01)
+  score: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  sortOrder = 0;
+}
+
 export class CreateQuestionDto {
   @IsOptional()
   @Transform(({ value }) => value || undefined)
@@ -176,4 +192,10 @@ export class CreateQuestionDto {
   @ValidateNested()
   @Type(() => ProgrammingProblemRefDto)
   programmingRef?: ProgrammingProblemRefDto | null;
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => QuestionChildDto)
+  children?: QuestionChildDto[];
 }

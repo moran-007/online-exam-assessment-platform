@@ -2,6 +2,7 @@ import { CanActivate, ExecutionContext, ForbiddenException, Injectable } from '@
 import { Reflector } from '@nestjs/core';
 import { PERMISSIONS_KEY } from '../decorators/permissions.decorator';
 import { RequestUser } from '../interfaces/request-user.interface';
+import { hasPermission } from '../security/permission-policy';
 
 @Injectable()
 export class PermissionsGuard implements CanActivate {
@@ -22,9 +23,7 @@ export class PermissionsGuard implements CanActivate {
       return true;
     }
 
-    const permissions = request.user?.permissions ?? [];
-
-    if (!requiredPermissions.every((permission) => permissions.includes(permission))) {
+    if (!requiredPermissions.every((permission) => hasPermission(request.user, permission))) {
       throw new ForbiddenException('无权限访问');
     }
 

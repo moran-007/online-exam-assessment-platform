@@ -2515,3 +2515,26 @@ body {
     grid-template-columns: 1fr;
   }
 }
+.material-context {
+  margin-bottom: 18px;
+  padding: 16px;
+  border-left: 4px solid var(--el-color-primary);
+  border-radius: 8px;
+  background: var(--el-fill-color-light);
+}
+
+.material-context h3 {
+  margin: 0 0 10px;
+}
+
+.material-child-editor {
+  display: grid;
+  gap: 12px;
+  width: 100%;
+}
+
+.material-child-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}

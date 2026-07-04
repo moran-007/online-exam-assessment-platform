@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite --host 0.0.0.0 --port 5173 --strictPort",
     "build": "vite build",
-    "preview": "vite preview --host 0.0.0.0 --port 4173"
+    "preview": "vite preview --host 0.0.0.0 --port 4173",
+    "preview:e2e": "vite preview --host 0.0.0.0 --port 5173 --strictPort"
   },
   "dependencies": {
     "@codemirror/autocomplete": "^6.20.3",

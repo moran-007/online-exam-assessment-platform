@@ -133,6 +133,33 @@ POST /api/v1/auth/login
 }
 ```
 
+材料题请求：
+
+```json
+{
+  "courseId": "course_001",
+  "type": "material",
+  "title": "阅读材料：循环结构",
+  "content": "阅读下面材料并回答子题。",
+  "difficulty": 2,
+  "defaultScore": 10,
+  "children": [
+    {
+      "questionId": "question_child_choice",
+      "score": 3,
+      "sortOrder": 1
+    },
+    {
+      "questionId": "question_child_short",
+      "score": 7,
+      "sortOrder": 2
+    }
+  ]
+}
+```
+
+说明：当前材料题只支持单层组合，子题必须是已存在的非材料题。父题不直接判分，默认总分由子题分值汇总。题目详情、试卷和学生作答响应会保留原字段，并额外返回嵌套 `children`。
+
 ---
 
 ### 2.2 刷新 Token
@@ -440,6 +467,32 @@ DELETE /api/v1/tags/:id
 ---
 
 ## 六、题库 Question 接口
+
+### 6.0 获取题型元数据
+
+```http
+GET /api/v1/question-types
+```
+
+返回安全的题型注册表元数据：题型 code、中文名、版本、是否支持自动判分/人工批改/外部 Judge，以及题目、答案、评分规则 JSON Schema。接口不返回正确答案内容，也不返回可执行组件代码。
+
+```json
+{
+  "code": 0,
+  "message": "ok",
+  "data": [
+    {
+      "code": "single_choice",
+      "name": "单选题",
+      "version": "1.0.0",
+      "capabilities": {
+        "autoGrade": true,
+        "manualGrade": false
+      }
+    }
+  ]
+}
+```
 
 ### 6.1 获取题目列表
 
@@ -1546,6 +1599,8 @@ GET /api/v1/student/attempts/:attemptId/result
 GET /api/v1/grading/answers?examId=exam_001&studentId=student_001&status=pending&keyword=循环&page=1&pageSize=20
 ```
 
+说明：列表会根据字段权限裁剪成绩、学生答案、参考答案、解析和学生身份字段；无权限字段保留响应键但返回空值或脱敏值，并在 `_fieldAccess` 中说明当前可见范围。
+
 ---
 
 ### 10.2 获取某次答题详情
@@ -1567,9 +1622,23 @@ PATCH /api/v1/grading/answers/:answerRecordId
 ```json
 {
   "score": 8,
-  "comment": "思路正确，但表述不完整。"
+  "comment": "思路正确，但表述不完整。",
+  "rubricScores": [
+    {
+      "dimensionId": "accuracy",
+      "score": 5,
+      "comment": "关键点完整"
+    },
+    {
+      "dimensionId": "clarity",
+      "score": 2,
+      "comment": "表达清楚"
+    }
+  ]
 }
 ```
+
+说明：普通主观题可直接提交 `score`；配置 rubric 的题目必须提交 `rubricScores`，总分由服务端按维度求和，不能由客户端直接覆盖。每次人工批改都会写入评分历史。
 
 ---
 
@@ -1603,7 +1672,37 @@ POST /api/v1/grading/attempts/:attemptId/regrade
 
 说明：
 
-仅重新判客观题（单选、多选、判断、填空），主观题和编程题保留人工批改或 Judge 回写结果。
+兼容旧接口。内部会创建单次试算重判任务并立即确认，使用考试快照评分规则，确认前仍会校验答案更新时间和得分指纹。
+
+---
+
+### 10.5.1 试算重判
+
+```http
+POST /api/v1/grading/regrade-runs/preview
+GET /api/v1/grading/regrade-runs/:id
+POST /api/v1/grading/regrade-runs/:id/confirm
+POST /api/v1/grading/regrade-runs/:id/cancel
+```
+
+试算请求：
+
+```json
+{
+  "examId": "exam_001",
+  "questionId": "question_001",
+  "studentId": "student_001",
+  "ruleSource": "snapshot",
+  "reason": "修正多选题评分规则"
+}
+```
+
+说明：
+
+1. `ruleSource` 支持 `snapshot`、`latest` 和指定规则版本。
+2. 单次最多处理 5000 条答案；试算只生成差异预览，不改变正式成绩。
+3. `confirm` 会在事务内更新正式得分、答题总分和审计记录；如果答案已变化则拒绝覆盖。
+4. AI 建议不得作为正式评价来源，正式分数只能由自动判分、人工批改、Judge 或确认后的重判写入。
 
 ---
 
@@ -2140,12 +2239,14 @@ GET /api/v1/uploads/question-assets/report
 ### 16.5 附件内容读取
 
 ```http
-GET /api/v1/uploads/question-assets/:filename/content
+GET /api/v1/uploads/question-assets/:filename/content?action=preview
+GET /api/v1/uploads/question-assets/:filename/content?action=download
 GET /api/v1/uploads/public/questions/:questionId/assets/:filename?token=<signed-token>
 ```
 
 - 第一个接口必须登录，并会重新校验管理权限、附件创建者或学生本人试卷快照引用。
-- 第二个接口仅服务于公开已发布题目；令牌绑定 `questionId`、作用域和过期时间，篡改、过期或跨题目复用均失败。
+- `action=preview` 返回内联预览，`action=download` 返回附件下载；签名令牌和权限校验都会绑定动作范围，不能跨动作复用。
+- 第二个接口仅服务于公开已发布题目；令牌绑定 `questionId`、作用域、动作和过期时间，篡改、过期或跨题目复用均失败。
 - 公开题目详情的 `data.assetAccessToken` 用于构造签名内容 URL。
 - 旧 `/api/v1/uploads/files*`、`/api/v1/uploads/images` 和 `/images` 别名已删除。
 
@@ -2464,6 +2565,10 @@ GET   /grading/attempts/:attemptId
 PATCH /grading/answers/:answerRecordId
 POST  /grading/attempts/:attemptId/finish
 POST  /grading/attempts/:attemptId/regrade
+POST  /grading/regrade-runs/preview
+GET   /grading/regrade-runs/:id
+POST  /grading/regrade-runs/:id/confirm
+POST  /grading/regrade-runs/:id/cancel
 POST  /grading/exams/:examId/grades/publish
 POST  /grading/exams/:examId/grades/withdraw
 ```
@@ -2471,8 +2576,8 @@ POST  /grading/exams/:examId/grades/withdraw
 说明：
 
 - `GET /grading/answers` 支持 `examId`、`studentId`、`status`、`keyword`、分页和排序。
-- `PATCH /grading/answers/:answerRecordId` 保存分数和批改意见，并自动重算答题记录总分。
-- `finish` 完成整卷批改，`regrade` 重判客观题，`grades/publish` 和 `grades/withdraw` 控制学生端成绩可见性。
+- `PATCH /grading/answers/:answerRecordId` 保存分数、rubric 和批改意见，并自动重算答题记录总分。
+- `finish` 完成整卷批改，`regrade` 兼容旧重判入口，`regrade-runs/*` 用于试算/确认/取消，`grades/publish` 和 `grades/withdraw` 控制学生端成绩可见性。
 
 ### 22.1.1 Hydro 任务级管理
 

@@ -23,6 +23,7 @@
         </el-select>
         <el-button :icon="Search" @click="loadFirstPage">查询</el-button>
         <el-button :icon="Refresh" @click="load">刷新</el-button>
+        <el-button type="warning" :disabled="!filter.examId" @click="openRegradeDialog">试算重判</el-button>
       </div>
     </div>
 
@@ -132,7 +133,15 @@
         </div>
 
         <div class="grading-form continuous-grade-form">
-          <el-input-number v-model="currentQuestion.nextScore" :min="0" :max="currentQuestion.maxScore" :step="0.5" />
+          <div v-if="currentQuestion.rubric?.length" class="rubric-editor">
+            <div v-for="criterion in currentQuestion.rubric" :key="criterion.id" class="rubric-row">
+              <span>{{ criterion.name }}（{{ criterion.maxScore }} 分）</span>
+              <el-input-number v-model="criterion.score" :min="0" :max="criterion.maxScore" :step="0.5" />
+              <el-input v-model="criterion.comment" placeholder="维度评语，可选" />
+            </div>
+            <strong>量表合计：{{ rubricTotal(currentQuestion) }} / {{ currentQuestion.maxScore }} 分</strong>
+          </div>
+          <el-input-number v-else v-model="currentQuestion.nextScore" :min="0" :max="currentQuestion.maxScore" :step="0.5" />
           <el-input v-model="currentQuestion.nextComment" placeholder="批改意见，可选" />
           <el-button type="primary" :icon="Check" :loading="saving" @click="saveGrade">
             保存并批改下一题
@@ -141,6 +150,32 @@
       </div>
       <el-empty v-else description="这份试卷没有待批改题目" />
     </el-drawer>
+
+    <el-dialog v-model="regradeVisible" title="试算重判" width="620px" destroy-on-close>
+      <el-form label-width="110px">
+        <el-form-item label="规则来源">
+          <el-select v-model="regradeForm.ruleSource" style="width: 100%">
+            <el-option label="考试快照规则（推荐）" value="snapshot" />
+            <el-option label="题目最新规则" value="latest" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="原因">
+          <el-input v-model="regradeForm.reason" type="textarea" :rows="2" placeholder="记录本次重判原因" />
+        </el-form-item>
+      </el-form>
+      <el-alert type="warning" :closable="false" title="试算不会修改正式成绩；确认时若答案或成绩已变化，服务端会拒绝覆盖。" />
+      <el-descriptions v-if="regradePreview" :column="2" border class="regrade-summary">
+        <el-descriptions-item label="扫描答案">{{ regradePreview.summary.scannedCount }}</el-descriptions-item>
+        <el-descriptions-item label="可自动重判">{{ regradePreview.summary.gradableCount }}</el-descriptions-item>
+        <el-descriptions-item label="分数变化">{{ regradePreview.summary.changedCount }}</el-descriptions-item>
+        <el-descriptions-item label="总分差值">{{ regradePreview.summary.scoreDelta }}</el-descriptions-item>
+      </el-descriptions>
+      <template #footer>
+        <el-button @click="cancelRegrade">取消</el-button>
+        <el-button :loading="regradeLoading" @click="previewRegrade">生成试算</el-button>
+        <el-button type="primary" :disabled="!regradePreview" :loading="regradeLoading" @click="confirmRegrade">确认应用</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -170,6 +205,10 @@ const drawerVisible = ref(false);
 const attemptDetail = ref(null);
 const currentQuestionId = ref('');
 const saving = ref(false);
+const regradeVisible = ref(false);
+const regradeLoading = ref(false);
+const regradePreview = ref(null);
+const regradeForm = reactive({ ruleSource: 'snapshot', reason: '' });
 
 const reviewQuestions = computed(() =>
   (attemptDetail.value?.questions ?? []).filter((question) => question.answerRecordId && reviewStatuses.includes(question.status)),
@@ -202,6 +241,7 @@ async function fetchAttempt(attemptId) {
     ...question,
     nextScore: question.score,
     nextComment: question.manualComment || '',
+    rubric: normalizedRubric(question),
   }));
   return detail;
 }
@@ -222,7 +262,12 @@ async function saveGrade() {
     const oldQuestionId = question.questionId;
     await api(`/grading/answers/${question.answerRecordId}`, {
       method: 'PATCH',
-      body: { score: question.nextScore, comment: question.nextComment },
+      body: question.rubric?.length
+        ? {
+            rubricScores: question.rubric.map((item) => ({ criterionId: item.id, score: item.score, comment: item.comment })),
+            comment: question.nextComment,
+          }
+        : { score: question.nextScore, comment: question.nextComment },
     });
     attemptDetail.value = await fetchAttempt(attemptId);
     const all = reviewQuestions.value;
@@ -247,6 +292,74 @@ function moveQuestion(step) {
   if (questions.length < 2) return;
   const nextIndex = (currentQuestionIndex.value + step + questions.length) % questions.length;
   currentQuestionId.value = questions[nextIndex].questionId;
+}
+
+function normalizedRubric(question) {
+  const raw = Array.isArray(question.scoringRule?.rubric) ? question.scoringRule.rubric : [];
+  if (!raw.length) return [];
+  const sourceTotal = raw.reduce((sum, item) => sum + Math.max(0, Number(item.maxScore || 0)), 0);
+  if (!sourceTotal) return [];
+  const existing = new Map((question.rubricScores || []).map((item) => [item.criterionId, item]));
+  let allocated = 0;
+  return raw.map((item, index) => {
+    const maxScore = index === raw.length - 1
+      ? Math.round((Number(question.maxScore) - allocated + Number.EPSILON) * 100) / 100
+      : Math.round(((Number(item.maxScore || 0) / sourceTotal) * Number(question.maxScore) + Number.EPSILON) * 100) / 100;
+    allocated += maxScore;
+    const previous = existing.get(String(item.id));
+    return {
+      id: String(item.id),
+      name: String(item.name || item.id),
+      maxScore,
+      score: Number(previous?.score || 0),
+      comment: previous?.comment || '',
+    };
+  });
+}
+
+function rubricTotal(question) {
+  return Math.round(((question.rubric || []).reduce((sum, item) => sum + Number(item.score || 0), 0) + Number.EPSILON) * 100) / 100;
+}
+
+function openRegradeDialog() {
+  regradePreview.value = null;
+  regradeForm.ruleSource = 'snapshot';
+  regradeForm.reason = '';
+  regradeVisible.value = true;
+}
+
+async function previewRegrade() {
+  regradeLoading.value = true;
+  try {
+    regradePreview.value = await api('/grading/regrade-runs/preview', {
+      method: 'POST',
+      body: { examId: filter.examId, ruleSource: regradeForm.ruleSource, reason: regradeForm.reason },
+    });
+    ElMessage.success('试算完成，正式成绩尚未改变');
+  } finally {
+    regradeLoading.value = false;
+  }
+}
+
+async function confirmRegrade() {
+  if (!regradePreview.value) return;
+  await ElMessageBox.confirm('确认将试算结果写入正式成绩吗？该操作会保留完整历史。', '确认重判');
+  regradeLoading.value = true;
+  try {
+    await api(`/grading/regrade-runs/${regradePreview.value.id}/confirm`, { method: 'POST' });
+    regradeVisible.value = false;
+    ElMessage.success('重判结果已应用');
+    await load();
+  } finally {
+    regradeLoading.value = false;
+  }
+}
+
+async function cancelRegrade() {
+  if (regradePreview.value) {
+    await api(`/grading/regrade-runs/${regradePreview.value.id}/cancel`, { method: 'POST' });
+  }
+  regradeVisible.value = false;
 }
 
 async function batchGrade(mode) {
@@ -369,7 +482,10 @@ onMounted(load);
 .answer-box { margin-top: 16px; padding: 14px 0; border-top: 1px solid var(--el-border-color-lighter); }
 .answer-box pre { overflow: auto; max-height: 360px; margin: 8px 0 0; padding: 12px; background: var(--el-fill-color-light); white-space: pre-wrap; overflow-wrap: anywhere; font-family: Consolas, Monaco, monospace; }
 .answer-box.soft { color: var(--el-text-color-regular); }
-.continuous-grade-form { position: sticky; bottom: 0; display: grid; grid-template-columns: 150px minmax(180px, 1fr) auto; gap: 10px; padding: 14px 0 4px; background: var(--el-bg-color); }
+.continuous-grade-form { position: sticky; bottom: 0; display: grid; grid-template-columns: minmax(150px, 1fr) minmax(180px, 1fr) auto; gap: 10px; padding: 14px 0 4px; background: var(--el-bg-color); }
+.rubric-editor { display: grid; gap: 10px; }
+.rubric-row { display: grid; grid-template-columns: minmax(120px, 1fr) 130px minmax(160px, 1fr); gap: 8px; align-items: center; }
+.regrade-summary { margin-top: 16px; }
 @media (max-width: 760px) {
   .batch-actions { flex-wrap: wrap; }
   .continuous-grade-form { grid-template-columns: 1fr; }

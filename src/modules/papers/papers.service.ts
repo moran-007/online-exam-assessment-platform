@@ -439,6 +439,7 @@ export class PapersService {
     const result = await this.prisma.$transaction(async (tx) => {
       const sectionId = await this.resolveSection(tx, id, dto.sectionId, dto.sectionTitle);
       const snapshot = await this.questionsService.buildSnapshot(tx, dto.questionId);
+      const resolvedScore = this.snapshotTotalScore(snapshot, dto.score);
       const sortOrder =
         dto.sortOrder ??
         ((await tx.paperQuestion.count({ where: { paperId: id, sectionId } })) + 1);
@@ -449,7 +450,7 @@ export class PapersService {
           sectionId,
           questionId: dto.questionId,
           questionSnapshotJson: snapshot,
-          score: dto.score,
+          score: resolvedScore,
           sortOrder,
         },
       });
@@ -539,13 +540,14 @@ export class PapersService {
 
       for (const [index, question] of chosen.entries()) {
         const snapshot = await this.questionsService.buildSnapshot(tx, question.id);
+        const resolvedScore = this.snapshotTotalScore(snapshot, dto.scoreEach ?? Number(question.defaultScore));
         const created = await tx.paperQuestion.create({
           data: {
             paperId: id,
             sectionId,
             questionId: question.id,
             questionSnapshotJson: snapshot,
-            score: dto.scoreEach ?? Number(question.defaultScore),
+            score: resolvedScore,
             sortOrder: startOrder + index + 1,
           },
         });
@@ -601,7 +603,7 @@ export class PapersService {
         where: { id: paperQuestionId },
         data: {
           sectionId: hasSectionPatch ? (dto.sectionId === null ? null : sectionId) : undefined,
-          score: dto.score,
+          score: dto.score === undefined ? undefined : this.snapshotTotalScore(exists.questionSnapshotJson, dto.score),
           sortOrder: dto.sortOrder,
         },
       });
@@ -1694,6 +1696,17 @@ export class PapersService {
     });
 
     return totalScore;
+  }
+
+  private snapshotTotalScore(snapshotValue: Prisma.JsonValue | Prisma.InputJsonValue, fallback: number) {
+    if (!snapshotValue || typeof snapshotValue !== 'object' || Array.isArray(snapshotValue)) return fallback;
+    const snapshot = snapshotValue as Record<string, unknown>;
+    if (String(snapshot.type ?? '').toLowerCase() !== 'material') return fallback;
+    const children = Array.isArray(snapshot.children) ? snapshot.children : [];
+    return children.reduce((sum, child) => {
+      if (!child || typeof child !== 'object' || Array.isArray(child)) return sum;
+      return sum + Math.max(0, Number((child as Record<string, unknown>).score ?? 0));
+    }, 0);
   }
 
   private async normalizeSortOrders(tx: Prisma.TransactionClient, paperId: string) {

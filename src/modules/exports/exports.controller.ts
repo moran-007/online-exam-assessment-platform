@@ -16,49 +16,49 @@ export class ExportsController {
   constructor(private readonly exportsService: ExportsService) {}
 
   @Get()
-  @Permissions('exam:result:export')
+  @Permissions('export:task:read')
   list(@Query() query: QueryExportDto, @CurrentUser() user: RequestUser) {
     return this.exportsService.list(query, user);
   }
 
   @Post()
-  @Permissions('exam:result:export')
+  @Permissions('export:task:create')
   create(@Body() dto: CreateExportDto, @CurrentUser() user: RequestUser) {
     return this.exportsService.create(dto, user);
   }
 
   @Get('download-audits')
-  @Permissions('exam:result:export')
+  @Permissions('export:task:read')
   downloadAudits(@Query() query: QueryExportDto, @CurrentUser() user: RequestUser) {
     return this.exportsService.downloadAudits(query, user);
   }
 
   @Post('batch/retry')
-  @Permissions('exam:result:export')
+  @Permissions('export:task:create')
   retryMany(@Body() dto: BatchExportActionDto, @CurrentUser() user: RequestUser) {
     return this.exportsService.retryMany(dto.ids, user);
   }
 
   @Post(':id/retry')
-  @Permissions('exam:result:export')
+  @Permissions('export:task:create')
   retry(@Param('id') id: string, @CurrentUser() user: RequestUser) {
     return this.exportsService.retry(id, user);
   }
 
   @Post('batch/cancel')
-  @Permissions('exam:result:export')
+  @Permissions('export:task:create')
   cancelMany(@Body() dto: BatchExportActionDto, @CurrentUser() user: RequestUser) {
     return this.exportsService.cancelMany(dto.ids, user);
   }
 
   @Post(':id/cancel')
-  @Permissions('exam:result:export')
+  @Permissions('export:task:create')
   cancel(@Param('id') id: string, @CurrentUser() user: RequestUser) {
     return this.exportsService.cancel(id, user);
   }
 
   @Post('maintenance/cleanup-expired')
-  @Permissions('exam:result:export')
+  @Permissions('export:task:create')
   cleanupExpired() {
     return this.exportsService.cleanupExpiredTasks();
   }
@@ -69,7 +69,7 @@ export class ExportsController {
   }
 
   @Get(':id/download')
-  @Permissions('exam:result:export')
+  @Permissions('export:file:download')
   async download(
     @Param('id') id: string,
     @CurrentUser() user: RequestUser,
