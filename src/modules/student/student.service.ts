@@ -2407,6 +2407,7 @@ export class StudentService {
       content: paperQuestion.snapshot.content,
       score: paperQuestion.score,
       blankCount: this.blankCount(paperQuestion.snapshot.answer),
+      answerRows: this.answerRows(paperQuestion.snapshot.answer),
       programmingRef: paperQuestion.snapshot.programmingRef
         ? {
             ...paperQuestion.snapshot.programmingRef,
@@ -2433,6 +2434,13 @@ export class StudentService {
     if (!answerJson || typeof answerJson !== 'object' || Array.isArray(answerJson)) return 1;
     const blanks = (answerJson as { blanks?: unknown[] }).blanks;
     return Array.isArray(blanks) && blanks.length ? blanks.length : 1;
+  }
+
+  private answerRows(answerJson: unknown) {
+    if (!answerJson || typeof answerJson !== 'object' || Array.isArray(answerJson)) return undefined;
+    const rows = Number((answerJson as { rows?: unknown; answerRows?: unknown }).rows ?? (answerJson as { answerRows?: unknown }).answerRows);
+    if (!Number.isFinite(rows) || rows <= 0) return undefined;
+    return Math.min(24, Math.max(2, Math.round(rows)));
   }
 
   private formatAttemptForStudent(

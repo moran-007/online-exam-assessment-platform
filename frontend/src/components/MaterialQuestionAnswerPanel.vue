@@ -37,7 +37,7 @@
           :model-value="childAnswer(child)"
           :question="childQuestion(child)"
           :type="childQuestion(child).type"
-          :rows="rowsFor(childQuestion(child).type)"
+          :rows="rowsFor(childQuestion(child))"
           :show-correct="showCorrect || Boolean(childResult(child))"
           :public-question-id="childPublicQuestionId(child)"
           :asset-access-token="childAssetAccessToken(child)"
@@ -88,6 +88,7 @@ function childQuestion(child) {
     id: question.id || question.questionId || child?.questionId,
     questionId: question.questionId || question.id || child?.questionId,
     defaultScore: childScore(child),
+    answerRows: question.answerRows ?? child?.answerRows,
   };
 }
 
@@ -130,8 +131,10 @@ function childAssetAccessToken(child) {
   return child?.assetAccessToken || question.assetAccessToken || props.assetAccessToken;
 }
 
-function rowsFor(type) {
-  return isObjectiveQuestionType(type) ? 5 : props.rows;
+function rowsFor(question) {
+  const configured = Number(question?.answerRows ?? question?.answer?.rows ?? question?.answer?.answerRows);
+  if (Number.isFinite(configured) && configured > 0) return Math.min(24, Math.max(2, Math.round(configured)));
+  return isObjectiveQuestionType(question?.type) ? 5 : props.rows;
 }
 
 function resultLabel(result) {
@@ -163,22 +166,22 @@ function formatScore(value) {
 <style scoped>
 .material-answer-panel {
   display: grid;
-  gap: 14px;
+  gap: 10px;
 }
 
 .material-answer-hint {
-  margin-bottom: 2px;
+  margin-bottom: 0;
 }
 
 .material-answer-children {
   display: grid;
-  gap: 16px;
+  gap: 12px;
 }
 
 .material-answer-child {
   display: grid;
-  gap: 12px;
-  padding: 14px;
+  gap: 10px;
+  padding: 12px;
   border: 1px solid var(--el-border-color-light);
   border-radius: 10px;
   background: var(--el-bg-color);
@@ -192,7 +195,7 @@ function formatScore(value) {
 }
 
 .material-answer-child-statement {
-  padding: 10px 12px;
+  padding: 8px 10px;
   border-radius: 8px;
   background: var(--el-fill-color-lighter);
 }

@@ -63,7 +63,7 @@
       :model-value="answer.text || ''"
       class="answer-input subjective-answer-input"
       type="textarea"
-      :rows="rows"
+      :rows="resolvedRows"
       placeholder="填写答案"
       @update:model-value="updateText"
     />
@@ -94,6 +94,11 @@ const definition = computed(() => questionTypeDefinition(normalizedType.value));
 const answer = computed(() => props.modelValue || {});
 const options = computed(() => props.question.options || []);
 const singleValue = computed(() => answer.value.selectedOptionIds?.[0] || '');
+const resolvedRows = computed(() => {
+  const configured = Number(props.question?.answerRows ?? props.question?.answer?.rows ?? props.question?.answer?.answerRows);
+  if (Number.isFinite(configured) && configured > 0) return Math.min(24, Math.max(2, Math.round(configured)));
+  return props.rows;
+});
 const blankCount = computed(() => {
   const explicit = Number(props.question.blankCount);
   if (Number.isFinite(explicit) && explicit > 0) return explicit;

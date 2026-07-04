@@ -312,6 +312,7 @@ export class QuestionsService {
       courseName: question.course.name,
       tags: question.tags.map((relation) => relation.tag),
       blankCount: this.blankCount(question.answer?.answerJson),
+      answerRows: this.answerRows(question.answer?.answerJson),
       programmingRef: question.programmingRef ? this.formatProgrammingRef(question.programmingRef) : null,
       options: question.options.map((option) => ({
         optionId: option.id,
@@ -328,6 +329,7 @@ export class QuestionsService {
         type: toApiEnum(relation.childQuestion.type),
         difficulty: relation.childQuestion.difficulty,
         blankCount: this.blankCount(relation.childQuestion.answer?.answerJson),
+        answerRows: this.answerRows(relation.childQuestion.answer?.answerJson),
         programmingRef: relation.childQuestion.programmingRef
           ? this.formatProgrammingRef(relation.childQuestion.programmingRef)
           : null,
@@ -379,6 +381,7 @@ export class QuestionsService {
       status: toApiEnum(question.status),
       programmingRef: question.programmingRef ? this.formatProgrammingRef(question.programmingRef) : null,
       blankCount: this.blankCount(question.answer?.answerJson),
+      answerRows: this.answerRows(question.answer?.answerJson),
       knowledgePoints: question.knowledgePoints.map((relation) => relation.knowledgePoint),
       tags: question.tags.map((relation) => relation.tag),
       children: question.compositionChildren.map((relation) => ({
@@ -391,6 +394,7 @@ export class QuestionsService {
           status: toApiEnum(relation.childQuestion.status),
           defaultScore: Number(relation.childQuestion.defaultScore),
           blankCount: this.blankCount(relation.childQuestion.answer?.answerJson),
+          answerRows: this.answerRows(relation.childQuestion.answer?.answerJson),
           programmingRef: relation.childQuestion.programmingRef
             ? this.formatProgrammingRef(relation.childQuestion.programmingRef)
             : null,
@@ -2694,6 +2698,13 @@ export class QuestionsService {
     if (!answerJson || typeof answerJson !== 'object' || Array.isArray(answerJson)) return 1;
     const blanks = (answerJson as QuestionAnswerJson).blanks;
     return Array.isArray(blanks) && blanks.length ? blanks.length : 1;
+  }
+
+  private answerRows(answerJson: unknown) {
+    if (!answerJson || typeof answerJson !== 'object' || Array.isArray(answerJson)) return undefined;
+    const rows = Number((answerJson as { rows?: unknown; answerRows?: unknown }).rows ?? (answerJson as { answerRows?: unknown }).answerRows);
+    if (!Number.isFinite(rows) || rows <= 0) return undefined;
+    return Math.min(24, Math.max(2, Math.round(rows)));
   }
 
   private excelHeaderMap(worksheet: ExcelJS.Worksheet) {

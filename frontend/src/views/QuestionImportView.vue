@@ -108,6 +108,24 @@
                   <el-input-number v-model="singleForm.defaultScore" :min="0" :step="1" />
                 </el-form-item>
               </div>
+              <el-alert
+                v-if="singlePreviewError"
+                :title="singlePreviewError"
+                type="warning"
+                show-icon
+                :closable="false"
+                class="question-entry-guide"
+              />
+              <el-alert
+                v-else
+                :title="singleEntryTip.title"
+                :description="singleEntryTip.description"
+                type="info"
+                show-icon
+                :closable="false"
+                class="question-entry-guide"
+              />
+
               <template v-if="singleForm.type === 'programming'">
                 <el-form-item label="Hydro题目">
                   <div class="hydro-inline-field">
@@ -277,129 +295,48 @@
               </el-form-item>
               <el-form-item v-else-if="singleForm.type === 'material'" label="子题">
                 <div class="material-child-editor">
-                  <el-alert
-                    type="info"
-                    :closable="false"
-                    title="材料/组合题按“大题说明 + 多个小题”一次录入；可用于阅读材料题，也可用于多问简答题组。子题默认不在题库列表中单独展示。"
-                  />
-                  <div
-                    v-for="(child, index) in singleForm.children"
-                    :key="child.localId"
-                    class="material-inline-child-card"
-                  >
-                    <div class="material-inline-child-head">
-                      <el-tag>子题 {{ index + 1 }}</el-tag>
-                      <el-select v-model="child.type" filterable style="width: 140px" @change="resetMaterialInlineChild(child)">
-                        <el-option
-                          v-for="type in materialChildTypeOptions"
-                          :key="type.value"
-                          :label="type.label"
-                          :value="type.value"
-                        />
-                      </el-select>
-                      <span class="muted">分值</span>
-                      <el-input-number v-model="child.score" :min="0.01" :precision="2" :step="1" />
-                      <el-button plain :icon="Delete" :disabled="singleForm.children.length <= 1" @click="removeSingleMaterialChild(index)">
-                        删除
-                      </el-button>
-                    </div>
-
-                    <el-input v-model="child.title" placeholder="子题标题，例如：根据材料判断输出结果" />
+                  <div class="material-child-editor-head">
                     <div>
-                      <div class="toolbar compact-toolbar">
-                        <el-button size="small" :icon="DocumentAdd" @click="insertCodeBlock(child, 'content')">代码块</el-button>
-                        <el-button v-if="child.type === 'fill_blank'" size="small" :icon="Plus" @click="insertMaterialChildBlankMarker(child)">
-                          插入空位
-                        </el-button>
-                      </div>
-                      <el-input
-                        v-model="child.content"
-                        type="textarea"
-                        :rows="4"
-                        resize="vertical"
-                        placeholder="子题题干。这里只写小题问题，材料正文写在上方题干里。"
-                        @focus="setImageInsertTarget(child, 'content')"
-                        @paste="handleImagePaste($event, child, 'content')"
-                      />
+                      <strong>子题结构</strong>
+                      <p class="mini-muted">左侧只保留题号和标题；新增或修改子题会打开弹窗，右侧预览实时展示完整题干、选项和分值。</p>
                     </div>
-
-                    <div v-if="isChoiceType(child.type)" class="choice-editor material-child-choice-editor">
-                      <div class="toolbar compact-toolbar">
-                        <el-button v-if="child.type !== 'true_false'" size="small" :icon="Plus" @click="addMaterialChildOption(child)">
-                          增加选项
-                        </el-button>
-                        <span class="muted">单选/判断选一个正确项，多选至少两个正确项。</span>
-                      </div>
-                      <div v-for="(option, optionIndex) in child.options" :key="option.optionKey" class="option-editor">
-                        <el-radio
-                          v-if="child.type === 'single_choice' || child.type === 'true_false'"
-                          :model-value="materialChildCorrectChoiceKey(child)"
-                          :label="option.optionKey"
-                          @update:model-value="setMaterialChildCorrectChoice(child, $event)"
-                        />
-                        <el-checkbox v-else v-model="option.isCorrect" />
-                        <el-tag>{{ option.optionKey }}</el-tag>
-                        <div class="option-content">
-                          <el-input v-model="option.content" type="textarea" :rows="2" resize="vertical" />
-                          <MarkdownRenderer v-if="option.content" :source="option.content" />
-                        </div>
-                        <el-button
-                          v-if="child.type !== 'true_false'"
-                          size="small"
-                          plain
-                          :icon="Delete"
-                          :disabled="child.options.length <= 2"
-                          @click="removeMaterialChildOption(child, optionIndex)"
-                        >
-                          删除
-                        </el-button>
-                      </div>
-                    </div>
-
-                    <div v-else-if="child.type === 'fill_blank'" class="fill-blank-answer-editor material-child-fill-blank-editor">
-                      <div class="toolbar compact-toolbar">
-                        <el-button size="small" :icon="Plus" @click="addMaterialChildBlankAnswerRow(child)">增加空位</el-button>
-                        <el-button size="small" :icon="DocumentAdd" @click="insertMaterialChildBlankMarker(child)">插入题干空位</el-button>
-                        <span class="muted">与普通填空题一致：题干中的 ____ 对应学生看到的填空横线。</span>
-                      </div>
-                      <div v-for="(blank, blankIndex) in child.blankRows" :key="blankIndex" class="blank-answer-row">
-                        <el-tag>第 {{ blankIndex + 1 }} 空</el-tag>
-                        <el-input v-model="blank.answerText" placeholder="正确答案；多个答案用逗号分隔" />
-                        <el-button
-                          size="small"
-                          plain
-                          :icon="Delete"
-                          :disabled="child.blankRows.length <= 1"
-                          @click="removeMaterialChildBlankAnswerRow(child, blankIndex)"
-                        >
-                          删除
-                        </el-button>
-                      </div>
-                    </div>
-                    <el-input
-                      v-else
-                      v-model="child.answerText"
-                      type="textarea"
-                      :rows="3"
-                      resize="vertical"
-                      placeholder="参考答案或评分说明"
-                    />
-
-                    <el-input
-                      v-model="child.analysis"
-                      type="textarea"
-                      :rows="2"
-                      resize="vertical"
-                      placeholder="子题解析，可选"
-                      @focus="setImageInsertTarget(child, 'analysis')"
-                      @paste="handleImagePaste($event, child, 'analysis')"
-                    />
+                    <el-tag type="info">当前 {{ singleForm.children.length }} 道 · {{ singleMaterialScore }} 分</el-tag>
                   </div>
-                  <div class="toolbar">
-                    <el-button plain :icon="Plus" @click="addSingleMaterialChild('short_answer')">增加简答小题</el-button>
-                    <el-button plain :icon="Plus" @click="addSingleMaterialChild('fill_blank')">增加填空小题</el-button>
-                    <el-button plain :icon="Plus" @click="addSingleMaterialChild('single_choice')">增加选择小题</el-button>
-                    <span class="muted">当前总分：{{ singleMaterialScore }} 分</span>
+
+                  <div class="material-child-builder">
+                    <aside class="material-child-list">
+                      <button
+                        v-for="(child, index) in singleForm.children"
+                        :key="child.localId"
+                        type="button"
+                        :class="['material-child-list-item', selectedMaterialChildIndex === index ? 'active' : '']"
+                        @click="editSingleMaterialChild(index)"
+                      >
+                        <span class="material-child-index">第 {{ index + 1 }} 题</span>
+                        <strong>{{ child.title || `${typeLabel(child.type)}小题` }}</strong>
+                        <small>{{ typeLabel(child.type) }} · {{ child.score }} 分</small>
+                      </button>
+                      <el-empty v-if="!singleForm.children.length" description="还没有子题" />
+                    </aside>
+
+                    <div class="material-child-actions">
+                      <el-alert
+                        type="info"
+                        :closable="false"
+                        title="材料正文写在上方“大题说明”；每道小题在弹窗里独立设置题干、答案、解析和分值。"
+                      />
+                      <div class="toolbar">
+                        <el-button plain :icon="Plus" @click="openMaterialChildDialog('short_answer')">增加简答小题</el-button>
+                        <el-button plain :icon="Plus" @click="openMaterialChildDialog('fill_blank')">增加填空小题</el-button>
+                        <el-button plain :icon="Plus" @click="openMaterialChildDialog('single_choice')">增加选择小题</el-button>
+                      </div>
+                      <div v-if="selectedMaterialChild" class="selected-material-child-summary">
+                        <span class="mini-muted">当前选中</span>
+                        <strong>{{ selectedMaterialChild.title || `第 ${selectedMaterialChildIndex + 1} 题` }}</strong>
+                        <span>{{ typeLabel(selectedMaterialChild.type) }} · {{ selectedMaterialChild.score }} 分</span>
+                        <el-button size="small" :icon="Edit" @click="editSingleMaterialChild(selectedMaterialChildIndex)">编辑</el-button>
+                      </div>
+                    </div>
                   </div>
                 </div>
               </el-form-item>
@@ -417,7 +354,12 @@
                       改为多问组合题
                     </el-button>
                   </div>
-                  <el-input v-model="answerReference" type="textarea" :rows="3" resize="vertical" />
+                  <div v-if="isTextAnswerType(singleForm.type)" class="subjective-answer-settings">
+                    <span>学生作答框行数</span>
+                    <el-input-number v-model="singleForm.answerRows" :min="2" :max="24" :step="1" size="small" />
+                    <span class="mini-muted">用于考试/练习作答框高度；不影响评分。</span>
+                  </div>
+                  <el-input v-model="answerReference" type="textarea" :rows="referenceAnswerRows" resize="vertical" />
                 </div>
               </el-form-item>
               <el-form-item label="解析">
@@ -693,6 +635,160 @@
       </section>
     </div>
 
+    <el-dialog
+      v-model="materialChildDialogVisible"
+      :title="materialChildDialogTitle"
+      width="860px"
+      class="material-child-dialog"
+      destroy-on-close
+    >
+      <el-form label-width="96px">
+        <div class="material-child-dialog-grid">
+          <el-form-item label="题型">
+            <el-select v-model="materialChildDraft.type" filterable style="width: 100%" @change="resetMaterialInlineChild(materialChildDraft)">
+              <el-option
+                v-for="type in materialChildTypeOptions"
+                :key="type.value"
+                :label="type.label"
+                :value="type.value"
+              />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="分值">
+            <el-input-number v-model="materialChildDraft.score" :min="0.01" :precision="2" :step="1" style="width: 100%" />
+          </el-form-item>
+          <el-form-item label="难度">
+            <div class="inline-control">
+              <el-rate v-model="materialChildDraft.difficulty" :max="5" />
+            </div>
+          </el-form-item>
+          <el-form-item v-if="isTextAnswerType(materialChildDraft.type)" label="作答行数">
+            <el-input-number v-model="materialChildDraft.answerRows" :min="2" :max="24" :step="1" style="width: 100%" />
+          </el-form-item>
+        </div>
+
+        <el-form-item label="子题标题">
+          <el-input v-model="materialChildDraft.title" placeholder="例如：第 1 问 / 根据材料判断输出结果" />
+        </el-form-item>
+
+        <el-form-item label="子题题干">
+          <div style="width: 100%">
+            <div class="toolbar compact-toolbar">
+              <el-button size="small" :icon="DocumentAdd" @click="insertCodeBlock(materialChildDraft, 'content')">代码块</el-button>
+              <el-button v-if="materialChildDraft.type === 'fill_blank'" size="small" :icon="Plus" @click="insertMaterialChildBlankMarker(materialChildDraft)">
+                插入空位
+              </el-button>
+              <span class="mini-muted">这里只写小题问题，材料正文写在上方“大题说明”。</span>
+            </div>
+            <el-input
+              v-model="materialChildDraft.content"
+              type="textarea"
+              :rows="5"
+              resize="vertical"
+              placeholder="子题题干，支持 Markdown 和代码块"
+              @focus="setImageInsertTarget(materialChildDraft, 'content')"
+              @paste="handleImagePaste($event, materialChildDraft, 'content')"
+            />
+          </div>
+        </el-form-item>
+
+        <el-form-item v-if="isChoiceType(materialChildDraft.type)" label="选项">
+          <div class="choice-editor material-child-choice-editor">
+            <div class="toolbar compact-toolbar">
+              <el-button v-if="materialChildDraft.type !== 'true_false'" size="small" :icon="Plus" @click="addMaterialChildOption(materialChildDraft)">
+                增加选项
+              </el-button>
+              <span class="mini-muted">单选/判断选一个正确项，多选至少两个正确项。</span>
+            </div>
+            <div v-for="(option, optionIndex) in materialChildDraft.options" :key="option.optionKey" class="option-editor">
+              <el-radio
+                v-if="materialChildDraft.type === 'single_choice' || materialChildDraft.type === 'true_false'"
+                :model-value="materialChildCorrectChoiceKey(materialChildDraft)"
+                :label="option.optionKey"
+                @update:model-value="setMaterialChildCorrectChoice(materialChildDraft, $event)"
+              />
+              <el-checkbox v-else v-model="option.isCorrect" />
+              <el-tag>{{ option.optionKey }}</el-tag>
+              <div class="option-content">
+                <el-input v-model="option.content" type="textarea" :rows="2" resize="vertical" />
+                <MarkdownRenderer v-if="option.content" :source="option.content" />
+              </div>
+              <el-button
+                v-if="materialChildDraft.type !== 'true_false'"
+                size="small"
+                plain
+                :icon="Delete"
+                :disabled="materialChildDraft.options.length <= 2"
+                @click="removeMaterialChildOption(materialChildDraft, optionIndex)"
+              >
+                删除
+              </el-button>
+            </div>
+          </div>
+        </el-form-item>
+
+        <el-form-item v-else-if="materialChildDraft.type === 'fill_blank'" label="答案">
+          <div class="fill-blank-answer-editor material-child-fill-blank-editor">
+            <div class="toolbar compact-toolbar">
+              <el-button size="small" :icon="Plus" @click="addMaterialChildBlankAnswerRow(materialChildDraft)">增加空位</el-button>
+              <el-button size="small" :icon="DocumentAdd" @click="insertMaterialChildBlankMarker(materialChildDraft)">插入题干空位</el-button>
+              <span class="mini-muted">与普通填空题一致：题干中的 ____ 对应学生看到的填空横线。</span>
+            </div>
+            <div v-for="(blank, blankIndex) in materialChildDraft.blankRows" :key="blankIndex" class="blank-answer-row">
+              <el-tag>第 {{ blankIndex + 1 }} 空</el-tag>
+              <el-input v-model="blank.answerText" placeholder="正确答案；多个答案用逗号分隔" />
+              <el-button
+                size="small"
+                plain
+                :icon="Delete"
+                :disabled="materialChildDraft.blankRows.length <= 1"
+                @click="removeMaterialChildBlankAnswerRow(materialChildDraft, blankIndex)"
+              >
+                删除
+              </el-button>
+            </div>
+          </div>
+        </el-form-item>
+
+        <el-form-item v-else label="参考答案">
+          <el-input
+            v-model="materialChildDraft.answerText"
+            type="textarea"
+            :rows="draftAnswerEditorRows"
+            resize="vertical"
+            placeholder="参考答案或评分说明"
+          />
+        </el-form-item>
+
+        <el-form-item label="解析">
+          <el-input
+            v-model="materialChildDraft.analysis"
+            type="textarea"
+            :rows="2"
+            resize="vertical"
+            placeholder="子题解析，可选"
+            @focus="setImageInsertTarget(materialChildDraft, 'analysis')"
+            @paste="handleImagePaste($event, materialChildDraft, 'analysis')"
+          />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <div class="dialog-footer">
+          <el-button @click="materialChildDialogVisible = false">取消</el-button>
+          <el-button
+            v-if="materialEditingChildIndex >= 0 && singleForm.children.length > 1"
+            type="danger"
+            plain
+            :icon="Delete"
+            @click="deleteMaterialChildFromDialog"
+          >
+            删除子题
+          </el-button>
+          <el-button type="primary" @click="saveMaterialChildDraft">保存子题</el-button>
+        </div>
+      </template>
+    </el-dialog>
+
     <el-drawer v-model="assetDrawerVisible" title="题目附件" size="420px" class="asset-drawer">
       <div class="asset-drawer-body">
         <div class="asset-toolbar">
@@ -792,7 +888,7 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { ElMessage, ElMessageBox } from 'element-plus';
-import { Back, Delete, DocumentAdd, DocumentCopy, Link, Plus, Refresh, Upload, View } from '@element-plus/icons-vue';
+import { Back, Delete, DocumentAdd, DocumentCopy, Edit, Link, Plus, Refresh, Upload, View } from '@element-plus/icons-vue';
 import { api, apiBlob, buildQuery } from '../api';
 import MarkdownRenderer from '../components/MarkdownRenderer.vue';
 import {
@@ -862,6 +958,10 @@ const singleSaving = ref(false);
 const singleHydroPulling = ref(false);
 const singleDuplicateChecking = ref(false);
 const singleConflictResult = ref(null);
+const selectedMaterialChildIndex = ref(0);
+const materialChildDialogVisible = ref(false);
+const materialEditingChildIndex = ref(-1);
+const materialChildDraft = reactive(createMaterialChildDraft());
 let singleDuplicateTimer = null;
 let lastSingleDuplicateKey = '';
 const batchText = ref('');
@@ -903,6 +1003,15 @@ const singlePreviewQuestion = computed(() => buildSinglePreview());
 const singleMaterialScore = computed(() =>
   singleForm.children.reduce((sum, child) => sum + Math.max(0, Number(child.score) || 0), 0),
 );
+const selectedMaterialChild = computed(() => singleForm.children[selectedMaterialChildIndex.value] ?? null);
+const materialChildDialogTitle = computed(() =>
+  materialEditingChildIndex.value >= 0
+    ? `编辑第 ${materialEditingChildIndex.value + 1} 道子题`
+    : '添加子题',
+);
+const referenceAnswerRows = computed(() => Math.min(8, Math.max(3, Number(singleForm.answerRows) || 4)));
+const draftAnswerEditorRows = computed(() => Math.min(10, Math.max(3, Number(materialChildDraft.answerRows) || 4)));
+const singleEntryTip = computed(() => entryTipForType(singleForm.type));
 const hasMaterialFillBlankChild = computed(() =>
   singleForm.type === 'material' && singleForm.children.some((child) => child.type === 'fill_blank'),
 );
@@ -1001,6 +1110,7 @@ function baseSingleForm() {
     content: '',
     difficulty: 1,
     defaultScore: 2,
+    answerRows: 6,
     analysis: '',
     programmingRef: emptyProgrammingRef(),
     children: [],
@@ -1241,6 +1351,11 @@ function buildSinglePreview() {
 
   if (singleForm.type === 'fill_blank') {
     payload.answer = buildSingleFillBlankPreviewAnswer(payload.defaultScore);
+  } else if (isTextAnswerType(singleForm.type)) {
+    payload.answer = {
+      reference: answerReference.value.trim(),
+      rows: normalizeAnswerRows(singleForm.answerRows),
+    };
   } else if (singleForm.type !== 'material' && !isChoiceType(singleForm.type) && answerReference.value.trim()) {
     payload.answer = { reference: answerReference.value.trim() };
   }
@@ -1268,33 +1383,40 @@ function buildSingleFillBlankPreviewAnswer(score) {
 }
 
 function buildMaterialInlineChildrenPayload() {
-  return singleForm.children.map((child, index) => {
-    const payload = {
-      type: child.type,
-      title: String(child.title || '').trim(),
-      content: String(child.content || '').trim(),
-      difficulty: Number(child.difficulty || singleForm.difficulty || 1),
-      score: Number(child.score || 0),
-      analysis: String(child.analysis || '').trim(),
-      allowOptionShuffle: true,
-      sortOrder: index + 1,
+  return singleForm.children.map((child, index) => materialInlineChildPayload(child, index));
+}
+
+function materialInlineChildPayload(child, index = 0) {
+  const payload = {
+    type: child.type,
+    title: String(child.title || '').trim(),
+    content: String(child.content || '').trim(),
+    difficulty: Number(child.difficulty || singleForm.difficulty || 1),
+    score: Number(child.score || 0),
+    analysis: String(child.analysis || '').trim(),
+    allowOptionShuffle: true,
+    sortOrder: index + 1,
+  };
+
+  if (isChoiceType(child.type)) {
+    payload.options = (child.options ?? []).map((option, optionIndex) => ({
+      optionKey: option.optionKey || optionKeyForIndex(optionIndex),
+      content: String(option.content || '').trim(),
+      isCorrect: Boolean(option.isCorrect),
+      sortOrder: optionIndex + 1,
+    }));
+  } else if (child.type === 'fill_blank') {
+    payload.answer = buildMaterialChildFillBlankAnswer(child);
+  } else if (isTextAnswerType(child.type)) {
+    payload.answer = {
+      reference: String(child.answerText || '').trim(),
+      rows: normalizeAnswerRows(child.answerRows),
     };
+  } else if (String(child.answerText || '').trim()) {
+    payload.answer = { reference: String(child.answerText).trim() };
+  }
 
-    if (isChoiceType(child.type)) {
-      payload.options = (child.options ?? []).map((option, optionIndex) => ({
-        optionKey: option.optionKey || optionKeyForIndex(optionIndex),
-        content: String(option.content || '').trim(),
-        isCorrect: Boolean(option.isCorrect),
-        sortOrder: optionIndex + 1,
-      }));
-    } else if (child.type === 'fill_blank') {
-      payload.answer = buildMaterialChildFillBlankAnswer(child);
-    } else if (String(child.answerText || '').trim()) {
-      payload.answer = { reference: String(child.answerText).trim() };
-    }
-
-    return payload;
-  });
+  return payload;
 }
 
 function buildMaterialChildFillBlankAnswer(child) {
@@ -1422,7 +1544,6 @@ function scheduleSingleDuplicateCheck() {
 function resetSingleOptions() {
   if (singleForm.type === 'material') {
     singleForm.options = [];
-    if (!singleForm.children.length) addSingleMaterialChild();
     return;
   }
 
@@ -1449,9 +1570,10 @@ async function handleSingleTypeChange() {
   }
   if (singleForm.type === 'material') {
     answerReference.value = '';
-    if (!singleForm.children.length) addSingleMaterialChild();
+    selectedMaterialChildIndex.value = Math.min(selectedMaterialChildIndex.value, Math.max(0, singleForm.children.length - 1));
   } else {
     singleForm.children = [];
+    selectedMaterialChildIndex.value = 0;
   }
 }
 
@@ -1462,16 +1584,14 @@ function convertShortAnswerToMaterial() {
   child.difficulty = Number(singleForm.difficulty || 1);
   child.score = Number(singleForm.defaultScore || 2);
   child.answerText = answerReference.value;
+  child.answerRows = normalizeAnswerRows(singleForm.answerRows);
   child.analysis = singleForm.analysis;
   singleForm.type = 'material';
   singleForm.children = [child];
   singleForm.options = [];
+  selectedMaterialChildIndex.value = 0;
   answerReference.value = '';
   ElMessage.success('已改为大题/组合题，可继续添加多个简答、填空或选择小题');
-}
-
-function addSingleMaterialChild(type = 'short_answer') {
-  singleForm.children.push(baseMaterialInlineChild(singleForm.children.length + 1, type));
 }
 
 function removeSingleMaterialChild(index) {
@@ -1479,6 +1599,7 @@ function removeSingleMaterialChild(index) {
   singleForm.children.forEach((child, childIndex) => {
     child.sortOrder = childIndex + 1;
   });
+  selectedMaterialChildIndex.value = Math.min(selectedMaterialChildIndex.value, Math.max(0, singleForm.children.length - 1));
 }
 
 function baseMaterialInlineChild(sortOrder = 1, type = 'short_answer') {
@@ -1489,6 +1610,7 @@ function baseMaterialInlineChild(sortOrder = 1, type = 'short_answer') {
     content: '',
     difficulty: Number(singleForm.difficulty || 1),
     score: 2,
+    answerRows: 6,
     analysis: '',
     answerText: '',
     blankRows: emptyFillBlankRows(),
@@ -1497,6 +1619,101 @@ function baseMaterialInlineChild(sortOrder = 1, type = 'short_answer') {
   };
   resetMaterialInlineChild(child);
   return child;
+}
+
+function createMaterialChildDraft(type = 'short_answer') {
+  return {
+    localId: '',
+    type,
+    title: '',
+    content: '',
+    difficulty: 1,
+    score: 2,
+    answerRows: 6,
+    analysis: '',
+    answerText: '',
+    blankRows: emptyFillBlankRows(),
+    sortOrder: 1,
+    options: [],
+  };
+}
+
+function cloneMaterialChild(child) {
+  return {
+    ...createMaterialChildDraft(child?.type || 'short_answer'),
+    ...child,
+    options: (child?.options ?? []).map((option) => ({ ...option })),
+    blankRows: (child?.blankRows?.length ? child.blankRows : emptyFillBlankRows()).map((row) => ({ ...row })),
+    answerRows: normalizeAnswerRows(child?.answerRows),
+  };
+}
+
+function assignMaterialChild(target, source) {
+  Object.keys(target).forEach((key) => delete target[key]);
+  Object.assign(target, cloneMaterialChild(source));
+}
+
+function openMaterialChildDialog(type = 'short_answer') {
+  materialEditingChildIndex.value = -1;
+  const draft = createMaterialChildDraft(type);
+  draft.difficulty = Number(singleForm.difficulty || 1);
+  draft.sortOrder = singleForm.children.length + 1;
+  draft.title = `第 ${singleForm.children.length + 1} 问`;
+  resetMaterialInlineChild(draft);
+  assignMaterialChild(materialChildDraft, draft);
+  materialChildDialogVisible.value = true;
+  setImageInsertTarget(materialChildDraft, 'content');
+}
+
+function editSingleMaterialChild(index) {
+  const child = singleForm.children[index];
+  if (!child) return;
+  selectedMaterialChildIndex.value = index;
+  materialEditingChildIndex.value = index;
+  assignMaterialChild(materialChildDraft, child);
+  materialChildDialogVisible.value = true;
+  setImageInsertTarget(materialChildDraft, 'content');
+}
+
+function saveMaterialChildDraft() {
+  const index = materialEditingChildIndex.value >= 0 ? materialEditingChildIndex.value : singleForm.children.length;
+  const payload = materialInlineChildPayload(materialChildDraft, index);
+  try {
+    validatePayload({
+      ...payload,
+      courseId: sharedCourseId.value,
+      courseName: selectedCourseName(sharedCourseId.value),
+      defaultScore: payload.score,
+      knowledgePointIds: [...sharedKnowledgePointIds.value],
+      knowledgePointNames: [...selectedKnowledgeNames.value],
+    }, `子题 ${index + 1}`);
+  } catch (error) {
+    ElMessage.error(error.message);
+    return;
+  }
+
+  const child = cloneMaterialChild(materialChildDraft);
+  child.localId = child.localId || `material-child-${materialChildLocalId++}`;
+  child.sortOrder = index + 1;
+  if (materialEditingChildIndex.value >= 0) {
+    singleForm.children.splice(materialEditingChildIndex.value, 1, child);
+    selectedMaterialChildIndex.value = materialEditingChildIndex.value;
+  } else {
+    singleForm.children.push(child);
+    selectedMaterialChildIndex.value = singleForm.children.length - 1;
+  }
+  singleForm.children.forEach((item, childIndex) => {
+    item.sortOrder = childIndex + 1;
+  });
+  materialChildDialogVisible.value = false;
+  ElMessage.success('子题已保存');
+}
+
+function deleteMaterialChildFromDialog() {
+  if (materialEditingChildIndex.value < 0) return;
+  removeSingleMaterialChild(materialEditingChildIndex.value);
+  materialChildDialogVisible.value = false;
+  materialEditingChildIndex.value = -1;
 }
 
 function baseChoiceOptions() {
@@ -1520,6 +1737,9 @@ function resetMaterialInlineChild(child) {
     child.options = [];
   }
   child.answerText = '';
+  if (isTextAnswerType(child.type)) {
+    child.answerRows = normalizeAnswerRows(child.answerRows);
+  }
   if (child.type === 'fill_blank') {
     child.blankRows = emptyFillBlankRows();
   }
@@ -1628,6 +1848,9 @@ function countBlankMarkers(content) {
 
 function resetSingleForm() {
   Object.assign(singleForm, baseSingleForm());
+  selectedMaterialChildIndex.value = 0;
+  materialEditingChildIndex.value = -1;
+  materialChildDialogVisible.value = false;
   blankAnswerRows.value = emptyFillBlankRows();
   blankCaseSensitive.value = false;
   blankSpaceSensitive.value = false;
@@ -3427,6 +3650,65 @@ function blankAnswerOptions() {
   };
 }
 
+function normalizeAnswerRows(value, fallback = 6) {
+  const numberValue = Number(value);
+  if (!Number.isFinite(numberValue)) return fallback;
+  return Math.min(24, Math.max(2, Math.round(numberValue)));
+}
+
+function isTextAnswerType(type) {
+  return ['short_answer', 'file_upload', 'scratch_project', 'arduino_project'].includes(type);
+}
+
+function entryTipForType(type) {
+  const tips = {
+    single_choice: {
+      title: '录入提示：单选题需要且只能设置一个正确选项',
+      description: '题干、选项和解析都支持 Markdown；如果选项很多，建议先写完内容再选择正确项。',
+    },
+    multiple_choice: {
+      title: '录入提示：多选题至少需要两个正确选项',
+      description: '当前判分按题型引擎规则处理；选项内容保持完整，后续导出和判分会复用同一份结构。',
+    },
+    true_false: {
+      title: '录入提示：判断题保留“正确/错误”两个选项',
+      description: '只需要选择正确项；如需解释条件或前提，写在题干或解析中。',
+    },
+    fill_blank: {
+      title: '录入提示：填空题题干中的 ____ 会作为学生看到的空位',
+      description: '答案区可按空位逐行填写；材料题里的填空小题也使用同一套录入方式。',
+    },
+    short_answer: {
+      title: '录入提示：简答题（单问）只生成一个作答框',
+      description: '如果一题包含第 1 问、第 2 问等多组子项，请改为“大题/组合题”后逐题给分。',
+    },
+    programming: {
+      title: '录入提示：编程题优先绑定 Hydro 题号或题目链接',
+      description: '绑定外部题后可拉取标题、题面和语言；本地不直接保存外部平台账号密钥。',
+    },
+    material: {
+      title: '录入提示：大题/组合题由“大题说明 + 多道子题”组成',
+      description: '子题通过弹窗新增或编辑，默认不会在题库列表中单独展示；右侧预览会按题号紧凑展示完整小题。',
+    },
+    file_upload: {
+      title: '录入提示：文件上传题适合收作业附件或项目文件',
+      description: '参考答案可填写提交要求或评分说明；作答框行数只影响学生端输入区高度。',
+    },
+    scratch_project: {
+      title: '录入提示：Scratch 项目题可写项目要求和评分说明',
+      description: '学生端按主观/项目类题型提交，后续由教师批改或结合附件检查。',
+    },
+    arduino_project: {
+      title: '录入提示：Arduino 项目题可写接线、代码和验收标准',
+      description: '建议把设备要求、提交材料和评分点拆清楚，便于后续批改。',
+    },
+  };
+  return tips[type] ?? {
+    title: '录入提示：请先填写题目标题、题干和分值',
+    description: '如果当前题型较复杂，建议先保存草稿再进入题库详情中复核。',
+  };
+}
+
 function optionKeyForIndex(index) {
   return index < 26 ? String.fromCharCode(65 + index) : `X${index + 1}`;
 }
@@ -3535,21 +3817,13 @@ onMounted(async () => {
   font-size: 12px;
 }
 
-.material-inline-child-card,
 .material-preview-child {
   display: grid;
-  gap: 12px;
-  padding: 14px;
+  gap: 8px;
+  padding: 10px 12px;
   border: 1px solid var(--el-border-color-light);
   border-radius: 10px;
   background: var(--el-bg-color);
-}
-
-.material-inline-child-head {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-  align-items: center;
 }
 
 .material-child-choice-editor {
@@ -3564,12 +3838,13 @@ onMounted(async () => {
 
 .material-preview-children {
   display: grid;
-  gap: 12px;
-  margin-top: 16px;
+  gap: 8px;
+  margin-top: 12px;
 }
 
 .material-preview-child h4 {
   margin: 0;
+  font-size: 15px;
 }
 
 .asset-report-list {
@@ -3608,15 +3883,115 @@ onMounted(async () => {
   gap: 10px;
 }
 
+.question-entry-guide {
+  margin-bottom: 12px;
+}
+
+.material-child-editor-head {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.material-child-editor-head p {
+  margin: 4px 0 0;
+}
+
+.material-child-builder {
+  display: grid;
+  grid-template-columns: minmax(180px, 240px) minmax(0, 1fr);
+  gap: 12px;
+  align-items: stretch;
+}
+
+.material-child-list {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  min-height: 180px;
+  padding: 8px;
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 10px;
+  background: var(--el-fill-color-lighter);
+}
+
+.material-child-list-item {
+  display: grid;
+  gap: 3px;
+  width: 100%;
+  padding: 9px 10px;
+  color: var(--el-text-color-primary);
+  text-align: left;
+  cursor: pointer;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: var(--el-bg-color);
+}
+
+.material-child-list-item.active,
+.material-child-list-item:hover {
+  border-color: var(--el-color-primary-light-5);
+  background: var(--el-color-primary-light-9);
+}
+
+.material-child-list-item strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.material-child-list-item small,
+.material-child-index {
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+}
+
+.material-child-actions {
+  display: grid;
+  align-content: start;
+  gap: 10px;
+}
+
+.selected-material-child-summary {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 4px 10px;
+  align-items: center;
+  padding: 10px 12px;
+  border: 1px dashed var(--el-border-color);
+  border-radius: 10px;
+  background: var(--el-fill-color-light);
+}
+
+.selected-material-child-summary .mini-muted,
+.selected-material-child-summary > span:last-of-type {
+  grid-column: 1;
+}
+
+.material-child-dialog-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 12px;
+}
+
+.subjective-answer-settings {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
 .subjective-answer-editor {
   display: grid;
   width: 100%;
   gap: 10px;
 }
 
-.material-child-row {
-  display: flex;
-  gap: 8px;
-  align-items: center;
+@media (max-width: 900px) {
+  .material-child-builder,
+  .material-child-dialog-grid {
+    grid-template-columns: 1fr;
+  }
 }
 </style>
