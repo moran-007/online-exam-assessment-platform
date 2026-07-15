@@ -1,5 +1,3 @@
-/* eslint-disable @typescript-eslint/ban-ts-comment */
-// @ts-nocheck -- migrated page state is isolated here while domain models are typed incrementally.
 import { computed, onMounted, reactive, ref } from 'vue';
 import { ElMessage } from 'element-plus';
 import { Delete, Download, Refresh, Search } from '@element-plus/icons-vue';
@@ -27,8 +25,46 @@ import {
   statusLabel as entityStatusLabel,
   statusTagType as entityStatusTagType,
 } from '../../../statusMeta';
+import type {
+  ClassOption,
+  CourseOption,
+  ExamSummary,
+  ExportAuditUser,
+  ExportDownloadAudit,
+  ExportPermissionSnapshot,
+  ExportTask,
+  PaperSummary,
+} from '../models';
 
-export function useExportPage(): any {
+type CurrentUser = { userType?: string | null };
+type PaperFilter = { keyword: string; courseId: string; status: string; sortBy: string; sortOrder: 'asc' | 'desc' };
+type ExamFilter = PaperFilter & { classId: string };
+type TaskFilter = { type: string; status: string; scope: 'mine' | 'all' };
+type Pagination = { page: number; pageSize: number; total: number };
+type SortChange = { prop?: string | null; order?: 'ascending' | 'descending' | null };
+type ExportCreatePayload = Parameters<typeof createExportTask>[0];
+type PaperExportConfig = Omit<ExportCreatePayload, 'type' | 'paperId'>;
+
+function recordValue(value: unknown): Record<string, unknown> {
+  if (!value || typeof value !== 'object') throw new Error('记录格式无效');
+  return value as Record<string, unknown>;
+}
+
+function entityId(value: unknown) {
+  const id = recordValue(value).id;
+  if (typeof id !== 'string' || !id) throw new Error('记录缺少 ID');
+  return id;
+}
+
+function taskFrom(value: unknown): ExportTask {
+  const row = recordValue(value);
+  if (typeof row.id !== 'string' || typeof row.type !== 'string' || typeof row.status !== 'string') {
+    throw new Error('导出任务格式无效');
+  }
+  return row as ExportTask;
+}
+
+export function useExportPage() {
 const exportTypes = [
   { label: '考试成绩', value: 'exam_results' },
   { label: '批改记录', value: 'grading' },
@@ -42,25 +78,25 @@ const exportTypes = [
 ];
 
 const activeTab = ref('papers');
-const courses = ref([]);
-const classes = ref([]);
-const papers = ref([]);
-const exams = ref([]);
-const tasks = ref([]);
-const selectedTasks = ref([]);
-const auditLogs = ref([]);
+const courses = ref<CourseOption[]>([]);
+const classes = ref<ClassOption[]>([]);
+const papers = ref<PaperSummary[]>([]);
+const exams = ref<ExamSummary[]>([]);
+const tasks = ref<ExportTask[]>([]);
+const selectedTasks = ref<ExportTask[]>([]);
+const auditLogs = ref<ExportDownloadAudit[]>([]);
 const exporting = ref(false);
 const auditVisible = ref(false);
 const auditLoading = ref(false);
 const { showMediumColumns, showLowColumns } = useResponsiveColumns();
-const currentUser = getCurrentUser();
-const canManageGlobalTasks = ['SUPER_ADMIN', 'ADMIN'].includes(currentUser?.userType);
+const currentUser = getCurrentUser() as CurrentUser | null;
+const canManageGlobalTasks = ['SUPER_ADMIN', 'ADMIN'].includes(currentUser?.userType ?? '');
 const canExportFullArchive = currentUser?.userType === 'SUPER_ADMIN';
-const paperFilter = reactive({ keyword: '', courseId: '', status: '', sortBy: 'createdAt', sortOrder: 'desc' });
-const examFilter = reactive({ keyword: '', courseId: '', classId: '', status: '', sortBy: 'startTime', sortOrder: 'desc' });
-const taskFilter = reactive({ type: '', status: '', scope: 'mine' });
-const taskPagination = reactive({ page: 1, pageSize: 20, total: 0 });
-const auditPagination = reactive({ page: 1, pageSize: 20, total: 0 });
+const paperFilter = reactive<PaperFilter>({ keyword: '', courseId: '', status: '', sortBy: 'createdAt', sortOrder: 'desc' });
+const examFilter = reactive<ExamFilter>({ keyword: '', courseId: '', classId: '', status: '', sortBy: 'startTime', sortOrder: 'desc' });
+const taskFilter = reactive<TaskFilter>({ type: '', status: '', scope: 'mine' });
+const taskPagination = reactive<Pagination>({ page: 1, pageSize: 20, total: 0 });
+const auditPagination = reactive<Pagination>({ page: 1, pageSize: 20, total: 0 });
 const selectedTaskIds = computed(() => selectedTasks.value.filter(canCancel).map((task) => task.id));
 const selectedRetryTaskIds = computed(() => selectedTasks.value.filter(canRetry).map((task) => task.id));
 const { schedule: scheduleTaskPolling } = useExportTaskPolling(tasks, loadTasks);
@@ -121,8 +157,8 @@ async function loadAll() {
   await Promise.all([loadBase(), loadPapers(), loadExams(), loadTasks()]);
 }
 
-async function exportPaper(row, command) {
-  const configs = {
+async function exportPaper(row: unknown, command: string) {
+  const configs: Record<string, PaperExportConfig> = {
     'student-pdf': { format: 'pdf', template: 'student', includeAnswers: false, includeAnalysis: false },
     'teacher-pdf': { format: 'pdf', template: 'teacher', includeAnswers: true, includeAnalysis: true },
     'answer-book-pdf': { format: 'pdf', template: 'answer_book', includeAnswers: true, includeAnalysis: true },
@@ -137,22 +173,24 @@ async function exportPaper(row, command) {
   if (!config) return;
   await directExport({
     type: 'paper_document',
-    paperId: row.id,
+    paperId: entityId(row),
     ...config,
   });
 }
 
-async function exportExam(row, command) {
-  const configs = {
-    'results-csv': { type: 'exam_results', format: 'csv', examId: row.id },
-    'results-xlsx': { type: 'exam_results', format: 'xlsx', examId: row.id },
-    'grading-csv': { type: 'grading', format: 'csv', examId: row.id },
-    'paper-pdf': { type: 'paper_document', format: 'pdf', template: 'student', paperId: row.paperId, includeAnswers: false, includeAnalysis: false },
-    'paper-teacher-pdf': { type: 'paper_document', format: 'pdf', template: 'teacher', paperId: row.paperId, includeAnswers: true, includeAnalysis: true },
-    'paper-answer-book-pdf': { type: 'paper_document', format: 'pdf', template: 'answer_book', paperId: row.paperId, includeAnswers: true, includeAnalysis: true },
-    'paper-transfer-csv': { type: 'paper_document', format: 'csv', paperId: row.paperId, includeAnswers: true, includeAnalysis: true },
-    'paper-transfer-json': { type: 'paper_document', format: 'json', paperId: row.paperId, includeAnswers: true, includeAnalysis: true },
-    'paper-transfer-zip': { type: 'paper_document', format: 'zip', paperId: row.paperId, includeAnswers: true, includeAnalysis: true },
+async function exportExam(row: unknown, command: string) {
+  const exam = recordValue(row) as ExamSummary;
+  const paperId = exam.paperId ?? undefined;
+  const configs: Record<string, ExportCreatePayload> = {
+    'results-csv': { type: 'exam_results', format: 'csv', examId: entityId(row) },
+    'results-xlsx': { type: 'exam_results', format: 'xlsx', examId: entityId(row) },
+    'grading-csv': { type: 'grading', format: 'csv', examId: entityId(row) },
+    'paper-pdf': { type: 'paper_document', format: 'pdf', template: 'student', paperId, includeAnswers: false, includeAnalysis: false },
+    'paper-teacher-pdf': { type: 'paper_document', format: 'pdf', template: 'teacher', paperId, includeAnswers: true, includeAnalysis: true },
+    'paper-answer-book-pdf': { type: 'paper_document', format: 'pdf', template: 'answer_book', paperId, includeAnswers: true, includeAnalysis: true },
+    'paper-transfer-csv': { type: 'paper_document', format: 'csv', paperId, includeAnswers: true, includeAnalysis: true },
+    'paper-transfer-json': { type: 'paper_document', format: 'json', paperId, includeAnswers: true, includeAnalysis: true },
+    'paper-transfer-zip': { type: 'paper_document', format: 'zip', paperId, includeAnswers: true, includeAnalysis: true },
   };
   const config = configs[command];
   if (!config) return;
@@ -163,17 +201,16 @@ async function exportExam(row, command) {
   await directExport(config);
 }
 
-async function directExport(payload) {
+async function directExport(payload: ExportCreatePayload) {
   if (exporting.value) return;
   exporting.value = true;
   try {
-    const body = Object.fromEntries(Object.entries(payload).filter(([, value]) => value !== undefined && value !== null && value !== ''));
-    await createExportTask(body);
+    await createExportTask(payload);
     ElMessage.success('导出任务已加入队列，可在导出记录查看进度');
     taskPagination.page = 1;
     await loadTasks();
-  } catch (error) {
-    ElMessage.error(error.message || '导出失败');
+  } catch (error: unknown) {
+    ElMessage.error(error instanceof Error ? error.message : '导出失败');
   } finally {
     exporting.value = false;
   }
@@ -188,8 +225,8 @@ async function exportFullArchive() {
   });
 }
 
-async function retryTask(row) {
-  await retryExportTask(row.id);
+async function retryTask(row: unknown) {
+  await retryExportTask(taskFrom(row).id);
   ElMessage.success('已重新加入导出队列');
   await loadTasks();
 }
@@ -206,8 +243,8 @@ async function retrySelectedTasks() {
   await loadTasks();
 }
 
-async function cancelTask(row) {
-  await cancelExportTask(row.id);
+async function cancelTask(row: unknown) {
+  await cancelExportTask(taskFrom(row).id);
   ElMessage.success('已取消导出任务');
   await loadTasks();
 }
@@ -230,17 +267,18 @@ async function cleanupExpired() {
   await loadTasks();
 }
 
-async function downloadTask(row) {
-  const data = await downloadExportTask(row.id);
+async function downloadTask(row: unknown) {
+  const task = taskFrom(row);
+  const data = await downloadExportTask(task.id);
   const objectUrl = URL.createObjectURL(data.blob);
   const link = document.createElement('a');
   link.href = objectUrl;
-  link.download = downloadFilename(data.contentDisposition) || `export-${row.id}`;
+  link.download = downloadFilename(data.contentDisposition) || `export-${task.id}`;
   link.click();
   window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
 }
 
-function downloadFilename(contentDisposition) {
+function downloadFilename(contentDisposition: string) {
   const encoded = /filename\*=UTF-8''([^;]+)/i.exec(contentDisposition || '')?.[1];
   if (!encoded) return '';
   try {
@@ -273,91 +311,93 @@ async function loadDownloadAudits() {
   }
 }
 
-function handleTaskSelectionChange(rows) {
+function handleTaskSelectionChange(rows: ExportTask[]) {
   selectedTasks.value = rows;
 }
 
-function canCancel(row) {
-  return ['pending', 'processing'].includes(row.status);
+function canCancel(row: unknown) {
+  const status = recordValue(row).status;
+  return typeof status === 'string' && ['pending', 'processing'].includes(status);
 }
 
-function canRetry(row) {
-  return ['failed', 'expired', 'canceled'].includes(row.status);
+function canRetry(row: unknown) {
+  const status = recordValue(row).status;
+  return typeof status === 'string' && ['failed', 'expired', 'canceled'].includes(status);
 }
 
-function canSelectTaskAction(row) {
+function canSelectTaskAction(row: unknown) {
   return canCancel(row) || canRetry(row);
 }
 
-function handlePaperSortChange({ prop, order }) {
+function handlePaperSortChange({ prop, order }: SortChange) {
   paperFilter.sortBy = prop || 'createdAt';
   paperFilter.sortOrder = order === 'ascending' ? 'asc' : 'desc';
   loadPapers();
 }
 
-function handleExamSortChange({ prop, order }) {
+function handleExamSortChange({ prop, order }: SortChange) {
   examFilter.sortBy = prop || 'startTime';
   examFilter.sortOrder = order === 'ascending' ? 'asc' : 'desc';
   loadExams();
 }
 
-function handleTaskSize(size) {
+function handleTaskSize(size: number) {
   taskPagination.pageSize = size;
   taskPagination.page = 1;
   loadTasks();
 }
 
-function handleTaskCurrent(page) {
+function handleTaskCurrent(page: number) {
   taskPagination.page = page;
   loadTasks();
 }
 
-function handleAuditSize(size) {
+function handleAuditSize(size: number) {
   auditPagination.pageSize = size;
   auditPagination.page = 1;
   loadDownloadAudits();
 }
 
-function handleAuditCurrent(page) {
+function handleAuditCurrent(page: number) {
   auditPagination.page = page;
   loadDownloadAudits();
 }
 
-function typeLabel(type) {
+function typeLabel(type: string) {
   return exportTypes.find((item) => item.value === type)?.label ?? type;
 }
 
-function statusLabel(status) {
-  const map = { success: '成功', failed: '失败', processing: '处理中', pending: '等待中', expired: '已过期', canceled: '已取消' };
+function statusLabel(status: string) {
+  const map: Record<string, string> = { success: '成功', failed: '失败', processing: '处理中', pending: '等待中', expired: '已过期', canceled: '已取消' };
   return map[status] ?? status;
 }
 
-function paperStatusLabel(value) {
+function paperStatusLabel(value: string) {
   return entityStatusLabel('paper', value);
 }
 
-function paperStatusType(value) {
+function paperStatusType(value: string) {
   return entityStatusTagType('paper', value);
 }
 
-function examStatusLabel(value) {
+function examStatusLabel(value: string) {
   return entityStatusLabel('exam', value);
 }
 
-function examStatusType(value) {
+function examStatusType(value: string) {
   return entityStatusTagType('exam', value);
 }
 
-function formatDate(value) {
+function formatDate(value?: string | Date | null) {
   return value ? new Date(value).toLocaleString('zh-CN', { hour12: false }) : '-';
 }
 
-function auditUserLabel(user) {
+function auditUserLabel(user?: ExportAuditUser | null) {
   if (!user) return '-';
   return `${user.realName || user.username || user.id}（${user.userType || '-'}）`;
 }
 
-function snapshotLabel(snapshot) {
+function snapshotLabel(snapshot?: ExportPermissionSnapshot | null) {
   if (!snapshot) return '-';
   const userType = snapshot.userType || '-';
   const capturedAt = snapshot.capturedAt ? formatDate(snapshot.capturedAt) : '-';
@@ -369,7 +409,6 @@ onMounted(loadAll);
 return {
   Delete,
   Download,
-  ElMessage,
   Refresh,
   Search,
   activeTab,
@@ -383,19 +422,12 @@ return {
   canManageGlobalTasks,
   canRetry,
   canSelectTaskAction,
-  cancelExportTask,
-  cancelExportTasks,
   cancelSelectedTasks,
   cancelTask,
   classes,
   cleanupExpired,
-  cleanupExpiredExportTasks,
-  computed,
   courses,
-  createExportTask,
-  currentUser,
   directExport,
-  downloadExportTask,
   downloadFilename,
   downloadTask,
   entityStatusLabel,
@@ -411,7 +443,6 @@ return {
   exportTypes,
   exporting,
   formatDate,
-  getCurrentUser,
   handleAuditCurrent,
   handleAuditSize,
   handleExamSortChange,
@@ -419,32 +450,18 @@ return {
   handleTaskCurrent,
   handleTaskSelectionChange,
   handleTaskSize,
-  listExportClasses,
-  listExportCourses,
-  listExportDownloadAudits,
-  listExportExams,
-  listExportPapers,
-  listExportTasks,
   loadAll,
-  loadBase,
-  loadDownloadAudits,
   loadExams,
   loadPapers,
   loadTasks,
-  onMounted,
   openDownloadAudits,
   paperFilter,
   paperStatusLabel,
   paperStatusOptions,
   paperStatusType,
   papers,
-  reactive,
-  ref,
-  retryExportTask,
-  retryExportTasks,
   retrySelectedTasks,
   retryTask,
-  scheduleTaskPolling,
   selectedRetryTaskIds,
   selectedTaskIds,
   selectedTasks,
@@ -456,7 +473,5 @@ return {
   taskPagination,
   tasks,
   typeLabel,
-  useExportTaskPolling,
-  useResponsiveColumns,
 };
 }

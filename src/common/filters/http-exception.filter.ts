@@ -18,6 +18,7 @@ const statusCodeMap = new Map<number, number>([
 @Catch()
 export class HttpExceptionFilter implements ExceptionFilter {
   catch(exception: unknown, host: ArgumentsHost) {
+    const request = host.switchToHttp().getRequest<{ id?: string }>();
     const response = host.switchToHttp().getResponse();
     const status =
       exception instanceof HttpException
@@ -31,6 +32,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
       code: explicitCode ?? statusCodeMap.get(status) ?? 50000,
       message: this.getMessage(body, exception),
       data: null,
+      requestId: request.id ?? null,
     });
   }
 

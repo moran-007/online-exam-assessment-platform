@@ -12,7 +12,6 @@ import { BatchExportActionDto } from './dto/batch-export-action.dto';
 import { CreateExportDto } from './dto/create-export.dto';
 import { QueryExportDto } from './dto/query-export.dto';
 import { ExportTaskCommandUseCases, ExportTaskQueryUseCases } from './exports.use-cases';
-import { createReadStream } from 'node:fs';
 
 @ApiTags('Exports')
 @ApiBearerAuth()
@@ -98,6 +97,6 @@ export class ExportsController {
     response.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(file.fileName)}`);
     response.setHeader('Cache-Control', 'private, no-store');
     response.setHeader('X-Content-Type-Options', 'nosniff');
-    return new StreamableFile(createReadStream(file.path));
+    return new StreamableFile(file.stream);
   }
 }

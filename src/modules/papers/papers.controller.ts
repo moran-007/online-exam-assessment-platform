@@ -14,48 +14,60 @@ import { QueryPaperDto } from './dto/query-paper.dto';
 import { UpdatePaperQuestionDto } from './dto/update-paper-question.dto';
 import { UpdatePaperQuestionSnapshotDto } from './dto/update-paper-question-snapshot.dto';
 import { UpdatePaperDto } from './dto/update-paper.dto';
-import { PapersService } from './papers.service';
+import { ImportPaperUseCase } from './commands/import-paper.use-case';
+import { PaperGenerationUseCases } from './commands/paper-generation.use-cases';
+import { PaperLifecycleUseCases } from './commands/paper-lifecycle.use-cases';
+import { PaperQuestionUseCases } from './commands/paper-question.use-cases';
+import { PaperSnapshotUseCase } from './commands/paper-snapshot.use-case';
+import { PaperQueryUseCases } from './queries/paper-query.use-cases';
 
 @ApiTags('Paper')
 @ApiBearerAuth()
 @Controller('papers')
 export class PapersController {
-  constructor(private readonly papersService: PapersService) {}
+  constructor(
+    private readonly queries: PaperQueryUseCases,
+    private readonly lifecycle: PaperLifecycleUseCases,
+    private readonly imports: ImportPaperUseCase,
+    private readonly questions: PaperQuestionUseCases,
+    private readonly snapshots: PaperSnapshotUseCase,
+    private readonly generation: PaperGenerationUseCases,
+  ) {}
 
   @Get()
   @Permissions('paper:read')
   list(@Query() query: QueryPaperDto) {
-    return this.papersService.list(query);
+    return this.queries.list(query);
   }
 
   @Post()
   @Permissions('paper:create')
   create(@Body() dto: CreatePaperDto, @CurrentUser() user: RequestUser) {
-    return this.papersService.create(dto, user.id);
+    return this.lifecycle.create(dto, user.id);
   }
 
   @Post('import')
   @Permissions('paper:create')
   importPaper(@Body() dto: ImportPaperDto, @CurrentUser() user: RequestUser) {
-    return this.papersService.importPaper(dto, user.id);
+    return this.imports.importPaper(dto, user.id);
   }
 
   @Get(':id')
   @Permissions('paper:read')
   detail(@Param('id') id: string) {
-    return this.papersService.detail(id);
+    return this.queries.detail(id);
   }
 
   @Patch(':id')
   @Permissions('paper:update')
   update(@Param('id') id: string, @Body() dto: UpdatePaperDto, @CurrentUser() user: RequestUser) {
-    return this.papersService.update(id, dto, user.id);
+    return this.lifecycle.update(id, dto, user.id);
   }
 
   @Post(':id/copy')
   @Permissions('paper:create')
   copyAsDraft(@Param('id') id: string, @CurrentUser() user: RequestUser) {
-    return this.papersService.copyAsDraft(id, user.id);
+    return this.lifecycle.copyAsDraft(id, user.id);
   }
 
   @Post(':id/questions')
@@ -65,7 +77,7 @@ export class PapersController {
     @Body() dto: AddPaperQuestionDto,
     @CurrentUser() user: RequestUser,
   ) {
-    return this.papersService.addQuestion(id, dto, user.id);
+    return this.questions.addQuestion(id, dto, user.id);
   }
 
   @Post(':id/questions/by-tags')
@@ -75,7 +87,7 @@ export class PapersController {
     @Body() dto: AddPaperQuestionsByTagsDto,
     @CurrentUser() user: RequestUser,
   ) {
-    return this.papersService.addQuestionsByTags(id, dto, user.id);
+    return this.questions.addQuestionsByTags(id, dto, user.id);
   }
 
   @Delete(':id/questions/:paperQuestionId')
@@ -85,7 +97,7 @@ export class PapersController {
     @Param('paperQuestionId') paperQuestionId: string,
     @CurrentUser() user: RequestUser,
   ) {
-    return this.papersService.removeQuestion(id, paperQuestionId, user.id);
+    return this.questions.removeQuestion(id, paperQuestionId, user.id);
   }
 
   @Patch(':id/questions/:paperQuestionId')
@@ -96,7 +108,7 @@ export class PapersController {
     @Body() dto: UpdatePaperQuestionDto,
     @CurrentUser() user: RequestUser,
   ) {
-    return this.papersService.updateQuestion(id, paperQuestionId, dto, user.id);
+    return this.questions.updateQuestion(id, paperQuestionId, dto, user.id);
   }
 
   @Patch(':id/questions/:paperQuestionId/snapshot')
@@ -107,7 +119,7 @@ export class PapersController {
     @Body() dto: UpdatePaperQuestionSnapshotDto,
     @CurrentUser() user: RequestUser,
   ) {
-    return this.papersService.updateQuestionSnapshot(id, paperQuestionId, dto, user.id);
+    return this.snapshots.updateQuestionSnapshot(id, paperQuestionId, dto, user.id);
   }
 
   @Post(':id/questions/:paperQuestionId/move')
@@ -118,19 +130,19 @@ export class PapersController {
     @Body() dto: MovePaperQuestionDto,
     @CurrentUser() user: RequestUser,
   ) {
-    return this.papersService.moveQuestion(id, paperQuestionId, dto.direction, user.id);
+    return this.questions.moveQuestion(id, paperQuestionId, dto.direction, user.id);
   }
 
   @Post('validate-rules')
   @Permissions('paper:create')
   validateRules(@Body() dto: GeneratePaperRuleDto) {
-    return this.papersService.validateRules(dto);
+    return this.generation.validateRules(dto);
   }
 
   @Post('generate-from-wrong-frequency')
   @Permissions('paper:create')
   generateFromWrongFrequency(@Body() dto: GeneratePaperFromWrongDto, @CurrentUser() user: RequestUser) {
-    return this.papersService.generateFromWrongFrequency(dto, user);
+    return this.generation.generateFromWrongFrequency(dto, user);
   }
 
   @Post(':id/generate-by-rule')
@@ -140,18 +152,18 @@ export class PapersController {
     @Body() dto: GeneratePaperRuleDto,
     @CurrentUser() user: RequestUser,
   ) {
-    return this.papersService.generateByRule(id, dto, user.id);
+    return this.generation.generateByRule(id, dto, user.id);
   }
 
   @Post(':id/publish')
   @Permissions('paper:publish')
   publish(@Param('id') id: string, @CurrentUser() user: RequestUser) {
-    return this.papersService.publish(id, user.id);
+    return this.lifecycle.publish(id, user.id);
   }
 
   @Get(':id/preview')
   @Permissions('paper:read')
   preview(@Param('id') id: string) {
-    return this.papersService.preview(id);
+    return this.queries.preview(id);
   }
 }

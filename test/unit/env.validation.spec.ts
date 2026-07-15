@@ -6,6 +6,8 @@ const productionEnv = {
   JWT_ACCESS_SECRET: 'access_secret_that_is_longer_than_32_characters',
   JWT_REFRESH_SECRET: 'refresh_secret_that_is_longer_than_32_characters',
   ASSET_URL_SECRET: 'asset_secret_that_is_unique_and_longer_than_32_chars',
+  CREDENTIAL_ENCRYPTION_ACTIVE_VERSION: '1',
+  CREDENTIAL_ENCRYPTION_KEYS: '{"1":"Zmlyc3RfY3JlZGVudGlhbF9lbmNyeXB0aW9uX2tleTE="}',
   CORS_ORIGINS: 'https://exam.example.com',
 };
 
@@ -26,5 +28,16 @@ describe('validateEnv', () => {
       ...productionEnv,
       ASSET_URL_SECRET: productionEnv.JWT_ACCESS_SECRET,
     })).toThrow(/ASSET_URL_SECRET/);
+  });
+
+  it('rejects a missing or malformed production credential encryption key', () => {
+    expect(() => validateEnv({
+      ...productionEnv,
+      CREDENTIAL_ENCRYPTION_KEYS: '',
+    })).toThrow(/CREDENTIAL_ENCRYPTION_KEYS/);
+    expect(() => validateEnv({
+      ...productionEnv,
+      CREDENTIAL_ENCRYPTION_KEYS: '{"1":"too-short"}',
+    })).toThrow(/32-byte/);
   });
 });

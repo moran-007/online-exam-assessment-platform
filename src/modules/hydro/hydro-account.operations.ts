@@ -128,6 +128,7 @@ import { shortHost } from './hydro-external-format.operations';
 import { testHydroAccountLogin } from './hydro-http-gateway.operations';
 import { baseUrlFromProblemUrl, isSamePlatformBaseUrl, normalizePlatformBaseUrl, normalizePlatformCode, platformName } from './hydro-platform.operations';
 import { loadUserMap, toRecord } from './hydro-support.operations';
+import { encryptHydroPassword, hasHydroCredential } from './hydro-credential.operations';
 export async function accounts(ctx: HydroContext, query: QueryHydroSummaryDto, user: RequestUser) {
     const { page, pageSize, skip, take } = toPagination(query);
     const canManageAll = canManageAllExternalAccounts(ctx, user);
@@ -234,10 +235,12 @@ export async function bindAccount(ctx: HydroContext, dto: BindHydroAccountDto, u
           },
         });
     if (dto.id && !existing) throw new NotFoundException('外部账号不存在');
-    const loginPassword = dto.loginPassword?.trim() || existing?.loginPassword || '';
-    if (!loginPassword) {
+    const newPassword = dto.loginPassword?.trim();
+    if (!newPassword && (!existing || !hasHydroCredential(existing))) {
       throw new BadRequestException('请填写平台登录密码');
     }
+
+    const credentialData = newPassword ? encryptHydroPassword(ctx, newPassword) : {};
 
     const data = {
       platformUserId: studentId,
@@ -247,7 +250,7 @@ export async function bindAccount(ctx: HydroContext, dto: BindHydroAccountDto, u
       hydroUserId,
       hydroUsername,
       loginUsername,
-      loginPassword,
+      ...credentialData,
       bindStatus: dto.bindStatus ?? existing?.bindStatus ?? 'bound',
     };
     const account = existing
@@ -381,7 +384,10 @@ export function formatHydroAccount(ctx: HydroContext, account: {
     hydroUserId: string;
     hydroUsername: string;
     loginUsername: string | null;
-    loginPassword?: string | null;
+    loginPasswordCiphertext?: string | null;
+    loginPasswordIv?: string | null;
+    loginPasswordAuthTag?: string | null;
+    loginPasswordKeyVersion?: number | null;
     lastLoginStatus: string | null;
     lastLoginMessage: string | null;
     lastLoginAt: Date | null;
@@ -398,7 +404,12 @@ export function formatHydroAccount(ctx: HydroContext, account: {
       hydroUserId: account.hydroUserId,
       hydroUsername: account.hydroUsername,
       loginUsername: account.loginUsername,
-      hasPassword: Boolean(account.loginPassword),
+      hasPassword: hasHydroCredential({
+        loginPasswordCiphertext: account.loginPasswordCiphertext ?? null,
+        loginPasswordIv: account.loginPasswordIv ?? null,
+        loginPasswordAuthTag: account.loginPasswordAuthTag ?? null,
+        loginPasswordKeyVersion: account.loginPasswordKeyVersion ?? null,
+      }),
       lastLoginStatus: account.lastLoginStatus,
       lastLoginMessage: account.lastLoginMessage,
       lastLoginAt: account.lastLoginAt,

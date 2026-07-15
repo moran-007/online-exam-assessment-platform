@@ -9,6 +9,7 @@ import type { RubricScoreDto } from './rubricScoreDto';
 
 export interface GradeAnswerDto {
   comment?: string;
+  expectedUpdatedAt?: string;
   rubricScores?: RubricScoreDto[];
   /** @minimum 0 */
   score?: number;

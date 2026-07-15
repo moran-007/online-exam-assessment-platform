@@ -1,55 +1,22 @@
-import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
+import { BadRequestException, ForbiddenException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { FileVisibility, QuestionStatus, UserType } from '@prisma/client';
-import { mkdir, readdir, rename, stat, unlink, writeFile } from 'node:fs/promises';
-import { basename, extname, join, resolve } from 'node:path';
-import { createHash, randomUUID } from 'node:crypto';
+import { basename, extname } from 'node:path';
+import { randomUUID } from 'node:crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { RequestUser } from '../../common/interfaces/request-user.interface';
 import { hasPermission } from '../../common/security/permission-policy';
-
-const MIME_EXTENSIONS = new Map<string, string>([
-  ['image/jpeg', '.jpg'],
-  ['image/png', '.png'],
-  ['image/gif', '.gif'],
-  ['image/webp', '.webp'],
-  ['image/svg+xml', '.svg'],
-  ['application/pdf', '.pdf'],
-  ['text/plain', '.txt'],
-  ['text/markdown', '.md'],
-  ['text/csv', '.csv'],
-  ['application/zip', '.zip'],
-  ['application/vnd.openxmlformats-officedocument.wordprocessingml.document', '.docx'],
-  ['application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', '.xlsx'],
-  ['application/vnd.openxmlformats-officedocument.presentationml.presentation', '.pptx'],
-  ['application/msword', '.doc'],
-  ['application/vnd.ms-excel', '.xls'],
-  ['application/vnd.ms-powerpoint', '.ppt'],
-]);
-
-const BLOCKED_EXTENSIONS = new Set([
-  '.bat',
-  '.cmd',
-  '.com',
-  '.exe',
-  '.js',
-  '.jse',
-  '.msi',
-  '.ps1',
-  '.scr',
-  '.sh',
-  '.vbs',
-]);
+import { OBJECT_STORAGE, type ObjectStorage } from '../../storage/object-storage.interface';
+import { assertUploadFileContent, isBlockedUploadExtension, resolveUploadExtension } from './upload-file.validator';
 
 @Injectable()
 export class UploadsService {
-  private readonly uploadsRoot: string;
-
-  constructor(private readonly prisma: PrismaService, config: ConfigService) {
-    this.uploadsRoot = resolve(process.cwd(), config.get<string>('uploadsDir') ?? 'uploads');
-  }
+  constructor(
+    private readonly prisma: PrismaService,
+    @Inject(OBJECT_STORAGE) private readonly storage: ObjectStorage,
+  ) {}
 
   async saveQuestionAsset(file: { originalname?: string; mimetype?: string; size?: number; buffer: Buffer }, userId?: string) {
+    assertUploadFileContent(file);
     return this.saveToFolder(file, 'question-assets', userId);
   }
 
@@ -58,7 +25,7 @@ export class UploadsService {
     const privileged =
       user.userType !== UserType.STUDENT &&
       hasPermission(user, action === 'download' ? 'attachment:download' : 'attachment:preview');
-    if (privileged || descriptor.asset.createdBy === user.id) return descriptor;
+    if (privileged || descriptor.asset.createdBy === user.id) return this.openDescriptor(descriptor);
 
     const logicalUrl = `/uploads/question-assets/${descriptor.filename}`;
     if (user.userType === UserType.STUDENT) {
@@ -67,7 +34,7 @@ export class UploadsService {
         select: { paperSnapshotJson: true },
       });
       if (instances.some((instance) => JSON.stringify(instance.paperSnapshotJson).includes(logicalUrl))) {
-        return descriptor;
+        return this.openDescriptor(descriptor);
       }
     }
 
@@ -90,18 +57,17 @@ export class UploadsService {
       select: { id: true },
     });
     if (!question) throw new ForbiddenException('资源不属于该公开题目');
-    return descriptor;
+    return this.openDescriptor(descriptor);
   }
 
   async renameQuestionAsset(filename: string, displayName: string) {
     const safeCurrentName = this.safeExistingFilename(filename);
     const cleanDisplayName = this.cleanDisplayName(displayName);
     const extension = extname(safeCurrentName).toLowerCase();
-    const dir = this.uploadDir('question-assets');
     const nextFilename = `${cleanDisplayName}-${randomUUID().slice(0, 8)}${extension}`;
 
     try {
-      await rename(join(dir, safeCurrentName), join(dir, nextFilename));
+      await this.storage.move(`question-assets/${safeCurrentName}`, `question-assets/${nextFilename}`);
     } catch {
       throw new NotFoundException('附件不存在或已被删除');
     }
@@ -136,7 +102,7 @@ export class UploadsService {
     }
 
     try {
-      await unlink(join(this.uploadDir('question-assets'), safeFilename));
+      await this.storage.delete(`question-assets/${safeFilename}`);
     } catch {
       throw new NotFoundException('附件不存在或已被删除');
     }
@@ -199,7 +165,7 @@ export class UploadsService {
 
     for (const item of report.items.filter((asset) => !asset.referenced)) {
       try {
-        await unlink(join(this.uploadDir('question-assets'), this.safeExistingFilename(item.filename)));
+        await this.storage.delete(`question-assets/${this.safeExistingFilename(item.filename)}`);
         await this.prisma.fileAsset.updateMany({
           where: {
             deletedAt: null,
@@ -226,12 +192,14 @@ export class UploadsService {
   }
 
   private async saveToFolder(file: { originalname?: string; mimetype?: string; size?: number; buffer: Buffer }, folder: 'question-assets', userId?: string) {
-    const extension = this.resolveExtension(file);
+    const extension = resolveUploadExtension(file);
     const displayName = this.resolveDisplayName(file.originalname);
     const filename = `${new Date().toISOString().slice(0, 10)}-${displayName}-${randomUUID().slice(0, 8)}${extension}`;
-    const dir = this.uploadDir(folder);
-    await mkdir(dir, { recursive: true });
-    await writeFile(join(dir, filename), file.buffer);
+    const stored = await this.storage.put({
+      key: `${folder}/${filename}`,
+      data: file.buffer,
+      mimeType: file.mimetype,
+    });
     await this.prisma.fileAsset.create({
       data: {
         bucket: 'local',
@@ -239,10 +207,10 @@ export class UploadsService {
         fileName: filename,
         fileExt: extension,
         mimeType: file.mimetype,
-        fileSize: BigInt(file.size ?? file.buffer.length ?? 0),
+        fileSize: BigInt(stored.size),
         url: `/uploads/${folder}/${filename}`,
         visibility: FileVisibility.PRIVATE,
-        sha256: createHash('sha256').update(file.buffer).digest('hex'),
+        sha256: stored.sha256,
         version: 1,
         createdBy: userId,
       },
@@ -263,19 +231,22 @@ export class UploadsService {
       },
     });
     if (!asset) throw new NotFoundException('附件不存在或已被删除');
-    const path = join(this.uploadDir('question-assets'), safeFilename);
     try {
-      await stat(path);
+      await this.storage.stat(`question-assets/${safeFilename}`);
     } catch {
       throw new NotFoundException('附件文件不存在');
     }
     return {
       asset,
       filename: safeFilename,
-      path,
+      objectKey: `question-assets/${safeFilename}`,
       mimeType: asset.mimeType || 'application/octet-stream',
       displayName: asset.fileName || safeFilename,
     };
+  }
+
+  private async openDescriptor<T extends { objectKey: string }>(descriptor: T) {
+    return { ...descriptor, stream: await this.storage.open(descriptor.objectKey) };
   }
 
   private fileResponse(
@@ -296,20 +267,6 @@ export class UploadsService {
       isImage,
       markdown: isImage ? `![${displayName}](${url})` : `[${displayName}](${url})`,
     };
-  }
-
-  private resolveExtension(file: { originalname?: string; mimetype?: string }) {
-    const mapped = file.mimetype ? MIME_EXTENSIONS.get(file.mimetype) : '';
-    if (mapped) return mapped;
-
-    const originalExt = extname(file.originalname || '').toLowerCase();
-    if (!originalExt) {
-      throw new BadRequestException('无法识别文件类型，请上传带扩展名的文件');
-    }
-    if (BLOCKED_EXTENSIONS.has(originalExt)) {
-      throw new BadRequestException('该文件类型不允许上传');
-    }
-    return originalExt;
   }
 
   private resolveDisplayName(originalName?: string) {
@@ -346,35 +303,27 @@ export class UploadsService {
     }
 
     const extension = extname(safeName).toLowerCase();
-    if (BLOCKED_EXTENSIONS.has(extension)) {
+    if (isBlockedUploadExtension(extension)) {
       throw new BadRequestException('该文件类型不允许操作');
     }
     return safeName;
   }
 
-  private uploadDir(folder: 'question-assets') {
-    return join(this.uploadsRoot, folder);
-  }
-
   private isImageExtension(filename: string) {
-    return ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg'].includes(extname(filename).toLowerCase());
+    return ['.jpg', '.jpeg', '.png', '.gif', '.webp'].includes(extname(filename).toLowerCase());
   }
 
   private async listQuestionAssetFiles() {
-    const dir = this.uploadDir('question-assets');
-    await mkdir(dir, { recursive: true });
-    const entries = await readdir(dir, { withFileTypes: true });
+    const entries = await this.storage.list('question-assets');
     const files: Array<{ filename: string; displayName: string; size: number; updatedAt: Date }> = [];
 
     for (const entry of entries) {
-      if (!entry.isFile()) continue;
-      const filename = this.safeExistingFilename(entry.name);
-      const fileStat = await stat(join(dir, filename));
+      const filename = this.safeExistingFilename(entry.key.split('/').pop() || '');
       files.push({
         filename,
         displayName: filename.replace(/\.[^.]+$/, ''),
-        size: fileStat.size,
-        updatedAt: fileStat.mtime,
+        size: entry.size,
+        updatedAt: entry.updatedAt,
       });
     }
 

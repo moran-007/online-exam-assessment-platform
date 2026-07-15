@@ -4,6 +4,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { QuestionTypeRegistry } from '../question-types/question-type-registry.service';
 import { ScoringHistoryService } from '../question-types/scoring-history.service';
 import { QuestionSnapshotUseCases } from '../questions/questions.use-cases';
+import { MetricsService } from '../../observability/metrics.service';
 
 @Injectable()
 export class StudentContext {
@@ -15,5 +16,6 @@ export class StudentContext {
     readonly questionSnapshots: QuestionSnapshotUseCases,
     readonly questionTypes: QuestionTypeRegistry,
     readonly scoringHistory: ScoringHistoryService,
+    readonly metrics: MetricsService,
   ) {}
 }

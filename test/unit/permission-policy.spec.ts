@@ -25,4 +25,26 @@ describe('permission policy', () => {
   it('lets super administrators pass every operation', () => {
     expect(hasPermission(user([], 'SUPER_ADMIN'), 'export:file:download')).toBe(true);
   });
+
+  it('rejects anonymous, missing, and unrelated permissions', () => {
+    expect(hasPermission(undefined, 'question:read')).toBe(false);
+    expect(hasPermission(user([]), 'question:read')).toBe(false);
+    expect(hasPermission(user(['question:create']), 'attachment:download')).toBe(true);
+  });
+
+  it('computes all protected field decisions independently', () => {
+    expect(fieldAccess(user([
+      'grading:score:read',
+      'exam:answer:read',
+      'question:answer:read',
+      'question:analysis:read',
+      'student:identity:read',
+    ]))).toEqual({
+      score: true,
+      studentAnswer: true,
+      referenceAnswer: true,
+      analysis: true,
+      studentIdentity: true,
+    });
+  });
 });

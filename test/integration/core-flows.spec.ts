@@ -85,6 +85,36 @@ describe('core API flows', () => {
     adminToken = relogin.accessToken;
   });
 
+  it('keeps AI configuration super-admin-only and encrypts API keys at rest', async () => {
+    await request(app.getHttpServer())
+      .get('/api/v1/ai/presets')
+      .auth(studentToken, { type: 'bearer' })
+      .expect(403);
+    const presets = await api('get', '/api/v1/ai/presets', adminToken);
+    expect(presets.length).toBeGreaterThanOrEqual(8);
+
+    const plainKey = 'integration-only-key-never-send';
+    const created = await api('post', '/api/v1/ai/configurations', adminToken, {
+      name: 'Integration DeepSeek',
+      provider: 'deepseek',
+      baseUrl: 'https://api.deepseek.com',
+      model: 'deepseek-v4-flash',
+      apiKey: plainKey,
+      enabled: false,
+      isDefault: false,
+      maxTokens: 4,
+    });
+    expect(created).not.toHaveProperty('apiKey');
+    expect(created.apiKeyMasked).toBe('••••••••');
+    const stored = await prisma.aiProviderConfig.findUniqueOrThrow({ where: { id: created.id } });
+    expect(stored.apiKeyCiphertext).not.toContain(plainKey);
+    expect(stored.apiKeyIv).toBeTruthy();
+    expect(stored.apiKeyAuthTag).toBeTruthy();
+
+    await api('delete', `/api/v1/ai/configurations/${created.id}`, adminToken);
+    expect(await prisma.aiProviderConfig.count({ where: { id: created.id } })).toBe(0);
+  });
+
   it('runs question, paper, exam, autosave and objective grading lifecycle', async () => {
     const course = await api('post', '/api/v1/courses', adminToken, {
       name: 'Integration Course', code: 'integration_course', description: 'integration', sortOrder: 1,

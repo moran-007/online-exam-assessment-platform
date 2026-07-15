@@ -1,5 +1,3 @@
-/* eslint-disable @typescript-eslint/ban-ts-comment */
-// @ts-nocheck -- migrated page state is isolated here while domain models are typed incrementally.
 import { computed, onMounted, reactive, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { ElMessage, ElMessageBox } from 'element-plus';
@@ -21,16 +19,62 @@ import {
   testOwnHydroAccount,
   updateHydroPlatform,
 } from '../api';
+import type { HydroAccountView, HydroPlatform, HydroUserOption } from '../models';
 
-export function useExternalAccountPage(): any {
-const currentUser = getCurrentUser();
+type AccountForm = {
+  id: string;
+  studentId: string;
+  platformCode: string;
+  platformName: string;
+  platformBaseUrl: string;
+  loginUsername: string;
+  loginPassword: string;
+  hydroUsername: string;
+  hydroUserId: string;
+  bindStatus: 'bound' | 'disabled';
+};
+
+type PlatformForm = {
+  id: string;
+  code: string;
+  name: string;
+  baseUrl: string;
+  enabled: boolean;
+  sortOrder: number;
+};
+
+function recordValue(value: unknown): Record<string, unknown> {
+  if (!value || typeof value !== 'object') throw new Error('记录格式无效');
+  return value as Record<string, unknown>;
+}
+
+function hydroAccountFrom(value: unknown) {
+  const account = recordValue(value);
+  if (typeof account.id !== 'string') throw new Error('外部账号格式无效');
+  return account as HydroAccountView;
+}
+
+function platformFrom(value: unknown) {
+  const platform = recordValue(value);
+  if (typeof platform.id !== 'string' || typeof platform.code !== 'string' || typeof platform.name !== 'string') {
+    throw new Error('接入平台格式无效');
+  }
+  return platform as HydroPlatform;
+}
+
+function errorMessage(error: unknown, fallback: string) {
+  return error instanceof Error ? error.message : fallback;
+}
+
+export function useExternalAccountPage() {
+const currentUser = getCurrentUser() as HydroUserOption | null;
 const router = useRouter();
 const isSuperAdmin = currentUser?.userType === 'SUPER_ADMIN';
-const platforms = ref([]);
-const students = ref([]);
-const teachers = ref([]);
-const accounts = ref([]);
-const myAccounts = ref([]);
+const platforms = ref<HydroPlatform[]>([]);
+const students = ref<HydroUserOption[]>([]);
+const teachers = ref<HydroUserOption[]>([]);
+const accounts = ref<HydroAccountView[]>([]);
+const myAccounts = ref<HydroAccountView[]>([]);
 const loading = ref(false);
 const saving = ref(false);
 const platformSaving = ref(false);
@@ -47,7 +91,7 @@ const pagination = reactive({
   pageSize: 20,
   total: 0,
 });
-const accountForm = reactive({
+const accountForm = reactive<AccountForm>({
   id: '',
   studentId: '',
   platformCode: 'hydro',
@@ -59,7 +103,7 @@ const accountForm = reactive({
   hydroUserId: '',
   bindStatus: 'bound',
 });
-const platformForm = reactive({
+const platformForm = reactive<PlatformForm>({
   id: '',
   code: '',
   name: '',
@@ -80,7 +124,7 @@ const owners = computed(() => {
   if (!isSuperAdmin) {
     return currentUser ? [currentUser] : [];
   }
-  const map = new Map();
+  const map = new Map<string, HydroUserOption>();
   if (currentUser) map.set(currentUser.id, currentUser);
   [...students.value, ...teachers.value].forEach((user) =>
     map.set(user.id, user),
@@ -156,7 +200,8 @@ function openCreateOwnDialog() {
   accountForm.hydroUserId = currentUser?.username || '';
 }
 
-function openEditDialog(row) {
+function openEditDialog(value: unknown) {
+  const row = hydroAccountFrom(value);
   Object.assign(accountForm, {
     id: row.id,
     studentId: row.studentId || row.ownerId,
@@ -203,8 +248,8 @@ async function saveAccount() {
     dialogVisible.value = false;
     await Promise.all([loadAccounts(), loadMyAccounts()]);
     ElMessage.success('外部账号已保存');
-  } catch (error) {
-    ElMessage.error(error.message || '保存失败');
+  } catch (error: unknown) {
+    ElMessage.error(errorMessage(error, '保存失败'));
   } finally {
     saving.value = false;
   }
@@ -222,7 +267,8 @@ function openCreatePlatformDialog() {
   platformDialogVisible.value = true;
 }
 
-function openEditPlatformDialog(row) {
+function openEditPlatformDialog(value: unknown) {
+  const row = platformFrom(value);
   Object.assign(platformForm, {
     id: row.id,
     code: row.code,
@@ -254,14 +300,15 @@ async function savePlatform() {
     platformDialogVisible.value = false;
     await loadPlatforms();
     ElMessage.success('接入平台已保存');
-  } catch (error) {
-    ElMessage.error(error.message || '保存失败');
+  } catch (error: unknown) {
+    ElMessage.error(errorMessage(error, '保存失败'));
   } finally {
     platformSaving.value = false;
   }
 }
 
-async function deletePlatform(row) {
+async function deletePlatform(value: unknown) {
+  const row = platformFrom(value);
   try {
     await ElMessageBox.confirm(`确认删除接入平台「${row.name}」吗？已保存的账号绑定不会被清空。`, '删除接入平台', {
       type: 'warning',
@@ -271,28 +318,30 @@ async function deletePlatform(row) {
     await removeHydroPlatform(row.id);
     await loadPlatforms();
     ElMessage.success('接入平台已删除');
-  } catch (error) {
+  } catch (error: unknown) {
     if (error !== 'cancel' && error !== 'close') {
-      ElMessage.error(error.message || '删除失败');
+      ElMessage.error(errorMessage(error, '删除失败'));
     }
   }
 }
 
-async function testAccount(row) {
+async function testAccount(value: unknown) {
+  const row = hydroAccountFrom(value);
   testingId.value = row.id;
   try {
     const result = await (isSuperAdmin ? testManagedHydroAccount(row.id) : testOwnHydroAccount(row.id));
     await Promise.all([loadAccounts(), loadMyAccounts()]);
     const messageType = result.status === 'blocked' ? 'error' : result.success ? 'success' : 'warning';
     ElMessage[messageType](result.message || '检测完成');
-  } catch (error) {
-    ElMessage.error(error.message || '检测失败');
+  } catch (error: unknown) {
+    ElMessage.error(errorMessage(error, '检测失败'));
   } finally {
     testingId.value = '';
   }
 }
 
-async function deleteAccount(row) {
+async function deleteAccount(value: unknown) {
+  const row = hydroAccountFrom(value);
   try {
     await ElMessageBox.confirm(`确认删除「${row.ownerName || row.studentName}」的外部账号绑定吗？`, '删除外部账号', {
       type: 'warning',
@@ -302,14 +351,14 @@ async function deleteAccount(row) {
     await (isSuperAdmin ? removeManagedHydroAccount(row.id) : removeOwnHydroAccount(row.id));
     await Promise.all([loadAccounts(), loadMyAccounts()]);
     ElMessage.success('外部账号已删除');
-  } catch (error) {
+  } catch (error: unknown) {
     if (error !== 'cancel' && error !== 'close') {
-      ElMessage.error(error.message || '删除失败');
+      ElMessage.error(errorMessage(error, '删除失败'));
     }
   }
 }
 
-function handlePlatformChange(code) {
+function handlePlatformChange(code: string) {
   const platform = selectablePlatforms.value.find((item) => item.code === code);
   if (platform) {
     accountForm.platformBaseUrl = platform.baseUrl;
@@ -317,11 +366,12 @@ function handlePlatformChange(code) {
   }
 }
 
-function openOj(row) {
+function openOj(value: unknown) {
+  const row = hydroAccountFrom(value);
   window.open(row.platformBaseUrl || 'https://oj.example.com', '_blank', 'noopener,noreferrer');
 }
 
-function ownerLabel(user) {
+function ownerLabel(user?: HydroUserOption | null) {
   if (!user) return '';
   return `${user.realName || user.username}（${user.username}）`;
 }

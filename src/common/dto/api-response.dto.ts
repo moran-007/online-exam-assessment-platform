@@ -17,6 +17,9 @@ export class ApiErrorDto {
 
   @ApiProperty({ nullable: true, example: null })
   data: null;
+
+  @ApiProperty({ nullable: true, example: '019f63ca-586f-7bc1-b8a6-830cf20092c9' })
+  requestId: string | null;
 }
 
 export class ApiEnvelopeDto<T = unknown> {

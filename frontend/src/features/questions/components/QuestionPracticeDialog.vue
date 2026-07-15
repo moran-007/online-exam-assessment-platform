@@ -12,7 +12,7 @@
               <el-radio-button label="stack">上下</el-radio-button>
             </el-radio-group>
             <el-tag :type="practiceDetail.status === 'published' ? 'success' : 'warning'">
-              {{ statusLabel(practiceDetail.status) || practiceDetail.status }}
+              {{ statusLabel(practiceDetail.status ?? '') || practiceDetail.status }}
             </el-tag>
           </div>
         </div>
@@ -136,7 +136,7 @@
           class="batch-alert"
         />
 
-        <AnswerFeedback :result="practiceResult" />
+        <AnswerFeedback :result="practiceResult ?? undefined" />
       </template>
       <template #footer>
         <el-button @click="practiceVisible = false">关闭</el-button>

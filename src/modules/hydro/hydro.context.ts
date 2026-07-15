@@ -2,6 +2,8 @@ import { Injectable } from '@nestjs/common';
 import { AuditService } from '../audit/audit.service';
 import { DataScopeService } from '../data-scope/data-scope.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { CredentialCipherService } from '../../security/credential-cipher.service';
+import { MetricsService } from '../../observability/metrics.service';
 
 @Injectable()
 export class HydroContext {
@@ -13,5 +15,7 @@ export class HydroContext {
     readonly prisma: PrismaService,
     readonly audit: AuditService,
     readonly dataScope: DataScopeService,
+    readonly credentialCipher: CredentialCipherService,
+    readonly metrics: MetricsService,
   ) {}
 }

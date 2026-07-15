@@ -14,106 +14,114 @@ import {
   UpdateManagedUserDto,
   UpdateRolePermissionsDto,
 } from './dto/manage-users.dto';
-import { UsersService } from './users.service';
+import { RoleManagementUseCases } from './commands/role-management.use-cases';
+import { UserAccountUseCases } from './commands/user-account.use-cases';
+import { UserProvisioningUseCases } from './commands/user-provisioning.use-cases';
+import { UserDirectoryQueries } from './queries/user-directory.queries';
 
 @ApiTags('User')
 @ApiBearerAuth()
 @Controller('users')
 export class UsersController {
-  constructor(private readonly usersService: UsersService) {}
+  constructor(
+    private readonly directory: UserDirectoryQueries,
+    private readonly accounts: UserAccountUseCases,
+    private readonly provisioning: UserProvisioningUseCases,
+    private readonly roleUseCases: RoleManagementUseCases,
+  ) {}
 
   @Get('students')
   @Permissions('exam:read')
   students() {
-    return this.usersService.listStudents();
+    return this.directory.listStudents();
   }
 
   @Post('students')
   @Roles('SUPER_ADMIN', 'ADMIN', 'TEACHER')
   createStudent(@Body() dto: CreateStudentDto, @CurrentUser() user: RequestUser) {
-    return this.usersService.createStudent(dto, user);
+    return this.provisioning.createStudent(dto, user);
   }
 
   @Post('students/batch')
   @Roles('SUPER_ADMIN', 'ADMIN', 'TEACHER')
   batchCreateStudents(@Body() dto: BatchCreateStudentsDto, @CurrentUser() user: RequestUser) {
-    return this.usersService.batchCreateStudents(dto, user);
+    return this.provisioning.batchCreateStudents(dto, user);
   }
 
   @Get('teachers')
   @Permissions('class:read')
   teachers() {
-    return this.usersService.listTeachers();
+    return this.directory.listTeachers();
   }
 
   @Post('teachers')
   @Roles('SUPER_ADMIN', 'ADMIN')
   createTeacher(@Body() dto: CreateStudentDto, @CurrentUser() user: RequestUser) {
-    return this.usersService.createTeacher(dto, user);
+    return this.provisioning.createTeacher(dto, user);
   }
 
   @Post('teachers/batch')
   @Roles('SUPER_ADMIN', 'ADMIN')
   batchCreateTeachers(@Body() dto: BatchCreateTeachersDto, @CurrentUser() user: RequestUser) {
-    return this.usersService.batchCreateTeachers(dto, user);
+    return this.provisioning.batchCreateTeachers(dto, user);
   }
 
   @Get()
   @Roles('SUPER_ADMIN')
   users(@Query() query: ListManagedUsersQueryDto) {
-    return this.usersService.listManagedUsers(query);
+    return this.directory.listManagedUsers(query);
   }
 
   @Post()
   @Roles('SUPER_ADMIN')
   createUser(@Body() dto: CreateManagedUserDto, @CurrentUser() user: RequestUser) {
-    return this.usersService.createManagedUser(dto, user);
+    return this.accounts.createManagedUser(dto, user);
   }
 
   @Post('me/password')
   changeOwnPassword(@Body() dto: ChangeOwnPasswordDto, @CurrentUser() user: RequestUser) {
-    return this.usersService.changeOwnPassword(dto, user);
+    return this.accounts.changeOwnPassword(dto, user);
   }
 
   @Post(':id/reset-password')
   @Roles('SUPER_ADMIN')
   resetPassword(@Param('id') id: string, @Body() dto: ResetManagedUserPasswordDto, @CurrentUser() user: RequestUser) {
-    return this.usersService.resetManagedUserPassword(id, dto, user);
+    return this.accounts.resetManagedUserPassword(id, dto, user);
   }
 
   @Patch(':id')
   @Roles('SUPER_ADMIN')
   updateUser(@Param('id') id: string, @Body() dto: UpdateManagedUserDto, @CurrentUser() user: RequestUser) {
-    return this.usersService.updateManagedUser(id, dto, user);
+    return this.accounts.updateManagedUser(id, dto, user);
   }
 
   @Get('roles')
   @Roles('SUPER_ADMIN')
   roles() {
-    return this.usersService.listRoles();
+    return this.roleUseCases.listRoles();
   }
 
   @Post('roles')
   @Roles('SUPER_ADMIN')
   createRole(@Body() dto: SaveRoleDto, @CurrentUser() user: RequestUser) {
-    return this.usersService.createRole(dto, user);
+    return this.roleUseCases.createRole(dto, user);
   }
 
   @Patch('roles/:id')
   @Roles('SUPER_ADMIN')
   updateRole(@Param('id') id: string, @Body() dto: SaveRoleDto, @CurrentUser() user: RequestUser) {
-    return this.usersService.updateRole(id, dto, user);
+    return this.roleUseCases.updateRole(id, dto, user);
   }
 
   @Put('roles/:id/permissions')
   @Roles('SUPER_ADMIN')
   updateRolePermissions(@Param('id') id: string, @Body() dto: UpdateRolePermissionsDto, @CurrentUser() user: RequestUser) {
-    return this.usersService.updateRolePermissions(id, dto, user);
+    return this.roleUseCases.updateRolePermissions(id, dto, user);
   }
 
   @Get('permissions')
   @Roles('SUPER_ADMIN')
   permissions() {
-    return this.usersService.listPermissions();
+    return this.roleUseCases.listPermissions();
   }
 }

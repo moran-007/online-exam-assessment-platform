@@ -1,8 +1,8 @@
 import { onBeforeUnmount, type Ref } from 'vue';
-import type { ExportRecord } from '../models';
+import type { ExportTask } from '../models';
 
 export function useExportTaskPolling(
-  tasks: Ref<ExportRecord[]>,
+  tasks: Ref<ExportTask[]>,
   reload: () => Promise<unknown>,
   intervalMs = 1500,
 ) {

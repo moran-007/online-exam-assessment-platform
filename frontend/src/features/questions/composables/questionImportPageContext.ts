@@ -1,12 +1,14 @@
 import { inject, provide, type InjectionKey } from 'vue';
+import type { useQuestionImportPage } from './useQuestionImportPage';
 
-const questionImportPageKey: InjectionKey<Record<string, any>> = Symbol('question-import-page');
+type QuestionImportPageContext = ReturnType<typeof useQuestionImportPage>;
+const questionImportPageKey: InjectionKey<QuestionImportPageContext> = Symbol('question-import-page');
 
-export function provideQuestionImportPageContext(context: Record<string, any>) {
+export function provideQuestionImportPageContext(context: QuestionImportPageContext) {
   provide(questionImportPageKey, context);
 }
 
-export function useQuestionImportPageContext(): any {
+export function useQuestionImportPageContext(): QuestionImportPageContext {
   const context = inject(questionImportPageKey);
   if (!context) throw new Error('QuestionImportPage context is unavailable');
   return context;

@@ -274,8 +274,9 @@ async function saveGrade() {
         ? {
             rubricScores: question.rubric.map((item) => ({ criterionId: item.id, score: item.score, comment: item.comment })),
             comment: question.nextComment,
+            expectedUpdatedAt: question.updatedAt,
           }
-        : { score: question.nextScore, comment: question.nextComment });
+        : { score: question.nextScore, comment: question.nextComment, expectedUpdatedAt: question.updatedAt });
     attemptDetail.value = await fetchAttempt(attemptId);
     const all = reviewQuestions.value;
     const oldIndex = Math.max(0, all.findIndex((item) => item.questionId === oldQuestionId));

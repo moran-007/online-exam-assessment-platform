@@ -185,6 +185,29 @@ test('public visitors and teachers load their lazy feature routes', async ({ bro
   await teacherContext.close();
 });
 
+test('only a super administrator can open the lazy AI settings route', async ({ browser }) => {
+  const adminContext = await browser.newContext();
+  const studentContext = await browser.newContext();
+  const adminPage = await adminContext.newPage();
+  const studentPage = await studentContext.newPage();
+
+  await login(adminPage, 'e2e_admin');
+  await adminPage.goto('/ai-settings');
+  await expect(adminPage.getByRole('heading', { name: 'AI 模型配置' })).toBeVisible();
+  await expect(adminPage.locator('.ai-preset-card')).toHaveCount(8);
+  await adminPage.getByRole('button', { name: /^DeepSeek / }).click();
+  await expect(adminPage.getByRole('dialog', { name: '新增 AI 配置' })).toBeVisible();
+  await expect(adminPage.getByLabel('Base URL')).toHaveValue('https://api.deepseek.com');
+
+  await login(studentPage, 'e2e_student');
+  await studentPage.goto('/ai-settings');
+  await expect(studentPage).not.toHaveURL(/\/ai-settings$/);
+  await expect(studentPage.getByRole('heading', { name: 'AI 模型配置' })).toHaveCount(0);
+
+  await adminContext.close();
+  await studentContext.close();
+});
+
 test('material context keeps child answers independent and rubric grading is available in the browser', async ({ browser }) => {
   const student = await browser.newContext();
   const admin = await browser.newContext();

@@ -20,7 +20,7 @@
     <div v-if="uploadedAssets.length" class="uploaded-asset-list">
       <div v-for="asset in uploadedAssets" :key="asset.url" class="uploaded-asset-item">
         <div class="asset-preview">
-          <img v-if="asset.isImage && asset.previewUrl" :src="asset.previewUrl" :alt="asset.displayName" />
+          <img v-if="asset.isImage && asset.previewUrl" :src="asset.previewUrl" :alt="asset.displayName ?? asset.filename" />
           <div v-else class="asset-file-icon">{{ fileExt(asset) }}</div>
         </div>
         <div class="asset-main">

@@ -49,7 +49,7 @@
           <section v-for="(child, index) in singlePreviewQuestion.inlineChildren" :key="`${child.type}-${index}`" class="material-preview-child">
             <div class="paper-question-meta">
               <el-tag>子题 {{ Number(index) + 1 }}</el-tag>
-              <el-tag>{{ typeLabel(child.type) }}</el-tag>
+              <el-tag>{{ typeLabel(child.type ?? '') }}</el-tag>
               <el-tag type="info">{{ child.score }} 分</el-tag>
             </div>
             <h4>{{ child.title || `子题 ${Number(index) + 1}` }}</h4>

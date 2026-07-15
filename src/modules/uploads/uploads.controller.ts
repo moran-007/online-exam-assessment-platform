@@ -5,7 +5,6 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Permissions } from '../../common/decorators/permissions.decorator';
 import { RequestUser } from '../../common/interfaces/request-user.interface';
 import { Public } from '../../common/decorators/public.decorator';
-import { createReadStream } from 'node:fs';
 import { AssetTokenService } from './asset-token.service';
 import { UploadsService } from './uploads.service';
 
@@ -28,7 +27,7 @@ export class UploadsController {
     const normalizedAction = action === 'download' ? 'download' : 'preview';
     const file = await this.uploadsService.authenticatedQuestionAsset(filename, user, normalizedAction);
     this.setContentHeaders(response, file.mimeType, file.displayName, normalizedAction === 'download' ? 'attachment' : 'inline');
-    return new StreamableFile(createReadStream(file.path));
+    return new StreamableFile(file.stream);
   }
 
   @Public()
@@ -42,7 +41,7 @@ export class UploadsController {
     this.assetTokens.verifyPublicQuestionToken(token, questionId);
     const file = await this.uploadsService.publicQuestionAsset(questionId, filename);
     this.setContentHeaders(response, file.mimeType, file.displayName, 'inline');
-    return new StreamableFile(createReadStream(file.path));
+    return new StreamableFile(file.stream);
   }
 
   @Get('question-assets/report')

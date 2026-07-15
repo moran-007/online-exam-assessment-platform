@@ -37,6 +37,8 @@ jobs:
       JWT_ACCESS_SECRET: ci_access_secret_that_is_longer_than_32_chars
       JWT_REFRESH_SECRET: ci_refresh_secret_that_is_longer_than_32_chars
       ASSET_URL_SECRET: ci_asset_secret_that_is_unique_and_long_enough
+      CREDENTIAL_ENCRYPTION_ACTIVE_VERSION: 1
+      CREDENTIAL_ENCRYPTION_KEYS: '{"1":"Y2lfY3JlZGVudGlhbF9lbmNyeXB0aW9uX2tleV8zMmI="}'
       CORS_ORIGINS: http://127.0.0.1:5173
       LOG_LEVEL: silent
       LOG_PRETTY: false
@@ -75,11 +77,43 @@ jobs:
       - name: Lint
         run: pnpm lint
 
+      - name: Enforce architecture boundaries
+        run: pnpm architecture:check
+
+      - name: Audit production dependencies
+        run: pnpm security:audit
+
+      - name: Enforce dependency license policy
+        run: pnpm licenses:check
+
+      - name: Verify OpenAPI document and generated client
+        run: pnpm openapi:check
+
+      - name: Type-check frontend
+        run: pnpm frontend:typecheck
+
       - name: Build backend and frontend
         run: pnpm build:all
 
+      - name: Enforce bundle budgets
+        run: pnpm bundle:check
+
+      - name: Upload bundle manifest on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bundle-diagnostics-${{ github.run_id }}
+          path: |
+            frontend/dist/.vite/manifest.json
+            frontend/dist/assets/
+          if-no-files-found: warn
+          retention-days: 14
+
       - name: Unit and integration tests
         run: pnpm test
+
+      - name: Enforce critical-code coverage baseline
+        run: pnpm test:coverage
 
       - name: Install Chromium
         run: pnpm exec playwright install --with-deps chromium

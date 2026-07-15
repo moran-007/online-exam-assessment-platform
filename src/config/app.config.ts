@@ -11,11 +11,16 @@ export default () => ({
     .split(',')
     .map((origin) => origin.trim())
     .filter(Boolean),
-  swaggerEnabled: (process.env.SWAGGER_ENABLED ?? 'true') === 'true',
+  swaggerEnabled:
+    (process.env.SWAGGER_ENABLED ?? (process.env.NODE_ENV === 'production' ? 'false' : 'true')) === 'true',
   trustProxy: trustProxyValue(),
   logLevel: process.env.LOG_LEVEL ?? (process.env.NODE_ENV === 'production' ? 'info' : 'debug'),
   logPretty: (process.env.LOG_PRETTY ?? (process.env.NODE_ENV === 'production' ? 'false' : 'true')) === 'true',
   uploadsDir: process.env.UPLOADS_DIR ?? 'uploads',
+  credentialEncryption: {
+    activeVersion: Number(process.env.CREDENTIAL_ENCRYPTION_ACTIVE_VERSION ?? 1),
+    keys: process.env.CREDENTIAL_ENCRYPTION_KEYS ?? '',
+  },
   rateLimit: {
     ttlMs: Number(process.env.RATE_LIMIT_TTL_MS ?? 60_000),
     max: Number(process.env.RATE_LIMIT_MAX ?? 120),

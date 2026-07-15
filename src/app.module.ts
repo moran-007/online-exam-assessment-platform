@@ -1,6 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
-import { APP_GUARD } from '@nestjs/core';
+import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { ThrottlerModule } from '@nestjs/throttler';
 import { randomUUID } from 'node:crypto';
 import { LoggerModule } from 'nestjs-pino';
@@ -11,6 +11,7 @@ import { ConfiguredThrottlerGuard } from './common/guards/configured-throttler.g
 import { PermissionsGuard } from './common/guards/permissions.guard';
 import { RolesGuard } from './common/guards/roles.guard';
 import { AuditModule } from './modules/audit/audit.module';
+import { AiModule } from './modules/ai/ai.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { ClassesModule } from './modules/classes/classes.module';
 import { CoursesModule } from './modules/courses/courses.module';
@@ -32,6 +33,10 @@ import { StudentModule } from './modules/student/student.module';
 import { TagsModule } from './modules/tags/tags.module';
 import { UploadsModule } from './modules/uploads/uploads.module';
 import { UsersModule } from './modules/users/users.module';
+import { CredentialCipherModule } from './security/credential-cipher.module';
+import { StorageModule } from './storage/storage.module';
+import { MetricsInterceptor } from './observability/metrics.interceptor';
+import { ObservabilityModule } from './observability/observability.module';
 
 @Module({
   imports: [
@@ -67,6 +72,12 @@ import { UsersModule } from './modules/users/users.module';
               'req.body.secret',
               'req.body.loginPassword',
               'req.body.hydroPassword',
+              'req.body.apiKey',
+              'req.body.*.apiKey',
+              'req.body.credential',
+              'req.body.*.credential',
+              'req.body.answer',
+              'req.body.answers',
               'res.headers["set-cookie"]',
             ],
             censor: '[REDACTED]',
@@ -84,8 +95,12 @@ import { UsersModule } from './modules/users/users.module';
         },
       ],
     }),
+    ObservabilityModule,
     PrismaModule,
+    CredentialCipherModule,
+    StorageModule,
     AuditModule,
+    AiModule,
     UsersModule,
     AuthModule,
     HealthModule,
@@ -108,6 +123,10 @@ import { UsersModule } from './modules/users/users.module';
     StudentModule,
   ],
   providers: [
+    {
+      provide: APP_INTERCEPTOR,
+      useClass: MetricsInterceptor,
+    },
     {
       provide: APP_GUARD,
       useClass: ConfiguredThrottlerGuard,

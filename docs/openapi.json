@@ -101,6 +101,200 @@
         ],
         "type": "object"
       },
+      "AiDeleteResultDto": {
+        "properties": {
+          "deleted": {
+            "type": "boolean"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "deleted"
+        ],
+        "type": "object"
+      },
+      "AiProviderConfigResponseDto": {
+        "properties": {
+          "apiKeyMasked": {
+            "type": "string"
+          },
+          "baseUrl": {
+            "type": "string"
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "hasApiKey": {
+            "type": "boolean"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "isDefault": {
+            "type": "boolean"
+          },
+          "lastTestAt": {
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          },
+          "lastTestMessage": {
+            "nullable": true,
+            "type": "string"
+          },
+          "lastTestStatus": {
+            "nullable": true,
+            "type": "string"
+          },
+          "maxTokens": {
+            "type": "number"
+          },
+          "model": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "timeoutMs": {
+            "type": "number"
+          },
+          "updatedAt": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "provider",
+          "baseUrl",
+          "model",
+          "enabled",
+          "isDefault",
+          "timeoutMs",
+          "maxTokens",
+          "hasApiKey",
+          "apiKeyMasked",
+          "lastTestStatus",
+          "lastTestMessage",
+          "lastTestAt",
+          "createdAt",
+          "updatedAt"
+        ],
+        "type": "object"
+      },
+      "AiProviderPresetDto": {
+        "properties": {
+          "baseUrl": {
+            "type": "string"
+          },
+          "documentationUrl": {
+            "type": "string"
+          },
+          "model": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "note": {
+            "type": "string"
+          },
+          "provider": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "provider",
+          "name",
+          "baseUrl",
+          "model",
+          "documentationUrl",
+          "note"
+        ],
+        "type": "object"
+      },
+      "AiSummaryResultDto": {
+        "properties": {
+          "durationMs": {
+            "type": "number"
+          },
+          "model": {
+            "type": "string"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          },
+          "usage": {
+            "$ref": "#/components/schemas/AiUsageDto"
+          }
+        },
+        "required": [
+          "summary",
+          "provider",
+          "model",
+          "usage",
+          "durationMs"
+        ],
+        "type": "object"
+      },
+      "AiTestResultDto": {
+        "properties": {
+          "durationMs": {
+            "type": "number"
+          },
+          "message": {
+            "type": "string"
+          },
+          "reply": {
+            "type": "string"
+          },
+          "success": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "success",
+          "message",
+          "reply",
+          "durationMs"
+        ],
+        "type": "object"
+      },
+      "AiUsageDto": {
+        "properties": {
+          "completionTokens": {
+            "type": "number"
+          },
+          "promptTokens": {
+            "type": "number"
+          },
+          "totalTokens": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "promptTokens",
+          "completionTokens",
+          "totalTokens"
+        ],
+        "type": "object"
+      },
       "ApiError": {
         "properties": {
           "code": {
@@ -114,12 +308,18 @@
           "message": {
             "example": "请求参数错误",
             "type": "string"
+          },
+          "requestId": {
+            "example": "019f63ca-586f-7bc1-b8a6-830cf20092c9",
+            "nullable": true,
+            "type": "string"
           }
         },
         "required": [
           "code",
           "message",
-          "data"
+          "data",
+          "requestId"
         ],
         "type": "object"
       },
@@ -541,6 +741,64 @@
         },
         "required": [
           "questions"
+        ],
+        "type": "object"
+      },
+      "CreateAiProviderConfigDto": {
+        "properties": {
+          "apiKey": {
+            "example": "sk-***",
+            "maxLength": 500,
+            "type": "string",
+            "writeOnly": true
+          },
+          "baseUrl": {
+            "example": "https://api.deepseek.com",
+            "maxLength": 500,
+            "type": "string"
+          },
+          "enabled": {
+            "default": true,
+            "type": "boolean"
+          },
+          "isDefault": {
+            "default": false,
+            "type": "boolean"
+          },
+          "maxTokens": {
+            "default": 800,
+            "maximum": 8192,
+            "minimum": 1,
+            "type": "number"
+          },
+          "model": {
+            "example": "deepseek-v4-flash",
+            "maxLength": 160,
+            "type": "string"
+          },
+          "name": {
+            "example": "DeepSeek 默认配置",
+            "maxLength": 100,
+            "type": "string"
+          },
+          "provider": {
+            "example": "deepseek",
+            "maxLength": 50,
+            "type": "string"
+          },
+          "timeoutMs": {
+            "default": 30000,
+            "maximum": 120000,
+            "minimum": 3000,
+            "type": "number"
+          }
+        },
+        "required": [
+          "name",
+          "provider",
+          "baseUrl",
+          "model",
+          "apiKey"
         ],
         "type": "object"
       },
@@ -1001,6 +1259,33 @@
         ],
         "type": "object"
       },
+      "GenerateAiSummaryDto": {
+        "properties": {
+          "configId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "content": {
+            "description": "待总结内容，最多 20000 字符",
+            "maxLength": 20000,
+            "type": "string"
+          },
+          "instruction": {
+            "description": "附加总结要求，最多 500 字符",
+            "maxLength": 500,
+            "type": "string"
+          },
+          "maxTokens": {
+            "maximum": 1200,
+            "minimum": 1,
+            "type": "number"
+          }
+        },
+        "required": [
+          "content"
+        ],
+        "type": "object"
+      },
       "GeneratePaperFromWrongDto": {
         "properties": {
           "classId": {
@@ -1155,6 +1440,9 @@
       "GradeAnswerDto": {
         "properties": {
           "comment": {
+            "type": "string"
+          },
+          "expectedUpdatedAt": {
             "type": "string"
           },
           "rubricScores": {
@@ -1878,6 +2166,48 @@
         },
         "type": "object"
       },
+      "UpdateAiProviderConfigDto": {
+        "properties": {
+          "apiKey": {
+            "maxLength": 500,
+            "type": "string",
+            "writeOnly": true
+          },
+          "baseUrl": {
+            "maxLength": 500,
+            "type": "string"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "isDefault": {
+            "type": "boolean"
+          },
+          "maxTokens": {
+            "maximum": 8192,
+            "minimum": 1,
+            "type": "number"
+          },
+          "model": {
+            "maxLength": 160,
+            "type": "string"
+          },
+          "name": {
+            "maxLength": 100,
+            "type": "string"
+          },
+          "provider": {
+            "maxLength": 50,
+            "type": "string"
+          },
+          "timeoutMs": {
+            "maximum": 120000,
+            "minimum": 3000,
+            "type": "number"
+          }
+        },
+        "type": "object"
+      },
       "UpdateClassDto": {
         "properties": {
           "code": {
@@ -1964,6 +2294,7 @@
           },
           "classId": {
             "format": "uuid",
+            "nullable": true,
             "type": "string"
           },
           "courseId": {
@@ -2482,6 +2813,520 @@
   },
   "openapi": "3.0.0",
   "paths": {
+    "/api/v1/ai/configurations": {
+      "get": {
+        "operationId": "Ai_configurations",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "code": {
+                      "example": 0,
+                      "type": "integer"
+                    },
+                    "data": {
+                      "items": {
+                        "$ref": "#/components/schemas/AiProviderConfigResponseDto"
+                      },
+                      "type": "array"
+                    },
+                    "message": {
+                      "example": "ok",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "code",
+                    "message",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "401": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "404": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "409": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "429": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "500": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "AI"
+        ]
+      },
+      "post": {
+        "operationId": "Ai_create",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateAiProviderConfigDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "code": {
+                      "example": 0,
+                      "type": "integer"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/AiProviderConfigResponseDto"
+                    },
+                    "message": {
+                      "example": "ok",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "code",
+                    "message",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "401": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "404": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "409": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "429": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "500": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "AI"
+        ]
+      }
+    },
+    "/api/v1/ai/configurations/{id}": {
+      "delete": {
+        "operationId": "Ai_remove",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "code": {
+                      "example": 0,
+                      "type": "integer"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/AiDeleteResultDto"
+                    },
+                    "message": {
+                      "example": "ok",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "code",
+                    "message",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "401": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "404": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "409": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "429": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "500": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "AI"
+        ]
+      },
+      "patch": {
+        "operationId": "Ai_update",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateAiProviderConfigDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "code": {
+                      "example": 0,
+                      "type": "integer"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/AiProviderConfigResponseDto"
+                    },
+                    "message": {
+                      "example": "ok",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "code",
+                    "message",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "401": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "404": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "409": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "429": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "500": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "AI"
+        ]
+      }
+    },
+    "/api/v1/ai/configurations/{id}/test": {
+      "post": {
+        "operationId": "Ai_test",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "code": {
+                      "example": 0,
+                      "type": "integer"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/AiTestResultDto"
+                    },
+                    "message": {
+                      "example": "ok",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "code",
+                    "message",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "401": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "404": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "409": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "429": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "500": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "AI"
+        ]
+      }
+    },
+    "/api/v1/ai/presets": {
+      "get": {
+        "operationId": "Ai_presets",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "code": {
+                      "example": 0,
+                      "type": "integer"
+                    },
+                    "data": {
+                      "items": {
+                        "$ref": "#/components/schemas/AiProviderPresetDto"
+                      },
+                      "type": "array"
+                    },
+                    "message": {
+                      "example": "ok",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "code",
+                    "message",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "401": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "404": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "409": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "429": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "500": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "AI"
+        ]
+      }
+    },
+    "/api/v1/ai/summary": {
+      "post": {
+        "operationId": "Ai_summarize",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GenerateAiSummaryDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "code": {
+                      "example": 0,
+                      "type": "integer"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/AiSummaryResultDto"
+                    },
+                    "message": {
+                      "example": "ok",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "code",
+                    "message",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "401": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "404": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "409": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "429": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "500": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "AI"
+        ]
+      }
+    },
     "/api/v1/audit-logs": {
       "get": {
         "operationId": "Audit_list",
@@ -6625,6 +7470,76 @@
     "/api/v1/health": {
       "get": {
         "operationId": "Health_check",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "401": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "404": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "409": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "429": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "500": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "tags": [
+          "Health"
+        ]
+      }
+    },
+    "/api/v1/health/live": {
+      "get": {
+        "operationId": "Health_live",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "401": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "404": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "409": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "429": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "500": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "tags": [
+          "Health"
+        ]
+      }
+    },
+    "/api/v1/health/ready": {
+      "get": {
+        "operationId": "Health_ready",
         "parameters": [],
         "responses": {
           "200": {

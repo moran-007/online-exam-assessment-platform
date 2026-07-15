@@ -12,7 +12,8 @@ export interface UpdateExamDto {
   antiCheatConfig?: UpdateExamDtoAntiCheatConfig;
   /** @minimum 1 */
   attemptLimit?: number;
-  classId?: string;
+  /** @nullable */
+  classId?: string | null;
   courseId?: string;
   /** @minimum 1 */
   durationMinutes?: number;

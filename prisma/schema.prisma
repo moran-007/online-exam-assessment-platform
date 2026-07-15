@@ -1020,7 +1020,10 @@ model HydroAccount {
   hydroUserId      String    @map("hydro_user_id") @db.VarChar(128)
   hydroUsername    String    @map("hydro_username") @db.VarChar(128)
   loginUsername    String?   @map("login_username") @db.VarChar(128)
-  loginPassword    String?   @map("login_password") @db.Text
+  loginPasswordCiphertext   String? @map("login_password_ciphertext") @db.Text
+  loginPasswordIv           String? @map("login_password_iv") @db.VarChar(64)
+  loginPasswordAuthTag      String? @map("login_password_auth_tag") @db.VarChar(64)
+  loginPasswordKeyVersion   Int?    @map("login_password_key_version")
   lastLoginStatus  String?   @map("last_login_status") @db.VarChar(32)
   lastLoginMessage String?   @map("last_login_message") @db.Text
   lastLoginAt      DateTime? @map("last_login_at")
@@ -1171,6 +1174,9 @@ model ExportTask {
   maxRetries   Int          @default(2) @map("max_retries")
   fileUrl      String?      @map("file_url") @db.Text
   errorMessage String?      @map("error_message") @db.Text
+  leaseOwner   String?      @map("lease_owner") @db.VarChar(128)
+  leaseExpiresAt DateTime?  @map("lease_expires_at")
+  heartbeatAt  DateTime?    @map("heartbeat_at")
   createdBy    String?      @map("created_by") @db.Uuid
   createdAt    DateTime     @default(now()) @map("created_at")
   updatedAt    DateTime     @updatedAt @map("updated_at")
@@ -1179,6 +1185,7 @@ model ExportTask {
 
   @@index([type])
   @@index([status])
+  @@index([status, leaseExpiresAt])
   @@index([createdBy])
   @@index([createdAt])
   @@index([expiresAt])
@@ -1239,4 +1246,31 @@ model Notification {
 
   @@index([userId])
   @@map("notifications")
+}
+
+model AiProviderConfig {
+  id                       String   @id @default(uuid()) @db.Uuid
+  name                     String   @db.VarChar(100)
+  provider                 String   @db.VarChar(50)
+  baseUrl                  String   @map("base_url") @db.Text
+  model                    String   @db.VarChar(160)
+  apiKeyCiphertext         String   @map("api_key_ciphertext") @db.Text
+  apiKeyIv                 String   @map("api_key_iv") @db.VarChar(64)
+  apiKeyAuthTag            String   @map("api_key_auth_tag") @db.VarChar(64)
+  apiKeyKeyVersion         Int      @map("api_key_key_version")
+  enabled                  Boolean  @default(true)
+  isDefault                Boolean  @default(false) @map("is_default")
+  timeoutMs                Int      @default(30000) @map("timeout_ms")
+  maxTokens                Int      @default(800) @map("max_tokens")
+  lastTestStatus           String?  @map("last_test_status") @db.VarChar(32)
+  lastTestMessage          String?  @map("last_test_message") @db.VarChar(300)
+  lastTestAt               DateTime? @map("last_test_at")
+  createdBy                String?  @map("created_by") @db.Uuid
+  updatedBy                String?  @map("updated_by") @db.Uuid
+  createdAt                DateTime @default(now()) @map("created_at")
+  updatedAt                DateTime @updatedAt @map("updated_at")
+
+  @@index([enabled, isDefault])
+  @@index([provider])
+  @@map("ai_provider_configs")
 }

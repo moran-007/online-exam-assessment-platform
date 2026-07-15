@@ -10,4 +10,6 @@ export interface ApiError {
   code: number;
   data: unknown | null;
   message: string;
+  /** @nullable */
+  requestId: string | null;
 }

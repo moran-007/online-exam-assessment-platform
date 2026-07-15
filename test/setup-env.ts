@@ -11,6 +11,8 @@ process.env.DATABASE_URL = testDatabaseUrl;
 process.env.JWT_ACCESS_SECRET = 'test_access_secret_that_is_longer_than_32_chars';
 process.env.JWT_REFRESH_SECRET = 'test_refresh_secret_that_is_longer_than_32_chars';
 process.env.ASSET_URL_SECRET = 'test_asset_secret_that_is_unique_and_long_enough';
+process.env.CREDENTIAL_ENCRYPTION_ACTIVE_VERSION = '1';
+process.env.CREDENTIAL_ENCRYPTION_KEYS = '{"1":"Zmlyc3RfY3JlZGVudGlhbF9lbmNyeXB0aW9uX2tleTE="}';
 process.env.SWAGGER_ENABLED = 'false';
 process.env.LOG_PRETTY = 'false';
 process.env.LOG_LEVEL = 'silent';

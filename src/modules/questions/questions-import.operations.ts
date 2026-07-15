@@ -161,6 +161,9 @@ export async function importFromExcel(ctx: QuestionsContext, file: {
     if (!file?.buffer?.length) {
         throw new BadRequestException('请上传 Excel 文件');
     }
+    if (!/\.xlsx$/i.test(file.originalname ?? '') || file.buffer.subarray(0, 4).toString('hex') !== '504b0304') {
+        throw new BadRequestException('仅支持内容有效的 .xlsx 文件');
+    }
     const workbook = new ExcelJS.Workbook();
     try {
         await workbook.xlsx.load(file.buffer as unknown as ExcelJS.Buffer);

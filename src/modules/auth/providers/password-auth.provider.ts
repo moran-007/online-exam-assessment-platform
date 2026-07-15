@@ -3,7 +3,7 @@ import { UserStatus } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
 import { Injectable } from '@nestjs/common';
 import { RequestContext } from '../../../common/interfaces/request-context.interface';
-import { UsersService } from '../../users/users.service';
+import { UserIdentityReader } from '../../users/queries/user-identity.reader';
 import { LoginDto } from '../dto/login.dto';
 import { AuthProvider } from './auth-provider.interface';
 
@@ -11,14 +11,14 @@ import { AuthProvider } from './auth-provider.interface';
 export class PasswordAuthProvider implements AuthProvider {
   readonly provider = 'password';
 
-  constructor(private readonly usersService: UsersService) {}
+  constructor(private readonly identityReader: UserIdentityReader) {}
 
   async validate(dto: LoginDto, _context: RequestContext) {
     if (!dto.username || !dto.password) {
       throw new UnauthorizedException('账号或密码错误');
     }
 
-    const user = await this.usersService.findByLogin(dto.username);
+    const user = await this.identityReader.findByLogin(dto.username);
     const passwordMatched = user
       ? await bcrypt.compare(dto.password, user.passwordHash)
       : false;
@@ -31,8 +31,8 @@ export class PasswordAuthProvider implements AuthProvider {
       throw new UnauthorizedException('用户已被禁用');
     }
 
-    await this.usersService.touchLastLogin(user.id);
-    const authenticatedUser = await this.usersService.findAuthenticatedById(user.id);
+    await this.identityReader.touchLastLogin(user.id);
+    const authenticatedUser = await this.identityReader.findAuthenticatedById(user.id);
 
     if (!authenticatedUser) {
       throw new UnauthorizedException('用户不存在或已禁用');

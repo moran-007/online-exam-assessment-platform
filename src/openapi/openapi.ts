@@ -32,11 +32,12 @@ function applyWireResponseContract(document: OpenAPIObject): OpenAPIObject {
   document.components.responses ??= {};
   document.components.schemas.ApiError = {
     type: 'object',
-    required: ['code', 'message', 'data'],
+    required: ['code', 'message', 'data', 'requestId'],
     properties: {
       code: { type: 'integer', example: 40000 },
       message: { type: 'string', example: '请求参数错误' },
       data: { nullable: true, example: null },
+      requestId: { type: 'string', nullable: true, example: '019f63ca-586f-7bc1-b8a6-830cf20092c9' },
     },
   };
   document.components.responses.ApiError = {

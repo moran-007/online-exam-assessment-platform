@@ -80,3 +80,141 @@ export const healthCheck = async ( options?: RequestInit): Promise<healthCheckRe
 );}
 
 
+export type healthLiveResponse200 = {
+  data: void
+  status: 200
+}
+
+export type healthLiveResponse400 = {
+  data: ApiErrorResponse
+  status: 400
+}
+
+export type healthLiveResponse401 = {
+  data: ApiErrorResponse
+  status: 401
+}
+
+export type healthLiveResponse403 = {
+  data: ApiErrorResponse
+  status: 403
+}
+
+export type healthLiveResponse404 = {
+  data: ApiErrorResponse
+  status: 404
+}
+
+export type healthLiveResponse409 = {
+  data: ApiErrorResponse
+  status: 409
+}
+
+export type healthLiveResponse429 = {
+  data: ApiErrorResponse
+  status: 429
+}
+
+export type healthLiveResponse500 = {
+  data: ApiErrorResponse
+  status: 500
+}
+
+export type healthLiveResponseSuccess = (healthLiveResponse200) & {
+  headers: Headers;
+};
+export type healthLiveResponseError = (healthLiveResponse400 | healthLiveResponse401 | healthLiveResponse403 | healthLiveResponse404 | healthLiveResponse409 | healthLiveResponse429 | healthLiveResponse500) & {
+  headers: Headers;
+};
+
+export type healthLiveResponse = (healthLiveResponseSuccess | healthLiveResponseError)
+
+export const getHealthLiveUrl = () => {
+
+
+
+
+  return `/api/v1/health/live`
+}
+
+export const healthLive = async ( options?: RequestInit): Promise<healthLiveResponse> => {
+
+  return apiMutator<healthLiveResponse>(getHealthLiveUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+export type healthReadyResponse200 = {
+  data: void
+  status: 200
+}
+
+export type healthReadyResponse400 = {
+  data: ApiErrorResponse
+  status: 400
+}
+
+export type healthReadyResponse401 = {
+  data: ApiErrorResponse
+  status: 401
+}
+
+export type healthReadyResponse403 = {
+  data: ApiErrorResponse
+  status: 403
+}
+
+export type healthReadyResponse404 = {
+  data: ApiErrorResponse
+  status: 404
+}
+
+export type healthReadyResponse409 = {
+  data: ApiErrorResponse
+  status: 409
+}
+
+export type healthReadyResponse429 = {
+  data: ApiErrorResponse
+  status: 429
+}
+
+export type healthReadyResponse500 = {
+  data: ApiErrorResponse
+  status: 500
+}
+
+export type healthReadyResponseSuccess = (healthReadyResponse200) & {
+  headers: Headers;
+};
+export type healthReadyResponseError = (healthReadyResponse400 | healthReadyResponse401 | healthReadyResponse403 | healthReadyResponse404 | healthReadyResponse409 | healthReadyResponse429 | healthReadyResponse500) & {
+  headers: Headers;
+};
+
+export type healthReadyResponse = (healthReadyResponseSuccess | healthReadyResponseError)
+
+export const getHealthReadyUrl = () => {
+
+
+
+
+  return `/api/v1/health/ready`
+}
+
+export const healthReady = async ( options?: RequestInit): Promise<healthReadyResponse> => {
+
+  return apiMutator<healthReadyResponse>(getHealthReadyUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+

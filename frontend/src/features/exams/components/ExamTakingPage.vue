@@ -17,8 +17,8 @@
           <el-radio-button label="side">左右</el-radio-button>
           <el-radio-button label="stack">上下</el-radio-button>
         </el-radio-group>
-        <el-button :icon="Upload" :disabled="autoSubmitting" @click="saveAll">保存</el-button>
-        <el-button type="primary" :icon="Check" :loading="autoSubmitting" @click="submit">提交</el-button>
+        <el-button :icon="Upload" :disabled="autoSubmitting" @click="saveAll()">保存</el-button>
+        <el-button type="primary" :icon="Check" :loading="autoSubmitting" @click="submit()">提交</el-button>
       </div>
     </div>
 
@@ -239,8 +239,8 @@
             <el-button :icon="Flag" :type="currentQuestionId && isFlagged(currentQuestionId) ? 'warning' : 'default'" @click="toggleCurrentFlag">
               {{ currentQuestionId && isFlagged(currentQuestionId) ? '取消本题标疑' : '本题标疑' }}
             </el-button>
-            <el-button :icon="Upload" :disabled="autoSubmitting" @click="saveAll">保存全部</el-button>
-            <el-button type="primary" :icon="Check" :loading="autoSubmitting" @click="submit">提交试卷</el-button>
+            <el-button :icon="Upload" :disabled="autoSubmitting" @click="saveAll()">保存全部</el-button>
+            <el-button type="primary" :icon="Check" :loading="autoSubmitting" @click="submit()">提交试卷</el-button>
           </div>
           <div v-if="totalCount" class="aside-stepbar">
             <el-button :icon="Delete" :disabled="!currentQuestionId" @click="clearCurrentAnswer">清除</el-button>

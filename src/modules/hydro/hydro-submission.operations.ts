@@ -128,6 +128,7 @@ import { accountLabel, canManageOwnExternalAccounts, ensureStudent, findAccountF
 import { formatProblemRef } from './hydro-external-format.operations';
 import { normalizeHydroLanguage } from './hydro-html-parser.operations';
 import { submitToHydro } from './hydro-http-gateway.operations';
+import { hasHydroCredential } from './hydro-credential.operations';
 import { attemptDeadline, findSnapshotQuestion, hydroScoreBreakdown, storedJudgeScoreBreakdown } from './hydro-judge-format.operations';
 import { applyJudgeResult, upsertProgrammingWrongQuestion } from './hydro-judge-writeback.operations';
 import { codeAnswerJson, isSyncableSubmission, syncSubmission } from './hydro-submission-sync.operations';
@@ -169,7 +170,7 @@ export async function submitCode(ctx: HydroContext, attemptId: string, questionI
     if (!hydroAccount) {
       throw new BadRequestException('请先在个人信息中绑定当前 Hydro 站点账号，再提交编程题代码');
     }
-    if (!hydroAccount.loginUsername || !hydroAccount.loginPassword) {
+    if (!hydroAccount.loginUsername || !hasHydroCredential(hydroAccount)) {
       throw new BadRequestException('当前 Hydro 账号缺少登录账号或密码，请先补全后再提交');
     }
     const hydroUsername = hydroAccount.hydroUsername;
@@ -299,7 +300,7 @@ export async function submitPracticeCode(ctx: HydroContext, questionId: string, 
     if (!hydroAccount) {
       throw new BadRequestException('请先在个人信息中绑定当前 Hydro 站点账号，再提交编程题代码');
     }
-    if (!hydroAccount.loginUsername || !hydroAccount.loginPassword) {
+    if (!hydroAccount.loginUsername || !hasHydroCredential(hydroAccount)) {
       throw new BadRequestException('当前 Hydro 账号缺少登录账号或密码，请先补全后再提交');
     }
 

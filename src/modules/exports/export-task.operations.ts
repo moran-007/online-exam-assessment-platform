@@ -1,93 +1,26 @@
-/* eslint-disable @typescript-eslint/no-unused-vars */
-import { BadRequestException, ForbiddenException, Injectable, NotFoundException, OnModuleInit } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { ExportStatus, MasteryStatus, Prisma, QuestionStatus, UserType, WrongQuestionSourceType } from '@prisma/client';
-import {
-  AlignmentType,
-  Document,
-  HeadingLevel,
-  Packer,
-  Paragraph,
-  TextRun,
-} from 'docx';
-import PDFDocument = require('pdfkit');
-import { existsSync } from 'node:fs';
-import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises';
-import { basename, extname, isAbsolute, join, relative, resolve } from 'node:path';
+import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
+import { ExportStatus, Prisma, UserType } from '@prisma/client';
+import { basename } from 'node:path';
 import { toPagination } from '../../common/dto/pagination-query.dto';
-import { toApiEnum } from '../../common/utils/enum-normalizer';
 import { RequestUser } from '../../common/interfaces/request-user.interface';
-import { AuditService } from '../audit/audit.service';
-import { DataScopeService } from '../data-scope/data-scope.service';
-import { PrismaService } from '../prisma/prisma.service';
+import { toApiEnum } from '../../common/utils/enum-normalizer';
 import { CreateExportDto } from './dto/create-export.dto';
 import { QueryExportDto } from './dto/query-export.dto';
-
-type ExportQuestion = {
-  sourceId?: string;
-  title: string;
-  type: string;
-  score: number;
-  defaultScore?: number;
-  difficulty?: number;
-  status?: string;
-  courseId?: string;
-  courseName?: string;
-  content: string;
-  options: Array<{ id?: string; label: string; content: string; isCorrect?: boolean; sortOrder?: number }>;
-  answer?: Record<string, unknown> | null;
-  scoringRule?: Record<string, unknown> | null;
-  analysis?: string | null;
-  sectionTitle?: string;
-  tagNames?: string[];
-  knowledgePointNames?: string[];
-  allowOptionShuffle?: boolean;
-  wrongCount?: number;
-  lastWrongAt?: Date;
-};
-
-type DocumentExportContent = {
-  title: string;
-  subtitle: string;
-  questions: ExportQuestion[];
-  includeAnswers: boolean;
-  includeAnalysis: boolean;
-  includeWrongInfo: boolean;
-  template?: string;
-};
-
-type MarkdownSegment =
-  | { type: 'text'; value: string }
-  | { type: 'image'; alt: string; src: string };
-
-type QuestionExportEntity = Prisma.QuestionGetPayload<{
-  include: {
-    course: true;
-    options: true;
-    answer: true;
-    tags: { include: { tag: true } };
-    knowledgePoints: { include: { knowledgePoint: true } };
-  };
-}>;
-
-type FullArchivePaper = Prisma.PaperGetPayload<{
-  include: {
-    course: true;
-    _count: { select: { sections: true; questions: true; exams: true } };
-  };
-}>;
-
-type ZipEntry = {
-  name: string;
-  data: Buffer;
-  date?: Date;
-};
 import { ExportsContext } from './exports.context';
-import { assertExportRequestAllowed, defaultExportFormat, deleteExportFile, exportAccessWhere, exportFilePath, exportMimeType, findAccessibleTask, formatTask, withPermissionSnapshot } from './export-access.operations';
+import {
+  assertExportRequestAllowed,
+  defaultExportFormat,
+  deleteExportFile,
+  exportAccessWhere,
+  exportMimeType,
+  exportObjectKey,
+  findAccessibleTask,
+  formatTask,
+  withPermissionSnapshot,
+} from './export-access.operations';
 import { normalizeStatus, toRecord } from './export-format.operations';
-import { enqueue, resumeQueuedTasks } from './export-queue.operations';
-export function onModuleInit(ctx: ExportsContext) {
-    void resumeQueuedTasks(ctx);
+import type { ExportJobQueue } from './export-job-queue.interface';
+export function startExportMaintenance(ctx: ExportsContext) {
     void cleanupExpiredTasks(ctx);
     ctx.cleanupTimer = setInterval(() => {
       void cleanupExpiredTasks(ctx);
@@ -120,7 +53,7 @@ export async function list(ctx: ExportsContext, query: QueryExportDto, user: Req
     };
   }
 
-export async function create(ctx: ExportsContext, dto: CreateExportDto, user: RequestUser) {
+export async function create(ctx: ExportsContext, queue: ExportJobQueue, dto: CreateExportDto, user: RequestUser) {
     assertExportRequestAllowed(ctx, dto, user);
     const format = defaultExportFormat(ctx, dto);
     const payload = withPermissionSnapshot(ctx, { ...dto, format }, user);
@@ -143,16 +76,16 @@ export async function create(ctx: ExportsContext, dto: CreateExportDto, user: Re
       targetId: task.id,
       afterData: { type: dto.type, format },
     });
-    enqueue(ctx, task.id);
+    queue.enqueue(task.id);
     return formatTask(ctx, task);
   }
 
-export async function createWrongQuestionExport(ctx: ExportsContext, dto: CreateExportDto, user: RequestUser) {
+export async function createWrongQuestionExport(ctx: ExportsContext, queue: ExportJobQueue, dto: CreateExportDto, user: RequestUser) {
     if (user.userType !== UserType.STUDENT) {
       throw new BadRequestException('只有学生可以导出个人错题本');
     }
 
-    return create(ctx, 
+    return create(ctx, queue,
       {
         ...dto,
         type: 'wrong_questions',
@@ -188,13 +121,18 @@ export async function download(ctx: ExportsContext, id: string, user: RequestUse
         permissionSnapshotCapturedAt: snapshot.capturedAt ?? null,
       },
     });
-    const path = exportFilePath(ctx, task.fileUrl);
-    if (!path || !existsSync(path)) throw new NotFoundException('导出文件不存在或已被清理');
-    const fileName = basename(path);
-    return { path, fileName, mimeType: exportMimeType(ctx, fileName) };
+    const objectKey = exportObjectKey(ctx, task.fileUrl);
+    if (!objectKey) throw new NotFoundException('导出文件地址无效');
+    try {
+      const stream = await ctx.storage.open(objectKey);
+      const fileName = basename(objectKey);
+      return { stream, fileName, mimeType: exportMimeType(ctx, fileName) };
+    } catch {
+      throw new NotFoundException('导出文件不存在或已被清理');
+    }
   }
 
-export async function retry(ctx: ExportsContext, id: string, user: RequestUser) {
+export async function retry(ctx: ExportsContext, queue: ExportJobQueue, id: string, user: RequestUser) {
     const task = await findAccessibleTask(ctx, id, user);
     const retryableStatuses: ExportStatus[] = [ExportStatus.FAILED, ExportStatus.EXPIRED, ExportStatus.CANCELED];
     if (!retryableStatuses.includes(task.status)) {
@@ -209,6 +147,9 @@ export async function retry(ctx: ExportsContext, id: string, user: RequestUser) 
         fileUrl: null,
         finishedAt: null,
         expiresAt: null,
+        leaseOwner: null,
+        leaseExpiresAt: null,
+        heartbeatAt: null,
       },
     });
     await ctx.audit.log({
@@ -219,18 +160,18 @@ export async function retry(ctx: ExportsContext, id: string, user: RequestUser) 
       targetId: id,
       afterData: { type: task.type, retryCount: task.retryCount },
     });
-    enqueue(ctx, id);
+    queue.enqueue(id);
     return formatTask(ctx, updated);
   }
 
-export async function retryMany(ctx: ExportsContext, ids: string[], user: RequestUser) {
+export async function retryMany(ctx: ExportsContext, queue: ExportJobQueue, ids: string[], user: RequestUser) {
     const uniqueIds = [...new Set(ids)];
     const failed: Array<{ id: string; message: string }> = [];
     let successCount = 0;
 
     for (const id of uniqueIds) {
       try {
-        await retry(ctx, id, user);
+        await retry(ctx, queue, id, user);
         successCount += 1;
       } catch (error) {
         failed.push({ id, message: error instanceof Error ? error.message : '重试失败' });
@@ -248,14 +189,14 @@ export async function retryMany(ctx: ExportsContext, ids: string[], user: Reques
     return { successCount, failed };
   }
 
-export async function cancel(ctx: ExportsContext, id: string, user: RequestUser) {
+export async function cancel(ctx: ExportsContext, queue: ExportJobQueue, id: string, user: RequestUser) {
     const task = await findAccessibleTask(ctx, id, user);
     const cancelableStatuses: ExportStatus[] = [ExportStatus.PENDING, ExportStatus.PROCESSING];
     if (!cancelableStatuses.includes(task.status)) {
       throw new BadRequestException('只有等待中或处理中任务可以取消');
     }
 
-    ctx.queue.delete(id);
+    queue.cancel(id);
     const updated = await ctx.prisma.exportTask.update({
       where: { id },
       data: {
@@ -263,6 +204,9 @@ export async function cancel(ctx: ExportsContext, id: string, user: RequestUser)
         progress: 100,
         errorMessage: '用户取消导出',
         finishedAt: new Date(),
+        leaseOwner: null,
+        leaseExpiresAt: null,
+        heartbeatAt: null,
       },
     });
     await ctx.audit.log({
@@ -276,14 +220,14 @@ export async function cancel(ctx: ExportsContext, id: string, user: RequestUser)
     return formatTask(ctx, updated);
   }
 
-export async function cancelMany(ctx: ExportsContext, ids: string[], user: RequestUser) {
+export async function cancelMany(ctx: ExportsContext, queue: ExportJobQueue, ids: string[], user: RequestUser) {
     const uniqueIds = [...new Set(ids)];
     const failed: Array<{ id: string; message: string }> = [];
     let successCount = 0;
 
     for (const id of uniqueIds) {
       try {
-        await cancel(ctx, id, user);
+        await cancel(ctx, queue, id, user);
         successCount += 1;
       } catch (error) {
         failed.push({ id, message: error instanceof Error ? error.message : '取消失败' });

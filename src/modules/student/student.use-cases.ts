@@ -76,20 +76,22 @@ export class StudentAttemptUseCases {
     return getAttemptAsStudent(this.ctx, attemptId, studentId, operator);
   }
 
-  saveAnswer(attemptId: string, dto: SaveAnswerDto, user: RequestUser) {
-    return saveAnswer(this.ctx, attemptId, dto, user);
+  async saveAnswer(attemptId: string, dto: SaveAnswerDto, user: RequestUser) {
+    return this.track('autosave', () => saveAnswer(this.ctx, attemptId, dto, user));
   }
 
-  saveAnswers(attemptId: string, dto: SaveAnswersDto, user: RequestUser) {
-    return saveAnswers(this.ctx, attemptId, dto, user);
+  async saveAnswers(attemptId: string, dto: SaveAnswersDto, user: RequestUser) {
+    const result = await this.track('autosave', () => saveAnswers(this.ctx, attemptId, dto, user));
+    if (result.finalized) this.ctx.metrics.recordExamOperation('forced_finalize', 'success');
+    return result;
   }
 
-  saveAnswersAsStudent(attemptId: string, studentId: string, dto: SaveAnswersDto, operator: RequestUser) {
-    return saveAnswersAsStudent(this.ctx, attemptId, studentId, dto, operator);
+  async saveAnswersAsStudent(attemptId: string, studentId: string, dto: SaveAnswersDto, operator: RequestUser) {
+    return this.track('autosave', () => saveAnswersAsStudent(this.ctx, attemptId, studentId, dto, operator));
   }
 
-  submit(attemptId: string, user: RequestUser) {
-    return submit(this.ctx, attemptId, user);
+  async submit(attemptId: string, user: RequestUser) {
+    return this.track('submit', () => submit(this.ctx, attemptId, user));
   }
 
   submitAsStudent(attemptId: string, studentId: string, operator: RequestUser) {
@@ -102,6 +104,17 @@ export class StudentAttemptUseCases {
 
   resultAsStudent(attemptId: string, studentId: string) {
     return resultAsStudent(this.ctx, attemptId, studentId);
+  }
+
+  private async track<T>(operation: 'autosave' | 'submit', execute: () => Promise<T>) {
+    try {
+      const result = await execute();
+      this.ctx.metrics.recordExamOperation(operation, 'success');
+      return result;
+    } catch (error) {
+      this.ctx.metrics.recordExamOperation(operation, 'failed');
+      throw error;
+    }
   }
 }
 

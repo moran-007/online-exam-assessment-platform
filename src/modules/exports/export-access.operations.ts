@@ -11,7 +11,7 @@ import {
   TextRun,
 } from 'docx';
 import PDFDocument = require('pdfkit');
-import { existsSync } from 'node:fs';
+import { createReadStream, existsSync } from 'node:fs';
 import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises';
 import { basename, extname, isAbsolute, join, relative, resolve } from 'node:path';
 import { toPagination } from '../../common/dto/pagination-query.dto';
@@ -175,22 +175,38 @@ export function futureDate(ctx: ExportsContext, days: number) {
   }
 
 export async function deleteExportFile(ctx: ExportsContext, fileUrl: string | null) {
-    const filePath = exportFilePath(ctx, fileUrl);
-    if (!filePath || !existsSync(filePath)) return;
+    const objectKey = exportObjectKey(ctx, fileUrl);
+    if (!objectKey) return;
     try {
-      await unlink(filePath);
+      await ctx.storage.delete(objectKey);
     } catch {
       // Best effort cleanup; the database status is still moved to expired.
     }
   }
 
 export function exportFilePath(ctx: ExportsContext, fileUrl: string | null) {
+    const objectKey = exportObjectKey(ctx, fileUrl);
+    return objectKey ? join(ctx.exportDir, basename(objectKey)) : '';
+  }
+
+export function exportObjectKey(ctx: ExportsContext, fileUrl: string | null) {
     if (!fileUrl || !fileUrl.startsWith('/uploads/exports/')) return '';
-    const candidate = resolve(ctx.uploadsRoot, fileUrl.slice('/uploads/'.length));
-    const exportRoot = resolve(ctx.exportDir);
-    const relativePath = relative(exportRoot, candidate);
-    if (relativePath.startsWith('..') || isAbsolute(relativePath)) return '';
-    return candidate;
+    const objectKey = fileUrl.slice('/uploads/'.length).replace(/\\/g, '/');
+    if (objectKey !== `exports/${basename(objectKey)}` || basename(objectKey).includes('..')) return '';
+    return objectKey;
+  }
+
+export async function publishExportFile(ctx: ExportsContext, fileUrl: string) {
+    const objectKey = exportObjectKey(ctx, fileUrl);
+    const stagingPath = exportFilePath(ctx, fileUrl);
+    if (!objectKey || !stagingPath || !existsSync(stagingPath)) throw new NotFoundException('导出暂存文件不存在');
+    await ctx.storage.put({
+      key: objectKey,
+      data: createReadStream(stagingPath),
+      mimeType: exportMimeType(ctx, basename(objectKey)),
+    });
+    await unlink(stagingPath).catch(() => undefined);
+    return `/uploads/${objectKey}`;
   }
 
 export function exportMimeType(ctx: ExportsContext, fileName: string) {

@@ -35,6 +35,27 @@ export function validateEnv(config: Record<string, unknown>) {
         throw new Error(`Invalid CORS origin: ${origin}`);
       }
     }
+
+    const activeCredentialKeyVersion = Number(config.CREDENTIAL_ENCRYPTION_ACTIVE_VERSION ?? 1);
+    let credentialKeys: unknown;
+    try {
+      credentialKeys = JSON.parse(String(config.CREDENTIAL_ENCRYPTION_KEYS ?? ''));
+    } catch {
+      throw new Error('CREDENTIAL_ENCRYPTION_KEYS must be a JSON object in production.');
+    }
+    if (
+      !Number.isInteger(activeCredentialKeyVersion) ||
+      activeCredentialKeyVersion <= 0 ||
+      !credentialKeys ||
+      typeof credentialKeys !== 'object' ||
+      Array.isArray(credentialKeys)
+    ) {
+      throw new Error('A valid active credential encryption key version is required in production.');
+    }
+    const encodedKey = (credentialKeys as Record<string, unknown>)[String(activeCredentialKeyVersion)];
+    if (typeof encodedKey !== 'string' || Buffer.from(encodedKey, 'base64').length !== 32) {
+      throw new Error('The active credential encryption key must be a base64-encoded 32-byte value.');
+    }
   }
 
   return config;

@@ -6,7 +6,7 @@ import { Injectable } from '@nestjs/common';
 import { RequestContext } from '../../common/interfaces/request-context.interface';
 import { RequestUser } from '../../common/interfaces/request-user.interface';
 import { PrismaService } from '../prisma/prisma.service';
-import { UsersService } from '../users/users.service';
+import { UserIdentityReader } from '../users/queries/user-identity.reader';
 
 export interface AccessTokenPayload {
   sub: string;
@@ -30,7 +30,7 @@ export class TokenService {
     private readonly config: ConfigService,
     private readonly jwt: JwtService,
     private readonly prisma: PrismaService,
-    private readonly usersService: UsersService,
+    private readonly identityReader: UserIdentityReader,
   ) {}
 
   async issueTokens(
@@ -105,7 +105,7 @@ export class TokenService {
 
     await this.assertSessionNotIdle(stored.sessionId, stored.lastActivityAt);
 
-    const user = await this.usersService.findAuthenticatedById(payload.sub);
+    const user = await this.identityReader.findAuthenticatedById(payload.sub);
 
     if (!user) {
       throw new UnauthorizedException('用户不存在或已禁用');

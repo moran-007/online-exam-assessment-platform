@@ -9,7 +9,7 @@ import {
 import { Reflector } from '@nestjs/core';
 import { IS_PUBLIC_KEY } from '../decorators/public.decorator';
 import { TokenService } from '../../modules/auth/token.service';
-import { UsersService } from '../../modules/users/users.service';
+import { UserIdentityReader } from '../../modules/users/queries/user-identity.reader';
 import { RequestUser } from '../interfaces/request-user.interface';
 
 type RequestWithUser = {
@@ -22,7 +22,7 @@ export class JwtAuthGuard implements CanActivate {
   constructor(
     private readonly reflector: Reflector,
     private readonly tokenService: TokenService,
-    private readonly usersService: UsersService,
+    private readonly identityReader: UserIdentityReader,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -47,7 +47,7 @@ export class JwtAuthGuard implements CanActivate {
       const activityHeader = request.headers['x-session-activity'];
       const marksActivity = (Array.isArray(activityHeader) ? activityHeader[0] : activityHeader) === '1';
       await this.tokenService.assertActiveSession(payload.sessionId, marksActivity);
-      const user = await this.usersService.findAuthenticatedById(payload.sub);
+      const user = await this.identityReader.findAuthenticatedById(payload.sub);
 
       if (!user) {
         throw new UnauthorizedException('用户不存在或已禁用');

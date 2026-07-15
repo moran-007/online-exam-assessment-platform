@@ -129,6 +129,7 @@ import { extractHydroRecordIdFromLocation, normalizeProblemUrl, shortHost, submi
 import { baseUrlFromProblemUrl, isSamePlatformBaseUrl, normalizePlatformBaseUrl, normalizePlatformCode, platformName } from './hydro-platform.operations';
 import { fetchHydroRecordResult } from './hydro-submission-sync.operations';
 import { absoluteHydroUrl, decodeHtml, delay, stripTags, toRecord } from './hydro-support.operations';
+import { hasHydroCredential, resolveHydroPassword } from './hydro-credential.operations';
 export function isHydroBotChallenge(ctx: HydroContext, content?: string | null, locationOrUrl?: string | null) {
     const raw = `${content || ''} ${locationOrUrl || ''}`;
     const text = decodeHtml(ctx, stripTags(ctx, raw)).replace(/\s+/g, ' ').toLowerCase();
@@ -159,10 +160,12 @@ export async function markHydroAccountBlocked(ctx: HydroContext, account: Pick<H
         lastLoginAt: new Date(),
       },
     });
+    ctx.metrics.recordHydro('bot_challenge', 'blocked');
   }
 
 export async function testHydroAccountLogin(ctx: HydroContext, account: HydroAccount) {
-    if (!account.loginUsername || !account.loginPassword) {
+    const startedAt = Date.now();
+    if (!account.loginUsername || !hasHydroCredential(account)) {
       throw new BadRequestException('外部账号缺少登录账号或密码');
     }
 
@@ -191,6 +194,7 @@ export async function testHydroAccountLogin(ctx: HydroContext, account: HydroAcc
         lastLoginAt: new Date(),
       },
     });
+    ctx.metrics.recordHydro('login', status, (Date.now() - startedAt) / 1000);
     return {
       ...formatHydroAccount(ctx, updated),
       success: status === 'success',
@@ -247,6 +251,7 @@ export async function submitToHydro(ctx: HydroContext,
     }
     const externalSubmissionId = extractHydroRecordIdFromLocation(ctx, location);
     if (!externalSubmissionId) {
+      ctx.metrics.recordHydro('submit', 'rejected');
       const message = sanitizeHydroMessage(ctx, text, '未返回评测记录');
       throw new BadRequestException(`Hydro 提交失败：${response.status} ${message || '未返回评测记录'}`);
     }
@@ -282,6 +287,7 @@ export async function submitToHydro(ctx: HydroContext,
       });
     }
 
+    ctx.metrics.recordHydro('submit', record.final ? 'judged' : 'pending');
     return {
       mode: 'direct',
       externalSubmissionId,
@@ -297,6 +303,10 @@ export async function submitToHydro(ctx: HydroContext,
   }
 
 export async function createHydroSession(ctx: HydroContext, account: HydroAccount, explicitBaseUrl?: string): Promise<HydroSession> {
+    if (!account.loginUsername || !hasHydroCredential(account)) {
+      throw new BadRequestException('外部账号缺少登录账号或密码');
+    }
+    const credentialPassword = await resolveHydroPassword(ctx, account);
     const baseUrl = normalizePlatformBaseUrl(ctx, explicitBaseUrl || account.platformBaseUrl);
     const platformLabel = platformLoginLabel(ctx, account);
     const cookies = new Map<string, string>();
@@ -340,7 +350,7 @@ export async function createHydroSession(ctx: HydroContext, account: HydroAccoun
 
     const body = new URLSearchParams({
       uname: account.loginUsername ?? '',
-      password: account.loginPassword ?? '',
+      password: credentialPassword,
       tfa: '',
       authnChallenge: '',
     });

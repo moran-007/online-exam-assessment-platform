@@ -57,14 +57,41 @@ import {
 } from '../../../api/generated/student/student';
 import { usersStudents } from '../../../api/generated/user/user';
 import { asGenerated, generatedData } from '../../../api/generated-data';
-import type { ExamPage, ExamRecord } from '../models';
+import type {
+  ClassPerformance,
+  AnnouncementReadReport,
+  AnnouncementReminderResult,
+  ExamBatchResult,
+  ExamEndResult,
+  ExamAttemptView,
+  ExamSaveResult,
+  ExamSubmitResult,
+  ExamPage,
+  ExamPaperOption,
+  ExamResultRow,
+  ExamStudentOption,
+  ManagedExam,
+  ExamPerformance,
+  ExamRecord,
+  ExamStatisticsDetail,
+  GeneratedPaperResult,
+  KnowledgePerformance,
+  KnowledgeTrendPoint,
+  NamedOption,
+  PageResult,
+  QuestionDiagnostic,
+  ReviewRule,
+  ScoreDistribution,
+  StatisticsOverview,
+  WrongQuestionStatistic,
+} from '../models';
 
 export const enterStudentExam = (examId: string, simulateStudentId?: string) => simulateStudentId
-  ? generatedData(asGenerated<ExamRecord>(studentSimulateEnterExam(examId, { studentId: simulateStudentId })))
-  : generatedData(asGenerated<ExamRecord>(studentEnterExam(examId)));
+  ? generatedData(asGenerated<ExamAttemptView>(studentSimulateEnterExam(examId, { studentId: simulateStudentId })))
+  : generatedData(asGenerated<ExamAttemptView>(studentEnterExam(examId)));
 export const getStudentAttempt = (attemptId: string, simulateStudentId?: string) => simulateStudentId
-  ? generatedData(asGenerated<ExamRecord>(studentSimulateGetAttempt(attemptId, { studentId: simulateStudentId })))
-  : generatedData(asGenerated<ExamRecord>(studentGetAttempt(attemptId)));
+  ? generatedData(asGenerated<ExamAttemptView>(studentSimulateGetAttempt(attemptId, { studentId: simulateStudentId })))
+  : generatedData(asGenerated<ExamAttemptView>(studentGetAttempt(attemptId)));
 export const getStudentAttemptResult = (attemptId: string, simulateStudentId?: string) => simulateStudentId
   ? generatedData(asGenerated<ExamRecord>(studentSimulateResult(attemptId, { studentId: simulateStudentId })))
   : generatedData(asGenerated<ExamRecord>(studentResult(attemptId)));
@@ -74,15 +101,15 @@ export const saveStudentAnswers = (
   simulateStudentId?: string,
   keepalive = false,
 ) => simulateStudentId
-  ? generatedData(asGenerated<ExamRecord>(studentSimulateSaveAnswers(
+  ? generatedData(asGenerated<ExamSaveResult>(studentSimulateSaveAnswers(
       attemptId,
       { ...body, studentId: simulateStudentId },
       { keepalive },
     )))
-  : generatedData(asGenerated<ExamRecord>(studentSaveAnswers(attemptId, body, { keepalive })));
+  : generatedData(asGenerated<ExamSaveResult>(studentSaveAnswers(attemptId, body, { keepalive })));
 export const submitStudentAttempt = (attemptId: string, simulateStudentId?: string) => simulateStudentId
-  ? generatedData(asGenerated<ExamRecord>(studentSimulateSubmit(attemptId, { studentId: simulateStudentId })))
-  : generatedData(asGenerated<ExamRecord>(studentSubmit(attemptId)));
+  ? generatedData(asGenerated<ExamSubmitResult>(studentSimulateSubmit(attemptId, { studentId: simulateStudentId })))
+  : generatedData(asGenerated<ExamSubmitResult>(studentSubmit(attemptId)));
 export const listStudentExams = (params?: Parameters<typeof studentMyExams>[0]) =>
   generatedData(asGenerated<ExamRecord[]>(studentMyExams(params)));
 export const getStudentExamRanking = (examId: string) =>
@@ -111,44 +138,44 @@ export const setWrongQuestionStatus = (
 ) => generatedData(asGenerated<ExamRecord>(studentUpdateWrongQuestionStatus(questionId, body)));
 
 export const listManagedExams = (params: Parameters<typeof examsList>[0]) =>
-  generatedData(asGenerated<ExamPage>(examsList(params)));
+  generatedData(asGenerated<PageResult<ManagedExam>>(examsList(params)));
 export const createManagedExam = (body: Parameters<typeof examsCreate>[0]) =>
-  generatedData(asGenerated<ExamRecord>(examsCreate(body)));
+  generatedData(asGenerated<ManagedExam>(examsCreate(body)));
 export const updateManagedExam = (id: string, body: Parameters<typeof examsUpdate>[1]) =>
-  generatedData(asGenerated<ExamRecord>(examsUpdate(id, body)));
-export const publishManagedExam = (id: string) => generatedData(asGenerated<ExamRecord>(examsPublish(id)));
-export const unpublishManagedExam = (id: string) => generatedData(asGenerated<ExamRecord>(examsUnpublish(id)));
-export const endManagedExam = (id: string) => generatedData(asGenerated<ExamRecord>(examsEnd(id)));
+  generatedData(asGenerated<ManagedExam>(examsUpdate(id, body)));
+export const publishManagedExam = (id: string) => generatedData(asGenerated<ManagedExam>(examsPublish(id)));
+export const unpublishManagedExam = (id: string) => generatedData(asGenerated<ManagedExam>(examsUnpublish(id)));
+export const endManagedExam = (id: string) => generatedData(asGenerated<ExamEndResult>(examsEnd(id)));
 export const removeManagedExam = (id: string) => generatedData(asGenerated<ExamRecord>(examsRemove(id)));
 export const bulkUpdateManagedExams = (body: Parameters<typeof examsBulkUpdateStatus>[0]) =>
-  generatedData(asGenerated<ExamRecord>(examsBulkUpdateStatus(body)));
+  generatedData(asGenerated<ExamBatchResult>(examsBulkUpdateStatus(body)));
 export const getManagedExamResults = (id: string, params?: Parameters<typeof examsResults>[1]) =>
-  generatedData(asGenerated<ExamPage>(examsResults(id, params)));
+  generatedData(asGenerated<PageResult<ExamResultRow>>(examsResults(id, params)));
 export const getAnnouncementReads = (id: string) =>
-  generatedData(asGenerated<ExamRecord>(examsAnnouncementReads(id)));
+  generatedData(asGenerated<AnnouncementReadReport>(examsAnnouncementReads(id)));
 export const remindAnnouncementUnread = (id: string, body: Parameters<typeof examsRemindAnnouncementUnread>[1] = {}) =>
-  generatedData(asGenerated<ExamRecord>(examsRemindAnnouncementUnread(id, body)));
+  generatedData(asGenerated<AnnouncementReminderResult>(examsRemindAnnouncementUnread(id, body)));
 
-export const listExamCourses = () => generatedData(asGenerated<ExamPage>(coursesList({ pageSize: 100 })));
-export const listExamClasses = () => generatedData(asGenerated<ExamPage>(classesList({ pageSize: 100 })));
-export const listExamPapers = () => generatedData(asGenerated<ExamPage>(papersList({ pageSize: 100, status: 'published' })));
-export const listExamStudents = () => generatedData(asGenerated<ExamRecord[]>(usersStudents()));
+export const listExamCourses = () => generatedData(asGenerated<PageResult<NamedOption>>(coursesList({ pageSize: 100 })));
+export const listExamClasses = () => generatedData(asGenerated<PageResult<NamedOption>>(classesList({ pageSize: 100 })));
+export const listExamPapers = () => generatedData(asGenerated<PageResult<ExamPaperOption>>(papersList({ pageSize: 100, status: 'published' })));
+export const listExamStudents = () => generatedData(asGenerated<ExamStudentOption[]>(usersStudents()));
 
-export const loadStatisticsOverview = (params: Parameters<typeof statisticsOverview>[0]) => generatedData(asGenerated<ExamRecord>(statisticsOverview(params)));
-export const loadStatisticsExams = (params: Parameters<typeof statisticsExams>[0]) => generatedData(asGenerated<ExamRecord>(statisticsExams(params)));
-export const loadStatisticsKnowledge = (params: Parameters<typeof statisticsKnowledge>[0]) => generatedData(asGenerated<ExamRecord>(statisticsKnowledge(params)));
-export const loadStatisticsClasses = (params: Parameters<typeof statisticsClasses>[0]) => generatedData(asGenerated<ExamRecord>(statisticsClasses(params)));
-export const loadStatisticsWrongQuestions = (params: Parameters<typeof statisticsWrongQuestions>[0]) => generatedData(asGenerated<ExamRecord>(statisticsWrongQuestions(params)));
-export const loadStatisticsScoreDistribution = (params: Parameters<typeof statisticsScoreDistribution>[0]) => generatedData(asGenerated<ExamRecord>(statisticsScoreDistribution(params)));
-export const loadStatisticsClassComparison = (params: Parameters<typeof statisticsClassComparison>[0]) => generatedData(asGenerated<ExamRecord>(statisticsClassComparison(params)));
-export const loadStatisticsKnowledgeTrend = (params: Parameters<typeof statisticsKnowledgeTrend>[0]) => generatedData(asGenerated<ExamRecord>(statisticsKnowledgeTrend(params)));
-export const loadStatisticsQuestionDiagnostics = (params: Parameters<typeof statisticsQuestionDiagnostics>[0]) => generatedData(asGenerated<ExamRecord>(statisticsQuestionDiagnostics(params)));
-export const loadStatisticsExamDetail = (examId: string) => generatedData(asGenerated<ExamRecord>(statisticsExamDetail(examId)));
+export const loadStatisticsOverview = (params: Parameters<typeof statisticsOverview>[0]) => generatedData(asGenerated<StatisticsOverview>(statisticsOverview(params)));
+export const loadStatisticsExams = (params: Parameters<typeof statisticsExams>[0]) => generatedData(asGenerated<PageResult<ExamPerformance>>(statisticsExams(params)));
+export const loadStatisticsKnowledge = (params: Parameters<typeof statisticsKnowledge>[0]) => generatedData(asGenerated<KnowledgePerformance[]>(statisticsKnowledge(params)));
+export const loadStatisticsClasses = (params: Parameters<typeof statisticsClasses>[0]) => generatedData(asGenerated<ClassPerformance[]>(statisticsClasses(params)));
+export const loadStatisticsWrongQuestions = (params: Parameters<typeof statisticsWrongQuestions>[0]) => generatedData(asGenerated<WrongQuestionStatistic[]>(statisticsWrongQuestions(params)));
+export const loadStatisticsScoreDistribution = (params: Parameters<typeof statisticsScoreDistribution>[0]) => generatedData(asGenerated<ScoreDistribution>(statisticsScoreDistribution(params)));
+export const loadStatisticsClassComparison = (params: Parameters<typeof statisticsClassComparison>[0]) => generatedData(asGenerated<ClassPerformance[]>(statisticsClassComparison(params)));
+export const loadStatisticsKnowledgeTrend = (params: Parameters<typeof statisticsKnowledgeTrend>[0]) => generatedData(asGenerated<KnowledgeTrendPoint[]>(statisticsKnowledgeTrend(params)));
+export const loadStatisticsQuestionDiagnostics = (params: Parameters<typeof statisticsQuestionDiagnostics>[0]) => generatedData(asGenerated<QuestionDiagnostic[]>(statisticsQuestionDiagnostics(params)));
+export const loadStatisticsExamDetail = (examId: string) => generatedData(asGenerated<ExamStatisticsDetail>(statisticsExamDetail(examId)));
 export const generateWrongFrequencyPaper = (body: Parameters<typeof papersGenerateFromWrongFrequency>[0]) =>
-  generatedData(asGenerated<ExamRecord>(papersGenerateFromWrongFrequency(body)));
-export const listReviewRules = () => generatedData(asGenerated<ExamRecord[]>(reviewRulesList()));
+  generatedData(asGenerated<GeneratedPaperResult>(papersGenerateFromWrongFrequency(body)));
+export const listReviewRules = () => generatedData(asGenerated<ReviewRule[]>(reviewRulesList()));
 export const createReviewRule = (body: Parameters<typeof reviewRulesCreate>[0]) =>
-  generatedData(asGenerated<ExamRecord>(reviewRulesCreate(body)));
+  generatedData(asGenerated<ReviewRule>(reviewRulesCreate(body)));
 export const updateReviewRule = (id: string, body: Parameters<typeof reviewRulesUpdate>[1]) =>
-  generatedData(asGenerated<ExamRecord>(reviewRulesUpdate(id, body)));
+  generatedData(asGenerated<ReviewRule>(reviewRulesUpdate(id, body)));
 export const removeReviewRule = (id: string) => generatedData(asGenerated<ExamRecord>(reviewRulesRemove(id)));
