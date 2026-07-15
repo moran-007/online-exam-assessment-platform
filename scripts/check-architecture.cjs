@@ -73,6 +73,16 @@ for (const routeView of [
   if (lines > 100) failures.push(`P1 route view is not an orchestration shell: ${routeView} (${lines})`);
 }
 
+for (const domain of ['questions', 'exams', 'hydro', 'exports']) {
+  const componentDirectory = join(root, 'frontend/src/features', domain, 'components');
+  for (const file of filesUnder(componentDirectory, ['.vue'])) {
+    const lines = readFileSync(file, 'utf8').split(/\r?\n/).length;
+    if (lines > 500) {
+      failures.push(`P1 feature component exceeds 500 lines: ${relative(root, file)} (${lines})`);
+    }
+  }
+}
+
 if (failures.length) {
   console.error(failures.join('\n'));
   process.exit(1);

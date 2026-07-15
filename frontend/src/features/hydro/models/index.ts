@@ -7,4 +7,7 @@ export type HydroPage = {
   pageSize: number;
 };
 
-export type HydroLoginState = Pick<HydroRecord, 'lastLoginStatus' | 'lastLoginMessage'>;
+export type HydroLoginState = {
+  lastLoginStatus?: unknown;
+  lastLoginMessage?: string | null;
+};
