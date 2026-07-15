@@ -171,7 +171,13 @@
 import { computed, onMounted, reactive, ref } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { Delete, DocumentCopy, Edit, Plus, Refresh, Upload, View } from '@element-plus/icons-vue';
-import { api } from '../api';
+import {
+  createKnowledgePoint,
+  getKnowledgeTree,
+  listCourses,
+  removeKnowledgePoint,
+  updateKnowledgePoint,
+} from '../features/platform/api';
 
 const courses = ref([]);
 const courseId = ref('');
@@ -223,7 +229,7 @@ function countNodes(items) {
 }
 
 async function loadAll() {
-  const data = await api('/courses?pageSize=100');
+  const data = await listCourses({ pageSize: 100 });
   courses.value = data.items;
   courseId.value = courseId.value || courses.value[0]?.id || '';
   batchCourseId.value = batchCourseId.value || courseId.value || courses.value[0]?.id || '';
@@ -234,7 +240,7 @@ async function loadAllTrees() {
   const groups = await Promise.all(
     courses.value.map(async (course) => ({
       course,
-      tree: await api(`/knowledge-points/tree?courseId=${course.id}`),
+      tree: await getKnowledgeTree(course.id),
     })),
   );
   courseTrees.value = groups;
@@ -295,17 +301,14 @@ async function saveKnowledge() {
   };
 
   if (editingId.value) {
-    await api(`/knowledge-points/${editingId.value}`, { method: 'PATCH', body: payload });
+    await updateKnowledgePoint(editingId.value, payload);
     ElMessage.success('知识点已保存');
   } else {
     const createPayload = { ...payload };
     delete createPayload.status;
-    await api('/knowledge-points', {
-      method: 'POST',
-      body: {
+    await createKnowledgePoint({
         ...createPayload,
         courseId: courseId.value,
-      },
     });
     ElMessage.success('已新增');
   }
@@ -327,7 +330,7 @@ async function removeKnowledge(point) {
       confirmButtonText: '删除',
       cancelButtonText: '取消',
     });
-    await api(`/knowledge-points/${point.id}`, { method: 'DELETE' });
+    await removeKnowledgePoint(point.id);
     ElMessage.success('知识点已删除');
     if (editingId.value === point.id) resetForm();
     await loadAllTrees();
@@ -407,11 +410,8 @@ async function importBatch() {
             sortOrder: row.sortOrder,
           };
           const saved = existing
-            ? await api(`/knowledge-points/${existing.id}`, { method: 'PATCH', body: payload })
-            : await api('/knowledge-points', {
-                method: 'POST',
-                body: { ...payload, courseId: selectedCourse.id },
-              });
+            ? await updateKnowledgePoint(existing.id, payload)
+            : await createKnowledgePoint({ ...payload, courseId: selectedCourse.id });
           pointMap.set(row.pointName, saved);
           row.statusText = existing ? '已更新知识点' : '已新增知识点';
           successCount += 1;

@@ -11,7 +11,7 @@ import hljs from 'highlight.js/lib/common';
 import katex from 'katex';
 import 'highlight.js/styles/github.css';
 import 'katex/dist/katex.min.css';
-import { apiBlob } from '../api';
+import { getPublicQuestionAssetContent, getQuestionAssetContent } from '../features/questions/api';
 
 const props = defineProps({
   source: {
@@ -353,19 +353,13 @@ function assetFilename(value) {
   return decodeURIComponent(url.pathname.slice('/uploads/question-assets/'.length));
 }
 
-function publicAssetPath(filename) {
-  if (!props.publicQuestionId || !props.assetAccessToken) return '';
-  return `/uploads/public/questions/${encodeURIComponent(props.publicQuestionId)}/assets/${encodeURIComponent(filename)}?token=${encodeURIComponent(props.assetAccessToken)}`;
-}
-
 async function loadAsset(value) {
   const filename = assetFilename(value);
   if (!filename) return null;
-  const publicPath = publicAssetPath(filename);
-  return apiBlob(
-    publicPath || `/uploads/question-assets/${encodeURIComponent(filename)}/content`,
-    publicPath ? { auth: false } : {},
-  );
+  const blob = props.publicQuestionId && props.assetAccessToken
+    ? await getPublicQuestionAssetContent(props.publicQuestionId, filename, props.assetAccessToken)
+    : await getQuestionAssetContent(filename);
+  return { blob };
 }
 
 function releaseObjectUrls() {

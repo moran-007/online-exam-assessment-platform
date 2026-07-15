@@ -17,6 +17,7 @@ Object.assign(process.env, {
   SWAGGER_ENABLED: 'false',
   LOG_PRETTY: 'false',
   LOG_LEVEL: 'silent',
+  LOGIN_RATE_LIMIT_MAX: '50',
   UPLOADS_DIR: process.env.TEST_UPLOADS_DIR || require('node:path').join(process.cwd(), 'runtime', 'test-uploads'),
 });
 

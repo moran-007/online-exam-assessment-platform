@@ -17,6 +17,7 @@ test.beforeAll(async ({ request }) => {
   await prisma.user.createMany({
     data: [
       { username: 'e2e_admin', passwordHash, realName: 'E2E Admin', userType: UserType.SUPER_ADMIN },
+      { username: 'e2e_teacher', passwordHash, realName: 'E2E Teacher', userType: UserType.TEACHER },
       { username: 'e2e_student', passwordHash, realName: 'E2E Student', userType: UserType.STUDENT },
     ],
   });
@@ -163,6 +164,25 @@ test('expired local session returns to login with a clear reason', async ({ page
   await page.goto('/student/profile');
   await expect(page).toHaveURL(/\/login\?reason=expired$/);
   await expect(page.locator('.el-alert').getByText('登录已失效，请重新登录')).toBeVisible();
+});
+
+test('public visitors and teachers load their lazy feature routes', async ({ browser }) => {
+  const publicContext = await browser.newContext();
+  const teacherContext = await browser.newContext();
+  const publicPage = await publicContext.newPage();
+  const teacherPage = await teacherContext.newPage();
+
+  await publicPage.goto('/question-bank');
+  await expect(publicPage.getByRole('heading', { name: '题库', exact: true })).toBeVisible();
+  await expect(publicPage.getByText('E2E autosave question', { exact: true })).toBeVisible();
+
+  await login(teacherPage, 'e2e_teacher');
+  await expect(teacherPage).toHaveURL(/\/external-accounts$/);
+  await expect(teacherPage.getByRole('heading', { name: '外部账号' })).toBeVisible();
+  await expect(teacherPage.getByText('我的账号', { exact: true })).toBeVisible();
+
+  await publicContext.close();
+  await teacherContext.close();
 });
 
 test('material context keeps child answers independent and rubric grading is available in the browser', async ({ browser }) => {

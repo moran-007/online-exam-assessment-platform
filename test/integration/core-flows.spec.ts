@@ -1,5 +1,5 @@
 import { INestApplication } from '@nestjs/common';
-import { PrismaClient, ScoringEvaluationSource, ScoringEvaluationStatus, UserStatus, UserType } from '@prisma/client';
+import { ExportStatus, PrismaClient, ScoringEvaluationSource, ScoringEvaluationStatus, UserStatus, UserType } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
 import request = require('supertest');
 import { mkdir, rm, writeFile } from 'node:fs/promises';
@@ -229,7 +229,7 @@ describe('core API flows', () => {
     })).rejects.toThrow();
   });
 
-  it('imports valid Excel rows, skips duplicates, and creates an authenticated export download', async () => {
+  it('imports valid Excel rows, skips duplicates, and renders authenticated exports in every P1 format', async () => {
     const templateRequest = request(app.getHttpServer())
       .get('/api/v1/questions/import-template')
       .auth(adminToken, { type: 'bearer' })
@@ -281,6 +281,84 @@ describe('core API flows', () => {
       .expect(200);
     expect(download.headers['content-disposition']).toContain('attachment');
     await request(app.getHttpServer()).get(`/api/v1/exports/${task.id}/download`).expect(401);
+
+    const formats = ['csv', 'xlsx', 'docx', 'pdf', 'zip'] as const;
+    const formatTasks = await Promise.all(formats.map((format) => api('post', '/api/v1/exports', adminToken, {
+      type: 'question_bank',
+      format,
+      includeAnswers: true,
+      includeAnalysis: true,
+    })));
+    const pendingIds = new Set(formatTasks.map((item) => item.id));
+    const completedById = new Map<string, any>();
+    for (let index = 0; index < 100 && pendingIds.size; index += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      const list = await api('get', '/api/v1/exports?pageSize=100', adminToken);
+      for (const item of list.items) {
+        if (!pendingIds.has(item.id) || item.status !== 'success') continue;
+        completedById.set(item.id, item);
+        pendingIds.delete(item.id);
+      }
+    }
+    expect([...pendingIds]).toEqual([]);
+
+    for (const [index, formatTask] of formatTasks.entries()) {
+      expect(completedById.get(formatTask.id)?.downloadReady).toBe(true);
+      const response = await request(app.getHttpServer())
+        .get(`/api/v1/exports/${formatTask.id}/download`)
+        .auth(adminToken, { type: 'bearer' })
+        .buffer(true)
+        .parse(binaryParser as unknown as Parameters<typeof templateRequest.parse>[0])
+        .expect(200);
+      expect(response.headers['content-disposition']).toContain(`.${formats[index]}`);
+      expect((response.body as Buffer).length).toBeGreaterThan(20);
+    }
+  });
+
+  it('cancels, retries, and cleans up export tasks without losing ownership', async () => {
+    const admin = await prisma.user.findUniqueOrThrow({ where: { username: 'test_admin' } });
+    const permissionSnapshot = {
+      userId: admin.id,
+      username: admin.username,
+      realName: admin.realName,
+      userType: admin.userType,
+      roles: [],
+      permissions: [],
+      capturedAt: new Date().toISOString(),
+    };
+    const pending = await prisma.exportTask.create({
+      data: {
+        type: 'question_bank',
+        paramsJson: { type: 'question_bank', format: 'csv', permissionSnapshot },
+        status: ExportStatus.PENDING,
+        createdBy: admin.id,
+      },
+    });
+    const canceled = await api('post', `/api/v1/exports/${pending.id}/cancel`, adminToken);
+    expect(canceled.status).toBe('canceled');
+    const retried = await api('post', `/api/v1/exports/${pending.id}/retry`, adminToken);
+    expect(retried.status).toBe('pending');
+    let retriedStatus = 'pending';
+    for (let index = 0; index < 50 && retriedStatus !== 'success'; index += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      retriedStatus = (await prisma.exportTask.findUniqueOrThrow({ where: { id: pending.id } })).status.toLowerCase();
+    }
+    expect(retriedStatus).toBe('success');
+
+    const expired = await prisma.exportTask.create({
+      data: {
+        type: 'question_bank',
+        paramsJson: { type: 'question_bank', format: 'csv', permissionSnapshot },
+        status: ExportStatus.SUCCESS,
+        progress: 100,
+        createdBy: admin.id,
+        finishedAt: new Date(Date.now() - 10_000),
+        expiresAt: new Date(Date.now() - 1_000),
+      },
+    });
+    const cleanup = await api('post', '/api/v1/exports/maintenance/cleanup-expired', adminToken);
+    expect(cleanup.cleaned).toBeGreaterThanOrEqual(1);
+    expect((await prisma.exportTask.findUniqueOrThrow({ where: { id: expired.id } })).status).toBe(ExportStatus.EXPIRED);
   });
 
   it('serves public referenced assets with scoped tokens and protects private content', async () => {

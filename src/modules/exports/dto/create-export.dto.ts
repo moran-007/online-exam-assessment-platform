@@ -7,7 +7,7 @@ export class CreateExportDto {
 
   @IsOptional()
   @IsString()
-  @IsIn(['csv', 'json', 'pdf', 'docx', 'zip'])
+  @IsIn(['csv', 'xlsx', 'json', 'pdf', 'docx', 'zip'])
   format?: string;
 
   @IsOptional()

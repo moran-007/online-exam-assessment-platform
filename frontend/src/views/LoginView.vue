@@ -35,7 +35,8 @@
 import { reactive, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { ElMessage } from 'element-plus';
-import { api, setSession } from '../api';
+import { setSession } from '../api';
+import { login as loginSession } from '../features/platform/api';
 
 const router = useRouter();
 const route = useRoute();
@@ -49,11 +50,7 @@ const form = reactive({
 async function login() {
   loading.value = true;
   try {
-    const data = await api('/auth/login', {
-      method: 'POST',
-      auth: false,
-      body: { ...form },
-    });
+    const data = await loginSession({ ...form });
     setSession(data, { rememberMe: form.rememberMe });
     ElMessage.success('登录成功');
     router.replace(data.user.userType === 'STUDENT' ? '/student/exams' : '/dashboard');

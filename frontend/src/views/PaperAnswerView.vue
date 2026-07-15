@@ -227,7 +227,9 @@ import { computed, nextTick, onMounted, reactive, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { ElMessage } from 'element-plus';
 import { ArrowLeft, ArrowRight, Back, Check, Delete, Link, Notebook, Upload } from '@element-plus/icons-vue';
-import { api, getCurrentUser } from '../api';
+import { getCurrentUser } from '../api';
+import { addWrongQuestionsBatch, previewPaper } from '../features/papers/api';
+import { listMyHydroAccounts, submitHydroPracticeCode } from '../features/hydro/api';
 import CodeAnswerEditor from '../components/CodeAnswerEditor.vue';
 import MarkdownRenderer from '../components/MarkdownRenderer.vue';
 import ProgrammingToolbarShell from '../components/ProgrammingToolbarShell.vue';
@@ -324,7 +326,7 @@ const manualWrongEntries = computed(() => wrongEntries.value.filter((entry) => e
 
 async function load() {
   const [paperData] = await Promise.all([
-    api(isStudent.value ? `/student/papers/${route.params.paperId}/preview` : `/papers/${route.params.paperId}/preview`),
+    previewPaper(String(route.params.paperId), isStudent.value),
     loadHydroAccounts(),
   ]);
   paper.value = paperData;
@@ -396,10 +398,7 @@ async function addWrongQuestionsToBook() {
 
   addingWrongQuestions.value = true;
   try {
-    const result = await api('/student/wrong-questions/batch', {
-      method: 'POST',
-      body: { items },
-    });
+    const result = await addWrongQuestionsBatch({ items });
     const failedText = result.failed?.length ? `，${result.failed.length} 道失败` : '';
     ElMessage.success(`已加入 ${result.successCount} 道错题${failedText}`);
   } catch (error) {
@@ -498,7 +497,7 @@ function goQuestion(index) {
 
 async function loadHydroAccounts() {
   try {
-    const data = await api('/hydro/my/accounts');
+    const data = await listMyHydroAccounts();
     hydroAccounts.value = data.items ?? data ?? [];
   } catch {
     hydroAccounts.value = [];
@@ -520,9 +519,10 @@ async function submitPracticeCode(entry, silent = false) {
 
   codeSubmitLoading[questionId] = true;
   try {
-    const result = await api(`/hydro/questions/${questionId}/submit-code`, {
-      method: 'POST',
-      body: { language: answer.language, code: answer.code, accountId },
+    const result = await submitHydroPracticeCode(questionId, {
+      language: answer.language,
+      code: answer.code,
+      accountId,
     });
     codeSubmitFeedback[questionId] = buildSubmissionFeedback(result);
     if (!silent) ElMessage.success(result.message || '评测完成');

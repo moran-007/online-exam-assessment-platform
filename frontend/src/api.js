@@ -145,7 +145,7 @@ export function startSessionActivityMonitor() {
 
     if (now - lastHeartbeatAt >= HEARTBEAT_INTERVAL_MS) {
       lastHeartbeatAt = now;
-      void api('/auth/activity', { method: 'POST', markActivity: true }).catch(() => undefined);
+      void apiWire('/auth/activity', { method: 'POST', markActivity: true }).catch(() => undefined);
     }
   };
 
@@ -166,82 +166,82 @@ export function startSessionActivityMonitor() {
   };
 }
 
-export async function api(path, options = {}) {
+export async function apiWire(url, options = {}) {
   const { auth = true, markActivity = false, ...requestOptions } = options;
+  const path = normalizeApiPath(url);
 
   try {
     if (auth && path !== '/auth/refresh') {
       await refreshSessionIfNeeded();
     }
-    return await request(path, requestOptions, { auth, markActivity });
+    return await requestWire(path, requestOptions, { auth, markActivity });
   } catch (error) {
     if (!auth || !isUnauthorized(error) || path === '/auth/refresh') {
       throw error;
     }
 
     await refreshSession();
-    return request(path, requestOptions, { auth, markActivity });
+    return requestWire(path, requestOptions, { auth, markActivity });
   }
 }
 
-export async function apiBlob(path, options = {}) {
-  const { auth = true, markActivity = false, ...requestOptions } = options;
-  try {
-    if (auth) await refreshSessionIfNeeded();
-    return await requestBlob(path, requestOptions, { auth, markActivity });
-  } catch (error) {
-    if (!auth || !isUnauthorized(error)) throw error;
-    await refreshSession();
-    return requestBlob(path, requestOptions, { auth, markActivity });
-  }
-}
-
-async function request(path, options = {}, sessionOptions = {}) {
+async function requestWire(path, options = {}, sessionOptions = {}) {
   const isFormData = typeof FormData !== 'undefined' && options.body instanceof FormData;
   const headers = {
-    ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
+    ...(isFormData ? {} : options.body === undefined ? {} : { 'Content-Type': 'application/json' }),
     ...(options.headers ?? {}),
   };
   const token = sessionOptions.auth === false ? null : getToken();
   if (token) headers.Authorization = `Bearer ${token}`;
-  if (token && (sessionOptions.markActivity || hasRecentActivity())) {
-    headers['X-Session-Activity'] = '1';
-  }
+  if (token && (sessionOptions.markActivity || hasRecentActivity())) headers['X-Session-Activity'] = '1';
 
   const response = await fetch(`${API_BASE}${path}`, {
     ...options,
     headers,
-    body: options.body !== undefined ? (isFormData ? options.body : JSON.stringify(options.body)) : undefined,
+    body: options.body !== undefined && !isFormData && typeof options.body !== 'string'
+      ? JSON.stringify(options.body)
+      : options.body,
   });
-  const payload = await response.json().catch(() => null);
+  const contentType = response.headers.get('Content-Type') || '';
+  if (!contentType.includes('application/json')) {
+    if (!response.ok) {
+      const error = new Error(`请求失败：${response.status}`);
+      error.status = response.status;
+      throw error;
+    }
+    return {
+      data: response.status === 204 ? null : await response.blob(),
+      status: response.status,
+      headers: response.headers,
+    };
+  }
 
+  const payload = await response.json().catch(() => null);
   if (!response.ok || payload?.code !== 0) {
     const error = new Error(payload?.message || `请求失败：${response.status}`);
     error.status = response.status;
     throw error;
   }
-
-  return payload.data;
+  return payload;
 }
 
-async function requestBlob(path, options = {}, sessionOptions = {}) {
-  const headers = { ...(options.headers ?? {}) };
-  const token = sessionOptions.auth === false ? null : getToken();
-  if (token) headers.Authorization = `Bearer ${token}`;
-  if (token && (sessionOptions.markActivity || hasRecentActivity())) headers['X-Session-Activity'] = '1';
-
-  const response = await fetch(`${API_BASE}${path}`, { ...options, headers });
-  if (!response.ok) {
-    const payload = await response.json().catch(() => null);
-    const error = new Error(payload?.message || `请求失败：${response.status}`);
-    error.status = response.status;
-    throw error;
+function normalizeApiPath(url) {
+  const value = String(url || '');
+  if (/^https?:\/\//i.test(value)) {
+    const parsed = new URL(value, window.location.origin);
+    return normalizeApiPath(`${parsed.pathname}${parsed.search}`);
   }
-  return {
-    blob: await response.blob(),
-    contentDisposition: response.headers.get('Content-Disposition') || '',
-    contentType: response.headers.get('Content-Type') || '',
-  };
+  const path = value.startsWith(API_BASE)
+    ? value.slice(API_BASE.length) || '/'
+    : value.startsWith('/') ? value : `/${value}`;
+  const [pathname, query = ''] = path.split('?', 2);
+  if (!query) return pathname;
+  const params = new URLSearchParams(query);
+  for (const [key, parameter] of [...params.entries()]) {
+    if (parameter === '' || parameter === 'null' || parameter === 'undefined') params.delete(key);
+  }
+  const normalizedQuery = params.toString();
+  return normalizedQuery ? `${pathname}?${normalizedQuery}` : pathname;
 }
 
 async function refreshSession() {
@@ -315,15 +315,4 @@ function decodeJwtPayload(token) {
 
 function isUnauthorized(error) {
   return error?.status === 401 || /登录|token|Unauthorized/i.test(error?.message ?? '');
-}
-
-export function buildQuery(params = {}) {
-  const search = new URLSearchParams();
-  Object.entries(params).forEach(([key, value]) => {
-    if (value !== undefined && value !== null && value !== '') {
-      search.set(key, value);
-    }
-  });
-  const query = search.toString();
-  return query ? `?${query}` : '';
 }

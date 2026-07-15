@@ -12,7 +12,11 @@ import { RequestUser } from '../../common/interfaces/request-user.interface';
 import { DataScopeService } from '../data-scope/data-scope.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateQuestionDto } from '../questions/dto/create-question.dto';
-import { QuestionsService } from '../questions/questions.service';
+import {
+  QuestionDuplicateUseCases,
+  QuestionSnapshotUseCases,
+  QuestionWriteUseCases,
+} from '../questions/questions.use-cases';
 import { AddPaperQuestionDto } from './dto/add-paper-question.dto';
 import { AddPaperQuestionsByTagsDto } from './dto/add-paper-questions-by-tags.dto';
 import { CreatePaperDto } from './dto/create-paper.dto';
@@ -37,7 +41,9 @@ type SnapshotOptionObject = SnapshotObject & {
 export class PapersService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly questionsService: QuestionsService,
+    private readonly questionWrites: QuestionWriteUseCases,
+    private readonly questionSnapshots: QuestionSnapshotUseCases,
+    private readonly questionDuplicates: QuestionDuplicateUseCases,
     private readonly audit: AuditService,
     private readonly dataScope: DataScopeService,
   ) {}
@@ -186,12 +192,12 @@ export class PapersService {
       if (questionId) {
         reusedCount += 1;
       } else {
-        const created = await this.questionsService.create(payload, userId);
+        const created = await this.questionWrites.create(payload, userId);
         questionId = created.id;
         createdQuestionCount += 1;
       }
 
-      const snapshot = await this.questionsService.buildSnapshot(this.prisma, questionId);
+      const snapshot = await this.questionSnapshots.buildSnapshot(this.prisma, questionId);
       resolvedQuestions.push({
         questionId,
         snapshot,
@@ -438,7 +444,7 @@ export class PapersService {
 
     const result = await this.prisma.$transaction(async (tx) => {
       const sectionId = await this.resolveSection(tx, id, dto.sectionId, dto.sectionTitle);
-      const snapshot = await this.questionsService.buildSnapshot(tx, dto.questionId);
+      const snapshot = await this.questionSnapshots.buildSnapshot(tx, dto.questionId);
       const resolvedScore = this.snapshotTotalScore(snapshot, dto.score);
       const sortOrder =
         dto.sortOrder ??
@@ -539,7 +545,7 @@ export class PapersService {
       const createdIds: string[] = [];
 
       for (const [index, question] of chosen.entries()) {
-        const snapshot = await this.questionsService.buildSnapshot(tx, question.id);
+        const snapshot = await this.questionSnapshots.buildSnapshot(tx, question.id);
         const resolvedScore = this.snapshotTotalScore(snapshot, dto.scoreEach ?? Number(question.defaultScore));
         const created = await tx.paperQuestion.create({
           data: {
@@ -787,7 +793,7 @@ export class PapersService {
 
         for (const [index, question] of chosen.entries()) {
           selectedIds.add(question.id);
-          const snapshot = await this.questionsService.buildSnapshot(tx, question.id);
+          const snapshot = await this.questionSnapshots.buildSnapshot(tx, question.id);
           await tx.paperQuestion.create({
             data: {
               paperId: id,
@@ -900,7 +906,7 @@ export class PapersService {
       });
 
       for (const [index, item] of selected.entries()) {
-        const snapshot = await this.questionsService.buildSnapshot(tx, item.questionId);
+        const snapshot = await this.questionSnapshots.buildSnapshot(tx, item.questionId);
         await tx.paperQuestion.create({
           data: {
             paperId: paper.id,
@@ -1068,7 +1074,7 @@ export class PapersService {
   }
 
   private async findDuplicateQuestionId(payload: CreateQuestionDto) {
-    const checked = await this.questionsService.checkDuplicates([payload]);
+    const checked = await this.questionDuplicates.checkDuplicates([payload]);
     return checked.items[0]?.matches.find(
       (match) => match.source === 'question_bank' && match.reason === 'duplicate' && match.id,
     )?.id;

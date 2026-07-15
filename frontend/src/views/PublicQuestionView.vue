@@ -268,7 +268,14 @@ import { computed, onMounted, onUnmounted, reactive, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { ElMessage } from 'element-plus';
 import { Check, Delete, Refresh, Search, View } from '@element-plus/icons-vue';
-import { api, buildQuery, getCurrentUser, getToken, onSessionChange } from '../api';
+import { getCurrentUser, getToken, onSessionChange } from '../api';
+import {
+  checkQuestionAnswer,
+  getPublicQuestion,
+  listPublicQuestions,
+} from '../features/questions/api';
+import { addWrongQuestionsBatch } from '../features/papers/api';
+import { listMyHydroAccounts, submitHydroPracticeCode } from '../features/hydro/api';
 import AnswerFeedback from '../components/AnswerFeedback.vue';
 import CodeAnswerEditor from '../components/CodeAnswerEditor.vue';
 import MaterialQuestionAnswerPanel from '../components/MaterialQuestionAnswerPanel.vue';
@@ -314,19 +321,17 @@ const matchedHydroAccounts = computed(() => matchedHydroAccountsFor(detail.value
 let unsubscribeSession = null;
 
 async function load() {
-  const data = await api(
-    `/questions/public/list${buildQuery({
+  const data = await listPublicQuestions({
       page: pagination.page,
       pageSize: pagination.pageSize,
-      keyword: filter.keyword,
-      type: filter.type,
-      difficulty: filter.difficulty,
-      tagId: filter.tagId,
-      knowledgePointId: filter.knowledgePointId,
+      keyword: filter.keyword || undefined,
+      type: filter.type || undefined,
+      difficulty: filter.difficulty || undefined,
+      tagId: filter.tagId || undefined,
+      knowledgePointId: filter.knowledgePointId || undefined,
       sortBy: filter.sortBy,
       sortOrder: filter.sortOrder,
-    })}`,
-  );
+    });
   items.value = data.items;
   pagination.page = data.page;
   pagination.pageSize = data.pageSize;
@@ -366,7 +371,7 @@ function handleCurrentChange(page) {
 }
 
 async function selectQuestion(row) {
-  detail.value = await api(`/questions/public/${row.id}`);
+  detail.value = await getPublicQuestion(row.id);
   clearAnswer();
   await prepareHydroAccountSelection(detail.value);
   practiceVisible.value = true;
@@ -391,9 +396,8 @@ async function batchAddWrongQuestions() {
     return;
   }
 
-  const batchResult = await api('/student/wrong-questions/batch', {
-    method: 'POST',
-    body: { items: selectedQuestionIds.value.map((questionId) => ({ questionId })) },
+  const batchResult = await addWrongQuestionsBatch({
+    items: selectedQuestionIds.value.map((questionId) => ({ questionId })),
   });
   const failedText = batchResult.failed?.length ? `，${batchResult.failed.length} 道失败` : '';
   ElMessage.success(`已加入 ${batchResult.successCount} 道题${failedText}`);
@@ -409,10 +413,7 @@ async function checkAnswer() {
     await checkMaterialAnswer();
     return;
   }
-  result.value = await api(`/questions/${detail.value.id}/check-answer`, {
-    method: 'POST',
-    body: payloadForAnswer(answer),
-  });
+  result.value = await checkQuestionAnswer(detail.value.id, payloadForAnswer(answer));
 }
 
 function emptyAnswer(question = null) {
@@ -524,10 +525,7 @@ async function checkMaterialAnswer() {
   Object.keys(childResults).forEach((key) => delete childResults[key]);
   for (const child of children) {
     const childId = materialChildId(child);
-    const response = await api(`/questions/${childId}/check-answer`, {
-      method: 'POST',
-      body: payloadForAnswer(childAnswers[childId] || {}),
-    });
+    const response = await checkQuestionAnswer(childId, payloadForAnswer(childAnswers[childId] || {}));
     const scaled = scaleMaterialChildResult(response, materialChildScore(child));
     childResults[childId] = scaled;
     results.push(scaled);
@@ -589,13 +587,10 @@ async function submitProgrammingAnswer() {
   }
   programmingSubmitLoading.value = true;
   try {
-    const response = await api(`/hydro/questions/${detail.value.id}/submit-code`, {
-      method: 'POST',
-      body: {
+    const response = await submitHydroPracticeCode(detail.value.id, {
         language: answer.language || languageOptionsFor(detail.value)[0],
         code: answer.code,
         accountId: selectedHydroAccountId.value,
-      },
     });
     programmingResult.value = response;
     ElMessage.success(response.message || '代码已提交到 Hydro');
@@ -674,7 +669,7 @@ async function loadHydroAccounts() {
     return;
   }
   try {
-    const data = await api('/hydro/my/accounts');
+    const data = await listMyHydroAccounts();
     hydroAccounts.value = data.items ?? data ?? [];
   } catch {
     hydroAccounts.value = [];

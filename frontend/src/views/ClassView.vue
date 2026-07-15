@@ -241,7 +241,25 @@
 import { onMounted, reactive, ref } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { Plus, Refresh, Search, Upload } from '@element-plus/icons-vue';
-import { api, buildQuery, getCurrentUser } from '../api';
+import { getCurrentUser } from '../api';
+import {
+  addClassStudents,
+  addClassTeachers,
+  batchCreateStudents,
+  batchCreateTeachers,
+  createClass,
+  createStudent as createStudentRequest,
+  createTeacher as createTeacherRequest,
+  getClass,
+  listClasses,
+  listCourses,
+  listStudents,
+  listTeachers,
+  removeClass as removeClassRequest,
+  removeClassStudent,
+  removeClassTeacher,
+  updateClass,
+} from '../features/platform/api';
 
 const filter = reactive({ keyword: '', courseId: '', status: '', sortBy: 'sortOrder', sortOrder: 'asc' });
 const pagination = reactive({ page: 1, pageSize: 20, total: 0 });
@@ -288,10 +306,10 @@ function baseUserCreateForm() {
 
 async function load() {
   const [coursePage, studentList, teacherList, page] = await Promise.all([
-    api('/courses?pageSize=100'),
-    api('/users/students'),
-    api('/users/teachers'),
-    api(`/classes${buildQuery({ ...filter, page: pagination.page, pageSize: pagination.pageSize })}`),
+    listCourses({ pageSize: 100 }),
+    listStudents(),
+    listTeachers(),
+    listClasses({ ...filter, page: pagination.page, pageSize: pagination.pageSize }),
   ]);
   courses.value = coursePage.items;
   students.value = studentList;
@@ -345,10 +363,7 @@ function openCreateTeacher() {
 
 async function saveClass() {
   const body = Object.fromEntries(Object.entries(form).filter(([, value]) => value !== ''));
-  await api(editingId.value ? `/classes/${editingId.value}` : '/classes', {
-    method: editingId.value ? 'PATCH' : 'POST',
-    body,
-  });
+  await (editingId.value ? updateClass(editingId.value, body) : createClass(body));
   ElMessage.success('班级已保存');
   formVisible.value = false;
   await load();
@@ -363,19 +378,16 @@ async function createStudent() {
 
   studentCreateLoading.value = true;
   try {
-    const result = await api('/users/students', {
-      method: 'POST',
-      body: {
+    const result = await createStudentRequest({
         username,
         realName: studentCreateForm.realName.trim() || undefined,
         password: studentCreateForm.password.trim() || undefined,
-      },
     });
-    students.value = await api('/users/students');
+    students.value = await listStudents();
 
     let addedText = '';
     if (detailVisible.value && detail.value?.id && result.student?.id) {
-      await api(`/classes/${detail.value.id}/students`, { method: 'POST', body: { userIds: [result.student.id] } });
+      await addClassStudents(detail.value.id, { userIds: [result.student.id] });
       await openDetail(detail.value);
       await load();
       addedText = '，已加入当前班级';
@@ -397,19 +409,16 @@ async function createTeacher() {
 
   teacherCreateLoading.value = true;
   try {
-    const result = await api('/users/teachers', {
-      method: 'POST',
-      body: {
+    const result = await createTeacherRequest({
         username,
         realName: teacherCreateForm.realName.trim() || undefined,
         password: teacherCreateForm.password.trim() || undefined,
-      },
     });
-    teachers.value = await api('/users/teachers');
+    teachers.value = await listTeachers();
 
     let addedText = '';
     if (detailVisible.value && detail.value?.id && result.teacher?.id) {
-      await api(`/classes/${detail.value.id}/teachers`, { method: 'POST', body: { userIds: [result.teacher.id] } });
+      await addClassTeachers(detail.value.id, { userIds: [result.teacher.id] });
       await openDetail(detail.value);
       await load();
       addedText = '，已加入当前班级';
@@ -459,19 +468,16 @@ async function createStudentsBatch() {
 
   studentBatchLoading.value = true;
   try {
-    const result = await api('/users/students/batch', {
-      method: 'POST',
-      body: {
+    const result = await batchCreateStudents({
         defaultPassword: studentBatchDefaultPassword.value.trim() || undefined,
         students: batchStudents,
-      },
     });
-    students.value = await api('/users/students');
+    students.value = await listStudents();
 
     let addedCount = 0;
     const availableIds = (result.availableStudents || []).map((student) => student.id).filter(Boolean);
     if (detailVisible.value && detail.value?.id && availableIds.length) {
-      await api(`/classes/${detail.value.id}/students`, { method: 'POST', body: { userIds: availableIds } });
+      await addClassStudents(detail.value.id, { userIds: availableIds });
       addedCount = availableIds.length;
       await openDetail(detail.value);
       await load();
@@ -495,19 +501,16 @@ async function createTeachersBatch() {
 
   teacherBatchLoading.value = true;
   try {
-    const result = await api('/users/teachers/batch', {
-      method: 'POST',
-      body: {
+    const result = await batchCreateTeachers({
         defaultPassword: teacherBatchDefaultPassword.value.trim() || undefined,
         teachers: batchTeachers,
-      },
     });
-    teachers.value = await api('/users/teachers');
+    teachers.value = await listTeachers();
 
     let addedCount = 0;
     const availableIds = (result.availableTeachers || []).map((teacher) => teacher.id).filter(Boolean);
     if (detailVisible.value && detail.value?.id && availableIds.length) {
-      await api(`/classes/${detail.value.id}/teachers`, { method: 'POST', body: { userIds: availableIds } });
+      await addClassTeachers(detail.value.id, { userIds: availableIds });
       addedCount = availableIds.length;
       await openDetail(detail.value);
       await load();
@@ -523,7 +526,7 @@ async function createTeachersBatch() {
 }
 
 async function openDetail(row) {
-  detail.value = await api(`/classes/${row.id}`);
+  detail.value = await getClass(row.id);
   selectedStudentIds.value = [];
   selectedTeacherIds.value = [];
   detailVisible.value = true;
@@ -531,7 +534,7 @@ async function openDetail(row) {
 
 async function addStudents() {
   if (!selectedStudentIds.value.length) return;
-  await api(`/classes/${detail.value.id}/students`, { method: 'POST', body: { userIds: selectedStudentIds.value } });
+  await addClassStudents(detail.value.id, { userIds: selectedStudentIds.value });
   ElMessage.success('学生已添加');
   await openDetail(detail.value);
   await load();
@@ -539,21 +542,21 @@ async function addStudents() {
 
 async function addTeachers() {
   if (!selectedTeacherIds.value.length) return;
-  await api(`/classes/${detail.value.id}/teachers`, { method: 'POST', body: { userIds: selectedTeacherIds.value } });
+  await addClassTeachers(detail.value.id, { userIds: selectedTeacherIds.value });
   ElMessage.success('教师已添加');
   await openDetail(detail.value);
   await load();
 }
 
 async function removeStudent(row) {
-  await api(`/classes/${detail.value.id}/students/${row.id}`, { method: 'DELETE' });
+  await removeClassStudent(detail.value.id, row.id);
   ElMessage.success('学生已移除');
   await openDetail(detail.value);
   await load();
 }
 
 async function removeTeacher(row) {
-  await api(`/classes/${detail.value.id}/teachers/${row.id}`, { method: 'DELETE' });
+  await removeClassTeacher(detail.value.id, row.id);
   ElMessage.success('教师已移除');
   await openDetail(detail.value);
   await load();
@@ -561,7 +564,7 @@ async function removeTeacher(row) {
 
 async function removeClass(row) {
   await ElMessageBox.confirm(`确认归档班级“${row.name}”？`, '归档班级', { type: 'warning' });
-  await api(`/classes/${row.id}`, { method: 'DELETE' });
+  await removeClassRequest(row.id);
   ElMessage.success('班级已归档');
   await load();
 }

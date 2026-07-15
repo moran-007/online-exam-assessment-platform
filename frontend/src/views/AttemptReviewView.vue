@@ -82,7 +82,7 @@
 import { computed, onMounted, reactive } from 'vue';
 import { Back } from '@element-plus/icons-vue';
 import { useRoute, useRouter } from 'vue-router';
-import { api } from '../api';
+import { getStudentAttemptResult } from '../features/exams/api';
 import MarkdownRenderer from '../components/MarkdownRenderer.vue';
 import QuestionReviewHost from '../components/QuestionReviewHost.vue';
 import { questionTypeLabel } from '../question-engine/registry';
@@ -120,10 +120,10 @@ const restrictionTitle = computed(() => {
 });
 
 async function load() {
-  const path = simulateStudentId.value
-    ? `/student/simulate/attempts/${route.params.attemptId}/result?studentId=${simulateStudentId.value}`
-    : `/student/attempts/${route.params.attemptId}/result`;
-  Object.assign(result, await api(path));
+  Object.assign(result, await getStudentAttemptResult(
+    String(route.params.attemptId),
+    simulateStudentId.value || undefined,
+  ));
 }
 
 function goBack() {

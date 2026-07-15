@@ -96,7 +96,7 @@
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue';
 import { Refresh } from '@element-plus/icons-vue';
-import { api } from '../api';
+import { getDashboardExams, getDashboardOverview } from '../features/platform/api';
 import { useResponsiveColumns } from '../composables/useResponsiveColumns';
 import { statusLabel as entityStatusLabel, statusTagType } from '../statusMeta';
 
@@ -123,8 +123,8 @@ const todoItems = computed(() => {
 
 async function load() {
   const [overview, examStats] = await Promise.all([
-    api('/statistics/overview'),
-    api('/statistics/exams?pageSize=10'),
+    getDashboardOverview(),
+    getDashboardExams(),
   ]);
   Object.assign(metrics, overview);
   exams.value = examStats.items;

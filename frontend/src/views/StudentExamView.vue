@@ -131,7 +131,11 @@ import { computed, onMounted, onUnmounted, reactive, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { ElMessage } from 'element-plus';
 import { Refresh } from '@element-plus/icons-vue';
-import { api, buildQuery } from '../api';
+import {
+  getStudentExamRanking,
+  listStudentExams,
+  markExamAnnouncementRead,
+} from '../features/exams/api';
 import MarkdownRenderer from '../components/MarkdownRenderer.vue';
 import { useResponsiveColumns } from '../composables/useResponsiveColumns';
 import { statusLabel, statusTagType } from '../statusMeta';
@@ -151,7 +155,7 @@ let timer = null;
 const rankingTitle = computed(() => (rankingData.value ? `排名：${rankingData.value.examName}` : '排名'));
 
 async function load() {
-  items.value = await api(`/student/exams${buildQuery({ ...filter, status: examTab.value })}`);
+  items.value = await listStudentExams({ ...filter, status: examTab.value });
 }
 
 function handleStudentExamSortChange({ prop, order }) {
@@ -181,7 +185,7 @@ function handleStudentExamCommand(row, command) {
 }
 
 async function openRanking(row) {
-  rankingData.value = await api(`/student/exams/${row.examId}/ranking`);
+  rankingData.value = await getStudentExamRanking(row.examId);
   rankingVisible.value = true;
 }
 
@@ -253,7 +257,7 @@ function enterText(row) {
 async function confirmEnter() {
   if (!selectedExam.value) return;
   try {
-    const record = await api(`/student/exams/${selectedExam.value.examId}/announcement/read`, { method: 'POST' });
+    const record = await markExamAnnouncementRead(selectedExam.value.examId);
     selectedExam.value.announcementReadAt = record.readAt || new Date().toISOString();
     selectedExam.value.announcementRead = true;
     announcementVisible.value = false;

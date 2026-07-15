@@ -25,12 +25,6 @@
 <script setup>
 import { basicSetup } from 'codemirror';
 import { indentWithTab, deleteTrailingWhitespace, toggleComment } from '@codemirror/commands';
-import { cpp } from '@codemirror/lang-cpp';
-import { go } from '@codemirror/lang-go';
-import { java } from '@codemirror/lang-java';
-import { javascript } from '@codemirror/lang-javascript';
-import { python } from '@codemirror/lang-python';
-import { rust } from '@codemirror/lang-rust';
 import { indentRange, indentUnit } from '@codemirror/language';
 import { Compartment, EditorState } from '@codemirror/state';
 import { EditorView, keymap, placeholder as editorPlaceholder } from '@codemirror/view';
@@ -83,6 +77,7 @@ const languageCompartment = new Compartment();
 const readonlyCompartment = new Compartment();
 const editableCompartment = new Compartment();
 const placeholderCompartment = new Compartment();
+let languageLoadId = 0;
 
 const canEdit = computed(() => !props.disabled && !props.readonly);
 const normalizedLanguage = computed(() => normalizeLanguage(props.language));
@@ -97,8 +92,9 @@ const editorStyle = computed(() => ({
   '--code-editor-font-size': `${fontSize.value}px`,
 }));
 
-onMounted(() => {
+onMounted(async () => {
   if (!editorHost.value) return;
+  const initialLanguage = await languageExtension();
 
   editorView.value = new EditorView({
     parent: editorHost.value,
@@ -108,7 +104,7 @@ onMounted(() => {
         basicSetup,
         indentUnit.of('  '),
         EditorState.tabSize.of(2),
-        languageCompartment.of(languageExtension()),
+        languageCompartment.of(initialLanguage),
         readonlyCompartment.of(EditorState.readOnly.of(!canEdit.value)),
         editableCompartment.of(EditorView.editable.of(canEdit.value)),
         placeholderCompartment.of(editorPlaceholder(props.placeholder)),
@@ -151,7 +147,7 @@ watch(
 
 watch(
   () => props.language,
-  () => reconfigure(languageCompartment, languageExtension()),
+  () => void refreshLanguageExtension(),
 );
 
 watch(
@@ -233,23 +229,30 @@ function clampFontSize(value) {
   return Math.min(maxFontSize, Math.max(minFontSize, Math.round(value)));
 }
 
-function languageExtension() {
+async function refreshLanguageExtension() {
+  const loadId = ++languageLoadId;
+  const extension = await languageExtension();
+  if (loadId !== languageLoadId) return;
+  reconfigure(languageCompartment, extension);
+}
+
+async function languageExtension() {
   switch (normalizedLanguage.value) {
     case 'python':
-      return python();
+      return (await import('@codemirror/lang-python')).python();
     case 'java':
-      return java();
+      return (await import('@codemirror/lang-java')).java();
     case 'javascript':
-      return javascript();
+      return (await import('@codemirror/lang-javascript')).javascript();
     case 'typescript':
-      return javascript({ typescript: true });
+      return (await import('@codemirror/lang-javascript')).javascript({ typescript: true });
     case 'go':
-      return go();
+      return (await import('@codemirror/lang-go')).go();
     case 'rust':
-      return rust();
+      return (await import('@codemirror/lang-rust')).rust();
     case 'c':
     case 'cpp':
-      return cpp();
+      return (await import('@codemirror/lang-cpp')).cpp();
     default:
       return [];
   }

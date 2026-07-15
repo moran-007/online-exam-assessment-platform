@@ -1,0 +1,3850 @@
+<template>
+  <div class="page import-page">
+    <div class="page-head">
+      <h1 class="page-title">题目导入</h1>
+      <div class="toolbar">
+        <el-button :icon="Back" @click="router.push('/questions')">返回题库</el-button>
+        <el-upload
+          :key="portableUploadKey"
+          ref="portableUploadRef"
+          accept=".zip,.json,.csv,.md,.txt"
+          :auto-upload="false"
+          :show-file-list="false"
+          :on-change="handlePortableImportChange"
+        >
+          <el-button :icon="Upload">导入题目文件</el-button>
+        </el-upload>
+        <el-button :icon="Refresh" @click="loadBaseData">刷新基础数据</el-button>
+      </div>
+    </div>
+
+    <section class="panel import-shared-panel">
+      <el-form label-width="72px" class="import-shared-form">
+        <el-form-item label="课程">
+          <el-select v-model="sharedCourseId" filterable clearable style="width: 100%" @change="handleSharedCourseChange">
+            <el-option v-for="course in courses" :key="course.id" :label="course.name" :value="course.id" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="知识点">
+          <el-tree-select
+            v-model="sharedKnowledgePointIds"
+            :data="knowledgeTreeOptions"
+            multiple
+            check-strictly
+            collapse-tags
+            collapse-tags-tooltip
+            clearable
+            filterable
+            placeholder="可选择所属知识点"
+            style="width: 100%"
+            @change="refreshPreview"
+          />
+        </el-form-item>
+        <el-form-item :label="importMode === 'batch' ? '批次标签' : '标签'">
+          <el-select
+            v-model="sharedTagNames"
+            multiple
+            filterable
+            allow-create
+            default-first-option
+            placeholder="输入或选择标签"
+            style="width: 100%"
+            @change="refreshPreview"
+          >
+            <el-option v-for="tag in tags" :key="tag.id" :label="tag.name" :value="tag.name" />
+          </el-select>
+        </el-form-item>
+        <el-form-item v-if="importMode === 'batch' || singleForm.type === 'fill_blank' || hasMaterialFillBlankChild" label="填空规则" class="compact-form-item">
+          <div class="inline-control">
+            <el-checkbox v-model="blankCaseSensitive">区分大小写</el-checkbox>
+            <el-checkbox v-model="blankSpaceSensitive">区分首尾空格</el-checkbox>
+          </div>
+        </el-form-item>
+        <el-form-item label="发布" class="compact-form-item">
+          <el-checkbox v-model="publishAfterImport">导入后立即发布</el-checkbox>
+        </el-form-item>
+        <el-form-item label="附件" class="compact-form-item">
+          <div class="asset-toolbar">
+            <el-upload
+              :key="assetUploadKey"
+              ref="assetUploadRef"
+              accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.md,.csv,.zip"
+              multiple
+              :auto-upload="false"
+              :show-file-list="false"
+              :on-change="handleAssetUploadChange"
+            >
+              <el-button :icon="Upload" :loading="uploadingAsset">上传附件</el-button>
+            </el-upload>
+            <el-button :type="uploadedAssets.length ? 'primary' : 'default'" plain @click="assetDrawerVisible = true">
+              附件区（{{ uploadedAssets.length }}）
+            </el-button>
+          </div>
+        </el-form-item>
+      </el-form>
+    </section>
+
+    <div class="import-layout">
+      <section class="panel import-editor">
+        <el-tabs v-model="importMode" class="import-tabs" @tab-change="handleImportModeChange">
+          <el-tab-pane label="单题导入" name="single">
+            <el-form :model="singleForm" label-width="88px">
+              <div class="single-meta-grid">
+                <el-form-item label="题型">
+                  <el-select v-model="singleForm.type" filterable style="width: 100%" @change="handleSingleTypeChange">
+                    <el-option v-for="type in typeOptions" :key="type.value" :label="type.label" :value="type.value" />
+                  </el-select>
+                </el-form-item>
+                <el-form-item label="标题" class="single-title-item">
+                  <el-input v-model="singleForm.title" placeholder="请输入题目标题" />
+                </el-form-item>
+                <el-form-item label="难度">
+                  <div class="inline-control">
+                    <el-rate v-model="singleForm.difficulty" :max="5" />
+                    <span class="muted">1-5</span>
+                  </div>
+                </el-form-item>
+                <el-form-item label="分值">
+                  <el-input-number v-model="singleForm.defaultScore" :min="0" :step="1" />
+                </el-form-item>
+              </div>
+              <el-alert
+                v-if="singlePreviewError"
+                :title="singlePreviewError"
+                type="warning"
+                show-icon
+                :closable="false"
+                class="question-entry-guide"
+              />
+              <el-alert
+                v-else
+                :title="singleEntryTip.title"
+                :description="singleEntryTip.description"
+                type="info"
+                show-icon
+                :closable="false"
+                class="question-entry-guide"
+              />
+
+              <template v-if="singleForm.type === 'programming'">
+                <el-form-item label="Hydro题目">
+                  <div class="hydro-inline-field">
+                    <el-input
+                      v-model="singleForm.programmingRef.externalProblemId"
+                      placeholder="输入题号或题目地址，例如 P1000 / https://tarjanoj.com/d/shiyan/p/B2002"
+                      @change="handleSingleHydroProblemInputChange"
+                      @blur="handleSingleHydroProblemInputChange"
+                    />
+                    <el-button :icon="Refresh" :loading="singleHydroPulling" :disabled="!canPullSingleHydroProblem" @click="pullSingleHydroProblem">
+                      拉取
+                    </el-button>
+                    <el-button :icon="Link" :disabled="!singleHydroProblemUrl" @click="openSingleHydroProblem">打开</el-button>
+                  </div>
+                </el-form-item>
+                <el-form-item label="站点">
+                  <el-select
+                    v-model="singleForm.programmingRef.platformBaseUrl"
+                    filterable
+                    allow-create
+                    default-first-option
+                    placeholder="选择平台站点"
+                    style="width: 100%"
+                    @change="handleSingleHydroSiteChange"
+                  >
+                    <el-option
+                      v-for="site in hydroSiteOptions"
+                      :key="site.key"
+                      :label="site.label"
+                      :value="site.value"
+                    />
+                  </el-select>
+                </el-form-item>
+                <el-form-item label="Hydro域">
+                  <div class="hydro-inline-field">
+                    <el-input v-model="singleForm.programmingRef.domainId" placeholder="默认 system；其他域填写域 ID" />
+                    <el-input v-model="singleForm.programmingRef.domainName" placeholder="域名称/备注，可选" />
+                  </div>
+                </el-form-item>
+                <el-form-item label="录入账号">
+                  <div class="hydro-inline-field">
+                    <el-select
+                      v-model="singleForm.programmingRef.accountId"
+                      clearable
+                      filterable
+                      placeholder="同站点账号自动匹配，可手动切换"
+                      @change="handleSingleHydroAccountChange"
+                    >
+                      <el-option
+                        v-for="account in hydroAccountOptions"
+                        :key="account.id"
+                        :label="account.label"
+                        :value="account.id"
+                      />
+                    </el-select>
+                    <el-tag v-if="singleHydroBindingLabel" type="info">{{ singleHydroBindingLabel }}</el-tag>
+                  </div>
+                </el-form-item>
+                <el-form-item label="测评语言">
+                  <el-input v-model="singleForm.programmingRef.languagesText" placeholder="cc.cc17o2, py.py3, java" />
+                </el-form-item>
+              </template>
+              <el-form-item :label="singleForm.type === 'material' ? '大题说明' : '题干'">
+                <div style="width: 100%">
+                  <div class="toolbar" style="margin-bottom: 8px">
+                    <el-button size="small" :icon="DocumentAdd" @click="insertCodeBlock(singleForm, 'content')">
+                      代码块
+                    </el-button>
+                    <el-button
+                      v-if="singleForm.type === 'fill_blank'"
+                      size="small"
+                      :icon="Plus"
+                      @click="insertSingleBlankMarker"
+                    >
+                      插入空位
+                    </el-button>
+                    <el-dropdown trigger="click" @command="insertFormatSnippet">
+                      <el-button size="small">插入格式</el-button>
+                      <template #dropdown>
+                        <el-dropdown-menu>
+                          <el-dropdown-item command="math-inline">行内数学公式</el-dropdown-item>
+                          <el-dropdown-item command="math-block">数学公式块</el-dropdown-item>
+                          <el-dropdown-item command="chem-inline">化学式</el-dropdown-item>
+                          <el-dropdown-item command="chem-equation">化学方程式</el-dropdown-item>
+                          <el-dropdown-item command="symbols">常用特殊符号</el-dropdown-item>
+                          <el-dropdown-item command="table">Markdown 表格</el-dropdown-item>
+                        </el-dropdown-menu>
+                      </template>
+                    </el-dropdown>
+                    <el-button size="small" :icon="DocumentCopy" @click="loadSingleTemplate">加载模板</el-button>
+                  </div>
+                  <el-input
+                    v-model="singleForm.content"
+                    type="textarea"
+                    :rows="8"
+                    resize="vertical"
+                    :placeholder="singleForm.type === 'material' ? '填写材料正文、阅读背景或多问简答题的统一说明，支持 Markdown 和代码块' : '支持 Markdown 和代码块'"
+                    @focus="setImageInsertTarget(singleForm, 'content')"
+                    @paste="handleImagePaste($event, singleForm, 'content')"
+                  />
+                </div>
+              </el-form-item>
+
+              <template v-if="isSingleChoice">
+                <el-form-item label="选项">
+                  <div class="choice-editor">
+                    <div class="toolbar">
+                      <el-button v-if="singleForm.type !== 'true_false'" size="small" :icon="Plus" @click="addSingleOption">
+                        增加选项
+                      </el-button>
+                      <span class="muted">单选/判断只允许一个正确项，多选至少两个正确项。</span>
+                    </div>
+                    <div v-for="(option, index) in singleForm.options" :key="option.optionKey" class="option-editor">
+                      <el-radio
+                        v-if="singleForm.type === 'single_choice' || singleForm.type === 'true_false'"
+                        v-model="correctChoiceKey"
+                        :label="option.optionKey"
+                      />
+                      <el-checkbox v-else v-model="option.isCorrect" />
+                      <el-tag>{{ option.optionKey }}</el-tag>
+                      <div class="option-content">
+                        <el-input
+                          v-model="option.content"
+                          type="textarea"
+                          :rows="2"
+                          resize="vertical"
+                          @focus="setImageInsertTarget(option, 'content')"
+                          @paste="handleImagePaste($event, option, 'content')"
+                        />
+                        <MarkdownRenderer v-if="option.content" :source="option.content" />
+                      </div>
+                      <el-button
+                        v-if="singleForm.type !== 'true_false'"
+                        size="small"
+                        plain
+                        :icon="Delete"
+                        :disabled="singleForm.options.length <= 2"
+                        @click="removeSingleOption(index)"
+                      >
+                        删除
+                      </el-button>
+                    </div>
+                  </div>
+                </el-form-item>
+              </template>
+              <el-form-item v-else-if="singleForm.type === 'fill_blank'" label="答案">
+                <div class="fill-blank-answer-editor">
+                  <div class="toolbar">
+                    <el-button size="small" :icon="Plus" @click="addBlankAnswerRow">增加空位</el-button>
+                    <el-button size="small" :icon="DocumentAdd" @click="insertSingleBlankMarker">插入题干空位</el-button>
+                    <span class="muted">题干中的 ____ 是学生看到的填空横线，也用于自动识别空位数量。</span>
+                  </div>
+                  <div v-for="(blank, index) in blankAnswerRows" :key="index" class="blank-answer-row">
+                    <el-tag>第 {{ index + 1 }} 空</el-tag>
+                    <el-input v-model="blank.answerText" placeholder="正确答案；多个答案用逗号分隔" />
+                    <el-button
+                      size="small"
+                      plain
+                      :icon="Delete"
+                      :disabled="blankAnswerRows.length <= 1"
+                      @click="removeBlankAnswerRow(index)"
+                    >
+                      删除
+                    </el-button>
+                  </div>
+                </div>
+              </el-form-item>
+              <el-form-item v-else-if="singleForm.type === 'material'" label="子题">
+                <div class="material-child-editor">
+                  <div class="material-child-editor-head">
+                    <div>
+                      <strong>子题结构</strong>
+                      <p class="mini-muted">左侧只保留题号和标题；新增或修改子题会打开弹窗，右侧预览实时展示完整题干、选项和分值。</p>
+                    </div>
+                    <el-tag type="info">当前 {{ singleForm.children.length }} 道 · {{ singleMaterialScore }} 分</el-tag>
+                  </div>
+
+                  <div class="material-child-builder">
+                    <aside class="material-child-list">
+                      <button
+                        v-for="(child, index) in singleForm.children"
+                        :key="child.localId"
+                        type="button"
+                        :class="['material-child-list-item', selectedMaterialChildIndex === index ? 'active' : '']"
+                        @click="editSingleMaterialChild(index)"
+                      >
+                        <span class="material-child-index">第 {{ index + 1 }} 题</span>
+                        <strong>{{ child.title || `${typeLabel(child.type)}小题` }}</strong>
+                        <small>{{ typeLabel(child.type) }} · {{ child.score }} 分</small>
+                      </button>
+                      <el-empty v-if="!singleForm.children.length" description="还没有子题" />
+                    </aside>
+
+                    <div class="material-child-actions">
+                      <el-alert
+                        type="info"
+                        :closable="false"
+                        title="材料正文写在上方“大题说明”；每道小题在弹窗里独立设置题干、答案、解析和分值。"
+                      />
+                      <div class="toolbar">
+                        <el-button plain :icon="Plus" @click="openMaterialChildDialog('short_answer')">增加简答小题</el-button>
+                        <el-button plain :icon="Plus" @click="openMaterialChildDialog('fill_blank')">增加填空小题</el-button>
+                        <el-button plain :icon="Plus" @click="openMaterialChildDialog('single_choice')">增加选择小题</el-button>
+                      </div>
+                      <div v-if="selectedMaterialChild" class="selected-material-child-summary">
+                        <span class="mini-muted">当前选中</span>
+                        <strong>{{ selectedMaterialChild.title || `第 ${selectedMaterialChildIndex + 1} 题` }}</strong>
+                        <span>{{ typeLabel(selectedMaterialChild.type) }} · {{ selectedMaterialChild.score }} 分</span>
+                        <el-button size="small" :icon="Edit" @click="editSingleMaterialChild(selectedMaterialChildIndex)">编辑</el-button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </el-form-item>
+              <el-form-item v-else label="参考答案">
+                <div class="subjective-answer-editor">
+                  <el-alert
+                    v-if="singleForm.type === 'short_answer'"
+                    type="info"
+                    :closable="false"
+                    show-icon
+                    title="单问简答题只对应一个作答框；如果是 1、2、3 多个小问，请改为大题/组合题并按小题独立给分。"
+                  />
+                  <div v-if="singleForm.type === 'short_answer'" class="toolbar compact-toolbar">
+                    <el-button plain :icon="Plus" @click="convertShortAnswerToMaterial">
+                      改为多问组合题
+                    </el-button>
+                  </div>
+                  <div v-if="isTextAnswerType(singleForm.type)" class="subjective-answer-settings">
+                    <span>学生作答框行数</span>
+                    <el-input-number v-model="singleForm.answerRows" :min="2" :max="24" :step="1" size="small" />
+                    <span class="mini-muted">用于考试/练习作答框高度；不影响评分。</span>
+                  </div>
+                  <el-input v-model="answerReference" type="textarea" :rows="referenceAnswerRows" resize="vertical" />
+                </div>
+              </el-form-item>
+              <el-form-item label="解析">
+                <el-input
+                  v-model="singleForm.analysis"
+                  type="textarea"
+                  :rows="3"
+                  resize="vertical"
+                  @focus="setImageInsertTarget(singleForm, 'analysis')"
+                  @paste="handleImagePaste($event, singleForm, 'analysis')"
+                />
+              </el-form-item>
+              <el-form-item label="操作">
+                <div class="toolbar">
+                  <el-button
+                    :icon="Refresh"
+                    :loading="singleDuplicateChecking"
+                    :disabled="Boolean(singlePreviewError)"
+                    @click="runSingleDuplicateCheck()"
+                  >
+                    重复检测
+                  </el-button>
+                  <el-button type="primary" :icon="Upload" :loading="singleSaving" @click="importSingle">导入单题</el-button>
+                  <el-button :icon="Refresh" @click="resetSingleForm">清空</el-button>
+                </div>
+              </el-form-item>
+            </el-form>
+          </el-tab-pane>
+
+          <el-tab-pane label="批量导入" name="batch">
+            <el-form label-width="88px">
+              <el-form-item label="操作">
+                <div class="toolbar">
+                  <el-button :icon="DocumentCopy" @click="loadBatchTemplate">加载模板</el-button>
+                  <el-dropdown trigger="click" @command="insertFormatSnippet">
+                    <el-button>插入格式</el-button>
+                    <template #dropdown>
+                      <el-dropdown-menu>
+                        <el-dropdown-item command="math-inline">行内数学公式</el-dropdown-item>
+                        <el-dropdown-item command="math-block">数学公式块</el-dropdown-item>
+                        <el-dropdown-item command="chem-inline">化学式</el-dropdown-item>
+                        <el-dropdown-item command="chem-equation">化学方程式</el-dropdown-item>
+                        <el-dropdown-item command="symbols">常用特殊符号</el-dropdown-item>
+                        <el-dropdown-item command="table">Markdown 表格</el-dropdown-item>
+                      </el-dropdown-menu>
+                    </template>
+                  </el-dropdown>
+                  <el-button :icon="View" @click="previewBatch">解析预览</el-button>
+                  <el-button :icon="Refresh" :loading="duplicateChecking" :disabled="!batchPreview.length" @click="runDuplicateCheck()">
+                    重复检测
+                  </el-button>
+                  <el-button type="primary" :icon="Upload" :loading="importing" @click="importBatch">批量导入</el-button>
+                </div>
+              </el-form-item>
+
+              <el-alert
+                v-if="batchErrorSummary"
+                :title="batchErrorSummary"
+                type="error"
+                show-icon
+                :closable="false"
+                class="batch-alert"
+              />
+
+              <el-form-item label="内容">
+                <el-input
+                  v-model="batchText"
+                  type="textarea"
+                  :rows="18"
+                  resize="vertical"
+                  placeholder="按模板粘贴题目内容，支持 Markdown 代码块；多题之间用单独一行 --- 分隔"
+                  @input="handleBatchTemplateInput"
+                  @focus="setBatchInsertTarget('batchText')"
+                  @paste="handleBatchImagePaste($event, 'batchText')"
+                />
+              </el-form-item>
+              <el-form-item label="答案">
+                <el-input
+                  v-model="batchAnswerText"
+                  type="textarea"
+                  :rows="8"
+                  resize="vertical"
+                  placeholder="每行一个答案，例如：1. B；填空题：3. 第1空：print；第2空：range；第3空：len"
+                  @input="handleBatchTemplateInput"
+                />
+              </el-form-item>
+            </el-form>
+          </el-tab-pane>
+        </el-tabs>
+      </section>
+
+      <section class="panel import-preview">
+        <template v-if="importMode === 'single'">
+          <div class="paper-preview-head">
+            <div>
+              <h2>单题预览</h2>
+              <span class="muted">{{ typeLabel(singlePreviewQuestion.type) }} · {{ singlePreviewQuestion.defaultScore }} 分</span>
+            </div>
+            <div class="toolbar">
+              <el-tag :type="singlePreviewError ? 'danger' : 'success'">
+                {{ singlePreviewError ? '需修正' : '可导入' }}
+              </el-tag>
+              <el-tag v-if="singleConflictStatus && singleConflictStatus !== 'ok'" :type="conflictTagType(singleConflictStatus)" effect="plain">
+                {{ conflictLabel(singleConflictStatus) }}
+              </el-tag>
+              <el-tag type="info">实时预览</el-tag>
+            </div>
+          </div>
+
+          <el-alert
+            v-if="singlePreviewError"
+            :title="singlePreviewError"
+            type="warning"
+            show-icon
+            :closable="false"
+            class="batch-alert"
+          />
+          <el-alert
+            v-else-if="singleConflictMessage"
+            :title="singleConflictMessage"
+            :type="singleConflictStatus === 'conflict' ? 'error' : 'warning'"
+            show-icon
+            :closable="false"
+            class="batch-alert"
+          />
+
+          <div class="question-import-detail">
+            <div class="paper-question-meta">
+              <el-tag>{{ typeLabel(singlePreviewQuestion.type) }}</el-tag>
+              <el-tag type="info">{{ singlePreviewQuestion.defaultScore }} 分</el-tag>
+              <el-tag v-for="name in singlePreviewQuestion.knowledgePointNames || []" :key="name" type="success" effect="plain">
+                {{ name }}
+              </el-tag>
+              <el-tag v-for="tag in singlePreviewQuestion.tagNames || []" :key="tag" effect="plain">{{ tag }}</el-tag>
+            </div>
+            <h3>{{ singlePreviewQuestion.title || '未命名题目' }}</h3>
+            <MarkdownRenderer :source="singlePreviewQuestion.content || ''" />
+            <div v-if="singlePreviewQuestion.type === 'material' && singlePreviewQuestion.inlineChildren?.length" class="material-preview-children">
+              <section v-for="(child, index) in singlePreviewQuestion.inlineChildren" :key="`${child.type}-${index}`" class="material-preview-child">
+                <div class="paper-question-meta">
+                  <el-tag>子题 {{ index + 1 }}</el-tag>
+                  <el-tag>{{ typeLabel(child.type) }}</el-tag>
+                  <el-tag type="info">{{ child.score }} 分</el-tag>
+                </div>
+                <h4>{{ child.title || `子题 ${index + 1}` }}</h4>
+                <MarkdownRenderer :source="child.content || ''" />
+                <div v-if="child.options?.length" class="paper-option-list">
+                  <div
+                    v-for="option in child.options"
+                    :key="option.optionKey"
+                    :class="['paper-option', option.isCorrect ? 'correct' : '']"
+                  >
+                    <strong>{{ option.optionKey }}.</strong>
+                    <MarkdownRenderer :source="option.content" />
+                    <span v-if="option.isCorrect" class="answer-mark success">正确答案</span>
+                  </div>
+                </div>
+              </section>
+            </div>
+            <div v-if="singlePreviewQuestion.options?.length" class="paper-option-list">
+              <div
+                v-for="option in singlePreviewQuestion.options"
+                :key="option.optionKey"
+                :class="['paper-option', option.isCorrect ? 'correct' : '']"
+              >
+                <strong>{{ option.optionKey }}.</strong>
+                <MarkdownRenderer :source="option.content" />
+                <span v-if="option.isCorrect" class="answer-mark success">正确答案</span>
+              </div>
+            </div>
+            <div v-if="singlePreviewQuestion.analysis" class="paper-analysis">
+              <strong>解析</strong>
+              <MarkdownRenderer :source="singlePreviewQuestion.analysis" />
+            </div>
+          </div>
+        </template>
+
+        <template v-else>
+          <div class="paper-preview-head">
+            <div>
+              <h2>解析结果</h2>
+              <span class="muted">{{ importableBatchCount }} / {{ batchPreview.length }} 道可导入</span>
+            </div>
+            <div class="toolbar">
+              <el-tag :type="batchErrorSummary ? 'danger' : 'success'">{{ batchErrorSummary ? '需修正' : '格式可用' }}</el-tag>
+              <el-tag type="info">实时预览</el-tag>
+            </div>
+          </div>
+
+          <el-table
+            v-if="batchPreview.length"
+            :data="batchPreview"
+            height="280"
+            highlight-current-row
+            :row-class-name="batchRowClass"
+            @current-change="selectPreview"
+          >
+            <el-table-column label="#" width="56">
+              <template #default="{ row }">{{ row.number }}</template>
+            </el-table-column>
+            <el-table-column prop="title" label="标题" min-width="220" />
+            <el-table-column label="题型" width="110">
+              <template #default="{ row }">{{ typeLabel(row.type) }}</template>
+            </el-table-column>
+            <el-table-column label="标签" min-width="180">
+              <template #default="{ row }">
+                <el-tag v-for="tag in row.tagNames || []" :key="tag" size="small" effect="plain">{{ tag }}</el-tag>
+                <span v-if="!(row.tagNames || []).length" class="muted">-</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="知识点" min-width="180">
+              <template #default="{ row }">
+                <el-tag v-for="name in row.knowledgePointNames || []" :key="name" size="small" type="success" effect="plain">
+                  {{ name }}
+                </el-tag>
+                <span v-if="!(row.knowledgePointNames || []).length" class="muted">-</span>
+              </template>
+            </el-table-column>
+            <el-table-column prop="answerText" label="答案" width="120" />
+            <el-table-column label="状态" min-width="180">
+              <template #default="{ row }">
+                <el-tag :type="row.valid === false ? 'danger' : row.statusText?.includes('已导入') ? 'success' : 'info'">
+                  {{ row.statusText }}
+                </el-tag>
+                <el-tag v-if="row.conflictStatus && row.conflictStatus !== 'ok'" :type="conflictTagType(row.conflictStatus)" effect="plain">
+                  {{ conflictLabel(row.conflictStatus) }}
+                </el-tag>
+                <div v-if="row.conflictMessage" class="mini-muted">{{ row.conflictMessage }}</div>
+              </template>
+            </el-table-column>
+            <el-table-column label="操作" width="92" fixed="right">
+              <template #default="{ row }">
+                <el-button size="small" plain :icon="Delete" @click.stop="removeBatchPreviewRow(row)">移除</el-button>
+              </template>
+            </el-table-column>
+          </el-table>
+          <el-empty v-else description="粘贴题目内容后自动解析" />
+
+          <div v-if="selectedBatchQuestion" class="question-import-detail">
+            <div class="paper-question-meta">
+              <el-tag>{{ typeLabel(selectedBatchQuestion.type) }}</el-tag>
+              <el-tag type="info">{{ selectedBatchQuestion.defaultScore }} 分</el-tag>
+              <el-tag v-for="name in selectedBatchQuestion.knowledgePointNames || []" :key="name" type="success" effect="plain">
+                {{ name }}
+              </el-tag>
+              <el-tag v-for="tag in selectedBatchQuestion.tagNames || []" :key="tag" effect="plain">{{ tag }}</el-tag>
+              <span
+                v-if="!(selectedBatchQuestion.knowledgePointNames || []).length && !(selectedBatchQuestion.tagNames || []).length"
+                class="muted"
+              >
+                无知识点/标签
+              </span>
+            </div>
+            <h3>{{ selectedBatchQuestion.number }}. {{ selectedBatchQuestion.title }}</h3>
+            <MarkdownRenderer :source="selectedBatchQuestion.content || ''" />
+            <div v-if="selectedBatchQuestion.options?.length" class="paper-option-list">
+              <div
+                v-for="option in selectedBatchQuestion.options"
+                :key="option.optionKey"
+                :class="['paper-option', option.isCorrect ? 'correct' : '']"
+              >
+                <strong>{{ option.optionKey }}.</strong>
+                <MarkdownRenderer :source="option.content" />
+                <span v-if="option.isCorrect" class="answer-mark success">正确答案</span>
+              </div>
+            </div>
+            <div v-if="selectedBatchQuestion.analysis" class="paper-analysis">
+              <strong>解析</strong>
+              <MarkdownRenderer :source="selectedBatchQuestion.analysis" />
+            </div>
+          </div>
+        </template>
+      </section>
+    </div>
+
+    <el-dialog
+      v-model="materialChildDialogVisible"
+      :title="materialChildDialogTitle"
+      width="860px"
+      class="material-child-dialog"
+      destroy-on-close
+    >
+      <el-form label-width="96px">
+        <div class="material-child-dialog-grid">
+          <el-form-item label="题型">
+            <el-select v-model="materialChildDraft.type" filterable style="width: 100%" @change="resetMaterialInlineChild(materialChildDraft)">
+              <el-option
+                v-for="type in materialChildTypeOptions"
+                :key="type.value"
+                :label="type.label"
+                :value="type.value"
+              />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="分值">
+            <el-input-number v-model="materialChildDraft.score" :min="0.01" :precision="2" :step="1" style="width: 100%" />
+          </el-form-item>
+          <el-form-item label="难度">
+            <div class="inline-control">
+              <el-rate v-model="materialChildDraft.difficulty" :max="5" />
+            </div>
+          </el-form-item>
+          <el-form-item v-if="isTextAnswerType(materialChildDraft.type)" label="作答行数">
+            <el-input-number v-model="materialChildDraft.answerRows" :min="2" :max="24" :step="1" style="width: 100%" />
+          </el-form-item>
+        </div>
+
+        <el-form-item label="子题标题">
+          <el-input v-model="materialChildDraft.title" placeholder="例如：第 1 问 / 根据材料判断输出结果" />
+        </el-form-item>
+
+        <el-form-item label="子题题干">
+          <div style="width: 100%">
+            <div class="toolbar compact-toolbar">
+              <el-button size="small" :icon="DocumentAdd" @click="insertCodeBlock(materialChildDraft, 'content')">代码块</el-button>
+              <el-button v-if="materialChildDraft.type === 'fill_blank'" size="small" :icon="Plus" @click="insertMaterialChildBlankMarker(materialChildDraft)">
+                插入空位
+              </el-button>
+              <span class="mini-muted">这里只写小题问题，材料正文写在上方“大题说明”。</span>
+            </div>
+            <el-input
+              v-model="materialChildDraft.content"
+              type="textarea"
+              :rows="5"
+              resize="vertical"
+              placeholder="子题题干，支持 Markdown 和代码块"
+              @focus="setImageInsertTarget(materialChildDraft, 'content')"
+              @paste="handleImagePaste($event, materialChildDraft, 'content')"
+            />
+          </div>
+        </el-form-item>
+
+        <el-form-item v-if="isChoiceType(materialChildDraft.type)" label="选项">
+          <div class="choice-editor material-child-choice-editor">
+            <div class="toolbar compact-toolbar">
+              <el-button v-if="materialChildDraft.type !== 'true_false'" size="small" :icon="Plus" @click="addMaterialChildOption(materialChildDraft)">
+                增加选项
+              </el-button>
+              <span class="mini-muted">单选/判断选一个正确项，多选至少两个正确项。</span>
+            </div>
+            <div v-for="(option, optionIndex) in materialChildDraft.options" :key="option.optionKey" class="option-editor">
+              <el-radio
+                v-if="materialChildDraft.type === 'single_choice' || materialChildDraft.type === 'true_false'"
+                :model-value="materialChildCorrectChoiceKey(materialChildDraft)"
+                :label="option.optionKey"
+                @update:model-value="setMaterialChildCorrectChoice(materialChildDraft, $event)"
+              />
+              <el-checkbox v-else v-model="option.isCorrect" />
+              <el-tag>{{ option.optionKey }}</el-tag>
+              <div class="option-content">
+                <el-input v-model="option.content" type="textarea" :rows="2" resize="vertical" />
+                <MarkdownRenderer v-if="option.content" :source="option.content" />
+              </div>
+              <el-button
+                v-if="materialChildDraft.type !== 'true_false'"
+                size="small"
+                plain
+                :icon="Delete"
+                :disabled="materialChildDraft.options.length <= 2"
+                @click="removeMaterialChildOption(materialChildDraft, optionIndex)"
+              >
+                删除
+              </el-button>
+            </div>
+          </div>
+        </el-form-item>
+
+        <el-form-item v-else-if="materialChildDraft.type === 'fill_blank'" label="答案">
+          <div class="fill-blank-answer-editor material-child-fill-blank-editor">
+            <div class="toolbar compact-toolbar">
+              <el-button size="small" :icon="Plus" @click="addMaterialChildBlankAnswerRow(materialChildDraft)">增加空位</el-button>
+              <el-button size="small" :icon="DocumentAdd" @click="insertMaterialChildBlankMarker(materialChildDraft)">插入题干空位</el-button>
+              <span class="mini-muted">与普通填空题一致：题干中的 ____ 对应学生看到的填空横线。</span>
+            </div>
+            <div v-for="(blank, blankIndex) in materialChildDraft.blankRows" :key="blankIndex" class="blank-answer-row">
+              <el-tag>第 {{ blankIndex + 1 }} 空</el-tag>
+              <el-input v-model="blank.answerText" placeholder="正确答案；多个答案用逗号分隔" />
+              <el-button
+                size="small"
+                plain
+                :icon="Delete"
+                :disabled="materialChildDraft.blankRows.length <= 1"
+                @click="removeMaterialChildBlankAnswerRow(materialChildDraft, blankIndex)"
+              >
+                删除
+              </el-button>
+            </div>
+          </div>
+        </el-form-item>
+
+        <el-form-item v-else label="参考答案">
+          <el-input
+            v-model="materialChildDraft.answerText"
+            type="textarea"
+            :rows="draftAnswerEditorRows"
+            resize="vertical"
+            placeholder="参考答案或评分说明"
+          />
+        </el-form-item>
+
+        <el-form-item label="解析">
+          <el-input
+            v-model="materialChildDraft.analysis"
+            type="textarea"
+            :rows="2"
+            resize="vertical"
+            placeholder="子题解析，可选"
+            @focus="setImageInsertTarget(materialChildDraft, 'analysis')"
+            @paste="handleImagePaste($event, materialChildDraft, 'analysis')"
+          />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <div class="dialog-footer">
+          <el-button @click="materialChildDialogVisible = false">取消</el-button>
+          <el-button
+            v-if="materialEditingChildIndex >= 0 && singleForm.children.length > 1"
+            type="danger"
+            plain
+            :icon="Delete"
+            @click="deleteMaterialChildFromDialog"
+          >
+            删除子题
+          </el-button>
+          <el-button type="primary" @click="saveMaterialChildDraft">保存子题</el-button>
+        </div>
+      </template>
+    </el-dialog>
+
+    <el-drawer v-model="assetDrawerVisible" title="题目附件" size="420px" class="asset-drawer">
+      <div class="asset-drawer-body">
+        <div class="asset-toolbar">
+          <el-upload
+            :key="assetUploadKey"
+            ref="assetDrawerUploadRef"
+            accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.md,.csv,.zip"
+            multiple
+            :auto-upload="false"
+            :show-file-list="false"
+            :on-change="handleAssetUploadChange"
+          >
+            <el-button :icon="Upload" :loading="uploadingAsset">继续上传</el-button>
+          </el-upload>
+          <el-tag type="info">{{ uploadedAssets.length }} 个附件</el-tag>
+          <el-button :icon="View" :loading="assetReportLoading" @click="loadQuestionAssetReport">资源检查</el-button>
+        </div>
+
+        <div v-if="uploadedAssets.length" class="uploaded-asset-list">
+          <div v-for="asset in uploadedAssets" :key="asset.url" class="uploaded-asset-item">
+            <div class="asset-preview">
+              <img v-if="asset.isImage && asset.previewUrl" :src="asset.previewUrl" :alt="asset.displayName" />
+              <div v-else class="asset-file-icon">{{ fileExt(asset) }}</div>
+            </div>
+            <div class="asset-main">
+              <el-input v-model="asset.displayName" size="small" placeholder="附件引用名" @blur="renameAsset(asset)" />
+              <small>{{ asset.filename }} · {{ formatFileSize(asset.size) }}</small>
+              <div v-if="asset.isImage" class="asset-layout-controls">
+                <el-select v-model="asset.align" size="small" placeholder="对齐">
+                  <el-option label="居中" value="center" />
+                  <el-option label="左对齐" value="left" />
+                  <el-option label="右对齐" value="right" />
+                </el-select>
+                <el-input-number v-model="asset.width" size="small" :min="20" :max="100" :step="5" controls-position="right" />
+                <span class="mini-muted">%</span>
+              </div>
+            </div>
+            <div class="asset-actions">
+              <el-button size="small" @click="insertUploadedAsset(asset)">插入</el-button>
+              <el-button size="small" plain :icon="Delete" @click="removeUploadedAsset(asset)" />
+            </div>
+          </div>
+        </div>
+        <el-empty v-else description="暂未上传附件" />
+
+        <QuestionAssetReport
+          :report="assetReport"
+          :cleanup-loading="assetCleanupLoading"
+          @cleanup="cleanupQuestionAssetOrphans"
+        />
+      </div>
+    </el-drawer>
+  </div>
+</template>
+
+<script setup>
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
+import { useRouter } from 'vue-router';
+import { ElMessage, ElMessageBox } from 'element-plus';
+import { Back, Delete, DocumentAdd, DocumentCopy, Edit, Link, Plus, Refresh, Upload, View } from '@element-plus/icons-vue';
+import MarkdownRenderer from '../../../components/MarkdownRenderer.vue';
+import QuestionAssetReport from './QuestionAssetReport.vue';
+import {
+  checkQuestionDuplicates,
+  cleanupQuestionAssets,
+  createQuestion,
+  createQuestionTag,
+  getKnowledgePointTree,
+  getQuestionAssetContent,
+  getQuestionAssetReport,
+  listQuestionCourses,
+  listQuestionTags,
+  publishQuestion,
+  removeQuestionAsset,
+  renameQuestionAsset,
+  uploadQuestionAsset,
+} from '../api';
+import { listHydroPlatforms, listMyHydroAccounts, pullHydroProblem } from '../../hydro/api';
+import {
+  DEFAULT_BLANK_ANSWER_TEXT,
+  buildFillBlankAnswer,
+  emptyFillBlankRows,
+  fillBlankAnswerTextFromRows,
+  fillBlankAnswerTextFromRules,
+  fillBlankRowsFromText,
+} from '../../../utils/fillBlankAnswers';
+import { useQuestionTypeOptions } from '../composables/useQuestionTypeOptions';
+
+const router = useRouter();
+const { typeOptions, materialChildTypeOptions } = useQuestionTypeOptions(true);
+const LAST_SINGLE_TYPE_KEY = 'question-import-last-single-type';
+
+const formatSnippets = {
+  'math-inline': '$a^2 + b^2 = c^2$',
+  'math-block': ['$$', 'x = \\frac{-b \\pm \\sqrt{b^2 - 4ac}}{2a}', '$$'].join('\n'),
+  'chem-inline': '@chem{H2SO4}',
+  'chem-equation': '@chem{2H2 + O2 -> 2H2O}',
+  symbols: '≤ ≥ ≠ ≈ ± × ÷ √ ∑ ∞ ° ℃ → ← ↔ ∴ ∵ α β γ Δ Ω',
+  table: ['| 项目 | 内容 |', '| --- | --- |', '| 条件 | $x > 0$ |', '| 结论 | @chem{CO2} |'].join('\n'),
+};
+
+const courses = ref([]);
+const tags = ref([]);
+const knowledgeTree = ref([]);
+const importMode = ref('single');
+const sharedCourseId = ref('');
+const sharedCourseTouched = ref(false);
+const sharedKnowledgePointIds = ref([]);
+const sharedTagNames = ref([]);
+const publishAfterImport = ref(true);
+const singleForm = reactive(baseSingleForm());
+const blankAnswerRows = ref(emptyFillBlankRows());
+const blankAnswerText = computed({
+  get: () => fillBlankAnswerTextFromRows(blankAnswerRows.value),
+  set: (value) => {
+    blankAnswerRows.value = fillBlankRowsFromText(value);
+  },
+});
+const blankCaseSensitive = ref(false);
+const blankSpaceSensitive = ref(false);
+const answerReference = ref('');
+const singleSaving = ref(false);
+const singleHydroPulling = ref(false);
+const singleDuplicateChecking = ref(false);
+const singleConflictResult = ref(null);
+const selectedMaterialChildIndex = ref(0);
+const materialChildDialogVisible = ref(false);
+const materialEditingChildIndex = ref(-1);
+const materialChildDraft = reactive(createMaterialChildDraft());
+let singleDuplicateTimer = null;
+let lastSingleDuplicateKey = '';
+const batchText = ref('');
+const batchAnswerText = ref('');
+const batchPreview = ref([]);
+const batchErrorSummary = ref('');
+const structuredBatchQuestions = ref([]);
+const removedBatchRowKeys = ref(new Set());
+const selectedPreviewIndex = ref(0);
+const importing = ref(false);
+const duplicateChecking = ref(false);
+const uploadedAssets = ref([]);
+const uploadingAsset = ref(false);
+const assetDrawerVisible = ref(false);
+const assetInsertTarget = ref(null);
+const hydroAccounts = ref([]);
+const hydroPlatforms = ref([]);
+const portableUploadRef = ref(null);
+const portableUploadKey = ref(0);
+const assetUploadRef = ref(null);
+const assetDrawerUploadRef = ref(null);
+const assetUploadKey = ref(0);
+const assetReport = ref(null);
+const assetReportLoading = ref(false);
+const assetCleanupLoading = ref(false);
+let materialChildLocalId = 1;
+
+const knowledgeTreeOptions = computed(() => convertKnowledgeTree(knowledgeTree.value));
+const selectedKnowledgeNames = computed(() => {
+  const map = new Map(flattenKnowledgeTree(knowledgeTree.value).map((item) => [item.id, item.name]));
+  return sharedKnowledgePointIds.value.map((id) => map.get(id)).filter(isMeaningfulName);
+});
+const isSingleChoice = computed(() => isChoiceType(singleForm.type));
+const importableBatchCount = computed(
+  () => batchPreview.value.filter((row) => row.valid !== false && !shouldSkipBatchRow(row)).length,
+);
+const selectedBatchQuestion = computed(() => batchPreview.value[selectedPreviewIndex.value] ?? batchPreview.value[0]);
+const singlePreviewQuestion = computed(() => buildSinglePreview());
+const singleMaterialScore = computed(() =>
+  singleForm.children.reduce((sum, child) => sum + Math.max(0, Number(child.score) || 0), 0),
+);
+const selectedMaterialChild = computed(() => singleForm.children[selectedMaterialChildIndex.value] ?? null);
+const materialChildDialogTitle = computed(() =>
+  materialEditingChildIndex.value >= 0
+    ? `编辑第 ${materialEditingChildIndex.value + 1} 道子题`
+    : '添加子题',
+);
+const referenceAnswerRows = computed(() => Math.min(8, Math.max(3, Number(singleForm.answerRows) || 4)));
+const draftAnswerEditorRows = computed(() => Math.min(10, Math.max(3, Number(materialChildDraft.answerRows) || 4)));
+const singleEntryTip = computed(() => entryTipForType(singleForm.type));
+const hasMaterialFillBlankChild = computed(() =>
+  singleForm.type === 'material' && singleForm.children.some((child) => child.type === 'fill_blank'),
+);
+const singleHydroProblemUrl = computed(() => {
+  const explicit = effectiveHydroProblemUrl(singleForm.programmingRef);
+  const problemId = singleForm.programmingRef.externalProblemId?.trim();
+  if (explicit) return explicit;
+  const baseUrl = normalizeBaseUrl(singleForm.programmingRef.platformBaseUrl || 'https://oj.example.com');
+  const domainId = singleForm.programmingRef.domainId?.trim();
+  const domainPrefix = domainId && domainId !== 'system' ? `/d/${encodeURIComponent(domainId)}` : '';
+  return problemId ? `${baseUrl}${domainPrefix}/p/${encodeURIComponent(problemId)}` : '';
+});
+const hydroAccountOptions = computed(() =>
+  matchingHydroAccountsForRef(singleForm.programmingRef).map((account) => ({
+    ...account,
+    label: `${account.loginUsername || account.hydroUsername || '外部账号'} · ${account.platformName || account.platformCode || 'Hydro'} · ${shortHost(account.platformBaseUrl)}`,
+  })),
+);
+const hydroSiteOptions = computed(() => {
+  const map = new Map();
+  const pushSite = (site) => {
+    const value = normalizeBaseUrl(site.value || site.baseUrl || site.platformBaseUrl);
+    const host = canonicalHost(value);
+    if (!host || map.has(host)) return;
+    map.set(host, {
+      key: host,
+      value,
+      judgeProvider: site.judgeProvider || site.code || site.platformCode || 'hydro',
+      label: `${site.name || site.platformName || '外部平台'} (${shortHost(value)})`,
+    });
+  };
+  hydroPlatforms.value.forEach((platform) => pushSite(platform));
+  hydroAccounts.value.forEach((account) =>
+    pushSite({
+      value: account.platformBaseUrl,
+      platformCode: account.platformCode,
+      platformName: account.platformName,
+    }),
+  );
+  return [...map.values()];
+});
+const selectedSingleHydroAccount = computed(() =>
+  hydroAccounts.value.find((account) => account.id === singleForm.programmingRef.accountId) ?? null,
+);
+const singleHydroBindingLabel = computed(() => {
+  const parts = [
+    singleForm.programmingRef.platformBaseUrl,
+    `域 ${formatHydroDomainLabel(singleForm.programmingRef)}`,
+    singleForm.programmingRef.accountLabel || selectedSingleHydroAccount.value?.loginUsername,
+  ].filter(Boolean);
+  return parts.join(' / ');
+});
+
+function formatHydroDomainLabel(ref) {
+  const domainId = String(ref?.domainId || '').trim();
+  const domainName = String(ref?.domainName || '').trim();
+  if (domainId && domainName && domainName !== domainId && domainName !== 'system') {
+    return `${domainId} / ${domainName}`;
+  }
+  return domainId || domainName || 'system';
+}
+const canPullSingleHydroProblem = computed(() =>
+  Boolean(singleForm.programmingRef.externalProblemId?.trim() || singleForm.programmingRef.externalProblemUrl?.trim()),
+);
+const singlePreviewError = computed(() => {
+  try {
+    validatePayload(singlePreviewQuestion.value, '当前题目');
+    return '';
+  } catch (error) {
+    return error.message;
+  }
+});
+const singleConflictStatus = computed(() => singleConflictResult.value?.status ?? '');
+const singleConflictMessage = computed(() => {
+  const result = singleConflictResult.value;
+  if (!result || result.status === 'ok') return '';
+  const prefix = result.status === 'conflict' ? '检测到冲突' : result.status === 'duplicate' ? '检测到重复' : '检测到相似题';
+  return `${prefix}：${result.message}`;
+});
+const correctChoiceKey = computed({
+  get() {
+    return singleForm.options.find((option) => option.isCorrect)?.optionKey ?? '';
+  },
+  set(value) {
+    singleForm.options.forEach((option) => {
+      option.isCorrect = option.optionKey === value;
+    });
+  },
+});
+
+function baseSingleForm() {
+  return {
+    type: readRememberedSingleType() || 'single_choice',
+    title: '',
+    content: '',
+    difficulty: 1,
+    defaultScore: 2,
+    answerRows: 6,
+    analysis: '',
+    programmingRef: emptyProgrammingRef(),
+    children: [],
+    options: [
+      { optionKey: 'A', content: '', isCorrect: false, sortOrder: 1 },
+      { optionKey: 'B', content: '', isCorrect: true, sortOrder: 2 },
+      { optionKey: 'C', content: '', isCorrect: false, sortOrder: 3 },
+      { optionKey: 'D', content: '', isCorrect: false, sortOrder: 4 },
+    ],
+  };
+}
+
+function readRememberedSingleType() {
+  try {
+    const remembered = normalizeType(localStorage.getItem(LAST_SINGLE_TYPE_KEY));
+    return typeOptions.some((item) => item.value === remembered) ? remembered : '';
+  } catch {
+    return '';
+  }
+}
+
+function rememberSingleType(type) {
+  const normalized = normalizeType(type);
+  if (!typeOptions.some((item) => item.value === normalized)) return;
+  try {
+    localStorage.setItem(LAST_SINGLE_TYPE_KEY, normalized);
+  } catch {
+    // Ignore storage failures; the import flow should continue normally.
+  }
+}
+
+function emptyProgrammingRef() {
+  return {
+    externalProblemId: '',
+    externalProblemUrl: '',
+    platformBaseUrl: 'https://oj.example.com',
+    domainId: 'system',
+    domainName: 'system',
+    judgeProvider: 'hydro',
+    accountId: '',
+    accountLabel: '',
+    languagesText: 'cc.cc17o2, py.py3',
+    timeLimit: null,
+    memoryLimit: null,
+    judgeConfig: null,
+  };
+}
+
+async function loadBaseData() {
+  const [coursePage, tagPage, platformPage] = await Promise.all([
+    listQuestionCourses(),
+    listQuestionTags(),
+    listHydroPlatforms().catch(() => []),
+  ]);
+  courses.value = coursePage.items;
+  tags.value = tagPage.items;
+  hydroPlatforms.value = Array.isArray(platformPage) ? platformPage : [];
+  sharedCourseId.value = sharedCourseId.value || courses.value[0]?.id || '';
+  await loadKnowledgeTree();
+  await loadHydroAccounts();
+  syncSingleHydroAccountForSite();
+  refreshPreview();
+}
+
+async function loadHydroAccounts() {
+  try {
+    const data = await listMyHydroAccounts();
+    hydroAccounts.value = data.items ?? data ?? [];
+    syncSingleHydroAccountForSite();
+  } catch {
+    hydroAccounts.value = [];
+  }
+}
+
+function handleSingleHydroAccountChange(accountId) {
+  const account = hydroAccounts.value.find((item) => item.id === accountId);
+  if (!account) {
+    singleForm.programmingRef.accountLabel = '';
+    return;
+  }
+  singleForm.programmingRef.platformBaseUrl = account.platformBaseUrl || singleForm.programmingRef.platformBaseUrl;
+  singleForm.programmingRef.judgeProvider = account.platformCode || singleForm.programmingRef.judgeProvider || 'hydro';
+  singleForm.programmingRef.accountLabel = `${account.loginUsername || account.hydroUsername}@${shortHost(account.platformBaseUrl)}`;
+}
+
+function handleSingleHydroSiteChange(value) {
+  applyHydroSiteToRef(singleForm.programmingRef, value);
+  if (
+    singleForm.programmingRef.externalProblemUrl &&
+    value &&
+    !sameHydroBaseUrl(singleForm.programmingRef.externalProblemUrl, value)
+  ) {
+    singleForm.programmingRef.externalProblemUrl = '';
+  }
+  syncSingleHydroAccountForSite();
+}
+
+function handleSingleHydroProblemInputChange() {
+  normalizeHydroProblemInput(singleForm.programmingRef);
+  syncSingleHydroAccountForSite();
+  refreshPreview();
+}
+
+function normalizeHydroProblemInput(ref) {
+  const raw = String(ref.externalProblemId || '').trim();
+  if (!raw) {
+    ref.externalProblemUrl = '';
+    return;
+  }
+  const parsed = parseHydroProblemUrl(raw);
+  if (parsed) {
+    ref.externalProblemId = parsed.problemId || raw;
+    ref.externalProblemUrl = parsed.url;
+    applyHydroSiteToRef(ref, parsed.baseUrl);
+    if (parsed.domainId) {
+      ref.domainId = parsed.domainId;
+      ref.domainName = parsed.domainId;
+    }
+    return;
+  }
+
+  ref.externalProblemId = cleanHydroProblemId(raw);
+  const explicitProblemId = problemIdFromHydroUrl(ref.externalProblemUrl);
+  if (explicitProblemId && explicitProblemId !== ref.externalProblemId) {
+    ref.externalProblemUrl = '';
+  }
+}
+
+function applyHydroSiteToRef(ref, value) {
+  const normalized = normalizeBaseUrl(value || ref.platformBaseUrl);
+  const site = hydroSiteOptions.value.find((item) => sameHydroBaseUrl(item.value, normalized));
+  ref.platformBaseUrl = site?.value || normalized;
+  ref.judgeProvider = site?.judgeProvider || matchingHydroAccountForSite(ref.platformBaseUrl)?.platformCode || ref.judgeProvider || 'hydro';
+}
+
+function syncSingleHydroAccountForSite() {
+  const account = selectedSingleHydroAccount.value;
+  if (account && sameHydroBaseUrl(account.platformBaseUrl, singleForm.programmingRef.platformBaseUrl)) {
+    handleSingleHydroAccountChange(account.id);
+    return;
+  }
+  const nextAccount = matchingHydroAccountForSite(singleForm.programmingRef.platformBaseUrl);
+  singleForm.programmingRef.accountId = nextAccount?.id || '';
+  singleForm.programmingRef.accountLabel = nextAccount
+    ? `${nextAccount.loginUsername || nextAccount.hydroUsername}@${shortHost(nextAccount.platformBaseUrl)}`
+    : '';
+  if (nextAccount?.platformCode) {
+    singleForm.programmingRef.judgeProvider = nextAccount.platformCode;
+  }
+}
+
+function matchingHydroAccountForSite(baseUrl) {
+  return hydroAccounts.value.find((account) => account.bindStatus === 'bound' && sameHydroBaseUrl(account.platformBaseUrl, baseUrl))
+    || hydroAccounts.value.find((account) => sameHydroBaseUrl(account.platformBaseUrl, baseUrl))
+    || null;
+}
+
+watch(
+  () => singleForm.programmingRef.platformBaseUrl,
+  (value) => {
+    const account = selectedSingleHydroAccount.value;
+    if (account && value && !sameHydroBaseUrl(account.platformBaseUrl, value)) {
+      singleForm.programmingRef.accountId = '';
+      singleForm.programmingRef.accountLabel = '';
+    }
+  },
+);
+
+watch(
+  () => singleForm.programmingRef.externalProblemId,
+  (value) => {
+    const raw = String(value || '').trim();
+    if (!raw || parseHydroProblemUrl(raw)) return;
+    const currentProblemId = cleanHydroProblemId(raw);
+    const explicitProblemId = problemIdFromHydroUrl(singleForm.programmingRef.externalProblemUrl);
+    if (explicitProblemId && explicitProblemId !== currentProblemId) {
+      singleForm.programmingRef.externalProblemUrl = '';
+    }
+  },
+);
+
+async function handleSharedCourseChange() {
+  sharedCourseTouched.value = true;
+  sharedKnowledgePointIds.value = [];
+  await loadKnowledgeTree();
+  refreshPreview();
+}
+
+async function loadKnowledgeTree() {
+  knowledgeTree.value = sharedCourseId.value ? await getKnowledgePointTree(sharedCourseId.value) : [];
+}
+
+function buildSinglePreview() {
+  const options = isChoiceType(singleForm.type)
+    ? singleForm.options.map((option, index) => ({
+        optionKey: option.optionKey,
+        content: option.content,
+        isCorrect: Boolean(option.isCorrect),
+        sortOrder: index + 1,
+      }))
+    : [];
+
+  const payload = {
+    valid: true,
+    number: 1,
+    courseId: sharedCourseId.value,
+    courseName: selectedCourseName(sharedCourseId.value),
+    knowledgePointIds: [...sharedKnowledgePointIds.value],
+    knowledgePointNames: [...selectedKnowledgeNames.value],
+    type: singleForm.type,
+    title: singleForm.title,
+    tagNames: [...sharedTagNames.value],
+    content: singleForm.content,
+    difficulty: Number(singleForm.difficulty),
+    defaultScore: singleForm.type === 'material' && singleForm.children.length
+      ? singleMaterialScore.value
+      : Number(singleForm.defaultScore),
+    analysis: singleForm.analysis,
+    options,
+    answerText: getSingleAnswerText(),
+    statusText: '待导入',
+  };
+
+  if (singleForm.type === 'programming') {
+    payload.programmingRef = buildSingleProgrammingRefPayload();
+  }
+
+  if (singleForm.type === 'material') {
+    payload.inlineChildren = buildMaterialInlineChildrenPayload();
+    payload.children = payload.inlineChildren.map((child, index) => ({
+      inline: true,
+      title: child.title,
+      type: child.type,
+      score: child.score,
+      sortOrder: index + 1,
+    }));
+  }
+
+  if (singleForm.type === 'fill_blank') {
+    payload.answer = buildSingleFillBlankPreviewAnswer(payload.defaultScore);
+  } else if (isTextAnswerType(singleForm.type)) {
+    payload.answer = {
+      reference: answerReference.value.trim(),
+      rows: normalizeAnswerRows(singleForm.answerRows),
+    };
+  } else if (singleForm.type !== 'material' && !isChoiceType(singleForm.type) && answerReference.value.trim()) {
+    payload.answer = { reference: answerReference.value.trim() };
+  }
+
+  return payload;
+}
+
+function buildSingleFillBlankPreviewAnswer(score) {
+  try {
+    return buildFillBlankAnswer(blankAnswerText.value, score, blankAnswerOptions());
+  } catch {
+    const markerCount = countBlankMarkers(singleForm.content);
+    const rowCount = Math.max(1, markerCount, blankAnswerRows.value.length);
+    const blankScore = rowCount ? Number(score || 0) / rowCount : Number(score || 0);
+    return {
+      blanks: Array.from({ length: rowCount }, (_, index) => ({
+        index: index + 1,
+        answers: [],
+        ignoreCase: !blankCaseSensitive.value,
+        trimSpace: !blankSpaceSensitive.value,
+        score: blankScore,
+      })),
+    };
+  }
+}
+
+function buildMaterialInlineChildrenPayload() {
+  return singleForm.children.map((child, index) => materialInlineChildPayload(child, index));
+}
+
+function materialInlineChildPayload(child, index = 0) {
+  const payload = {
+    type: child.type,
+    title: String(child.title || '').trim(),
+    content: String(child.content || '').trim(),
+    difficulty: Number(child.difficulty || singleForm.difficulty || 1),
+    score: Number(child.score || 0),
+    analysis: String(child.analysis || '').trim(),
+    allowOptionShuffle: true,
+    sortOrder: index + 1,
+  };
+
+  if (isChoiceType(child.type)) {
+    payload.options = (child.options ?? []).map((option, optionIndex) => ({
+      optionKey: option.optionKey || optionKeyForIndex(optionIndex),
+      content: String(option.content || '').trim(),
+      isCorrect: Boolean(option.isCorrect),
+      sortOrder: optionIndex + 1,
+    }));
+  } else if (child.type === 'fill_blank') {
+    payload.answer = buildMaterialChildFillBlankAnswer(child);
+  } else if (isTextAnswerType(child.type)) {
+    payload.answer = {
+      reference: String(child.answerText || '').trim(),
+      rows: normalizeAnswerRows(child.answerRows),
+    };
+  } else if (String(child.answerText || '').trim()) {
+    payload.answer = { reference: String(child.answerText).trim() };
+  }
+
+  return payload;
+}
+
+function buildMaterialChildFillBlankAnswer(child) {
+  try {
+    return buildFillBlankAnswer(fillBlankAnswerTextFromRows(child.blankRows ?? []), child.score, blankAnswerOptions());
+  } catch {
+    const markerCount = countBlankMarkers(child.content);
+    const rowCount = Math.max(1, markerCount);
+    const blankScore = rowCount ? Number(child.score || 0) / rowCount : Number(child.score || 0);
+    return {
+      blanks: Array.from({ length: rowCount }, (_, index) => ({
+        index: index + 1,
+        answers: [],
+        ignoreCase: !blankCaseSensitive.value,
+        trimSpace: !blankSpaceSensitive.value,
+        score: blankScore,
+      })),
+    };
+  }
+}
+
+function questionPayload(preview) {
+  const payload = { ...preview };
+  for (const key of [
+    'answerText', 'number', 'statusText', 'valid', 'tagNames',
+    'conflictStatus', 'conflictMessage', 'conflictMatches', 'batchKey',
+  ]) {
+    delete payload[key];
+  }
+  if (payload.inlineChildren?.length) {
+    delete payload.children;
+  }
+  return payload;
+}
+
+async function importSingle() {
+  singleSaving.value = true;
+  try {
+    const preview = buildSinglePreview();
+    const tagNames = preview.tagNames;
+    const payload = questionPayload(preview);
+    validatePayload(payload, '当前题目');
+    const duplicateResult = await runSingleDuplicateCheck({ silent: true });
+    if (duplicateResult && duplicateResult.status !== 'ok') {
+      const title = duplicateResult.status === 'conflict' ? '检测到题目冲突' : '检测到相似或重复题目';
+      try {
+        await ElMessageBox.confirm(`${singleConflictMessage.value || duplicateResult.message}，仍然导入吗？`, title, {
+          type: duplicateResult.status === 'conflict' ? 'error' : 'warning',
+          confirmButtonText: '仍然导入',
+          cancelButtonText: '取消',
+        });
+      } catch {
+        return;
+      }
+    }
+    payload.tagIds = await resolveTagIds(tagNames);
+    const created = await createQuestion(payload);
+    if (publishAfterImport.value) {
+      for (const childId of created.childIds ?? []) {
+        await publishQuestion(childId);
+      }
+      await publishQuestion(created.id);
+    }
+    rememberSingleType(payload.type || singleForm.type);
+    ElMessage.success(publishAfterImport.value ? '单题已导入并发布' : '单题已导入');
+  } catch (error) {
+    ElMessage.error(error.message);
+  } finally {
+    singleSaving.value = false;
+  }
+}
+
+async function runSingleDuplicateCheck(options = {}) {
+  if (singlePreviewError.value) {
+    if (!options.silent) ElMessage.error(singlePreviewError.value);
+    return null;
+  }
+
+  const payload = buildDuplicateCheckPayload(singlePreviewQuestion.value);
+  const currentKey = JSON.stringify(payload);
+  if (options.silent && currentKey === lastSingleDuplicateKey && singleConflictResult.value) {
+    return singleConflictResult.value;
+  }
+
+  singleDuplicateChecking.value = true;
+  try {
+    const result = await checkQuestionDuplicates({ questions: [payload] });
+    const item = result.items?.[0] ?? { status: 'ok', message: '未发现重复或冲突', matches: [] };
+    singleConflictResult.value = item;
+    lastSingleDuplicateKey = currentKey;
+    if (!options.silent) {
+      if (item.status === 'ok') {
+        ElMessage.success('未发现重复或冲突');
+      } else {
+        ElMessage.warning(`${conflictLabel(item.status)}：${item.message}`);
+      }
+    }
+    return item;
+  } catch (error) {
+    if (!options.silent) {
+      ElMessage.error(error.message || '重复检测失败');
+    }
+    return null;
+  } finally {
+    singleDuplicateChecking.value = false;
+  }
+}
+
+function scheduleSingleDuplicateCheck() {
+  if (singleDuplicateTimer) {
+    clearTimeout(singleDuplicateTimer);
+    singleDuplicateTimer = null;
+  }
+  singleConflictResult.value = null;
+  lastSingleDuplicateKey = '';
+  if (importMode.value !== 'single' || singlePreviewError.value) return;
+  singleDuplicateTimer = setTimeout(() => {
+    runSingleDuplicateCheck({ silent: true });
+  }, 600);
+}
+
+function resetSingleOptions() {
+  if (singleForm.type === 'material') {
+    singleForm.options = [];
+    return;
+  }
+
+  if (singleForm.type === 'true_false') {
+    singleForm.options = [
+      { optionKey: 'A', content: '正确', isCorrect: true, sortOrder: 1 },
+      { optionKey: 'B', content: '错误', isCorrect: false, sortOrder: 2 },
+    ];
+    return;
+  }
+
+  if (isChoiceType(singleForm.type)) {
+    singleForm.options = baseSingleForm().options.map((option) => ({ ...option }));
+    return;
+  }
+
+  singleForm.options = [];
+}
+
+async function handleSingleTypeChange() {
+  resetSingleOptions();
+  if (singleForm.type === 'fill_blank' && !blankAnswerRows.value.length) {
+    blankAnswerRows.value = emptyFillBlankRows();
+  }
+  if (singleForm.type === 'material') {
+    answerReference.value = '';
+    selectedMaterialChildIndex.value = Math.min(selectedMaterialChildIndex.value, Math.max(0, singleForm.children.length - 1));
+  } else {
+    singleForm.children = [];
+    selectedMaterialChildIndex.value = 0;
+  }
+}
+
+function convertShortAnswerToMaterial() {
+  const child = baseMaterialInlineChild(1, 'short_answer');
+  child.title = singleForm.title ? `${singleForm.title}：第 1 问` : '第 1 问';
+  child.content = '请根据大题说明作答。';
+  child.difficulty = Number(singleForm.difficulty || 1);
+  child.score = Number(singleForm.defaultScore || 2);
+  child.answerText = answerReference.value;
+  child.answerRows = normalizeAnswerRows(singleForm.answerRows);
+  child.analysis = singleForm.analysis;
+  singleForm.type = 'material';
+  singleForm.children = [child];
+  singleForm.options = [];
+  selectedMaterialChildIndex.value = 0;
+  answerReference.value = '';
+  ElMessage.success('已改为大题/组合题，可继续添加多个简答、填空或选择小题');
+}
+
+function removeSingleMaterialChild(index) {
+  singleForm.children.splice(index, 1);
+  singleForm.children.forEach((child, childIndex) => {
+    child.sortOrder = childIndex + 1;
+  });
+  selectedMaterialChildIndex.value = Math.min(selectedMaterialChildIndex.value, Math.max(0, singleForm.children.length - 1));
+}
+
+function baseMaterialInlineChild(sortOrder = 1, type = 'short_answer') {
+  const child = {
+    localId: `material-child-${materialChildLocalId++}`,
+    type,
+    title: '',
+    content: '',
+    difficulty: Number(singleForm.difficulty || 1),
+    score: 2,
+    answerRows: 6,
+    analysis: '',
+    answerText: '',
+    blankRows: emptyFillBlankRows(),
+    sortOrder,
+    options: [],
+  };
+  resetMaterialInlineChild(child);
+  return child;
+}
+
+function createMaterialChildDraft(type = 'short_answer') {
+  return {
+    localId: '',
+    type,
+    title: '',
+    content: '',
+    difficulty: 1,
+    score: 2,
+    answerRows: 6,
+    analysis: '',
+    answerText: '',
+    blankRows: emptyFillBlankRows(),
+    sortOrder: 1,
+    options: [],
+  };
+}
+
+function cloneMaterialChild(child) {
+  return {
+    ...createMaterialChildDraft(child?.type || 'short_answer'),
+    ...child,
+    options: (child?.options ?? []).map((option) => ({ ...option })),
+    blankRows: (child?.blankRows?.length ? child.blankRows : emptyFillBlankRows()).map((row) => ({ ...row })),
+    answerRows: normalizeAnswerRows(child?.answerRows),
+  };
+}
+
+function assignMaterialChild(target, source) {
+  Object.keys(target).forEach((key) => delete target[key]);
+  Object.assign(target, cloneMaterialChild(source));
+}
+
+function openMaterialChildDialog(type = 'short_answer') {
+  materialEditingChildIndex.value = -1;
+  const draft = createMaterialChildDraft(type);
+  draft.difficulty = Number(singleForm.difficulty || 1);
+  draft.sortOrder = singleForm.children.length + 1;
+  draft.title = `第 ${singleForm.children.length + 1} 问`;
+  resetMaterialInlineChild(draft);
+  assignMaterialChild(materialChildDraft, draft);
+  materialChildDialogVisible.value = true;
+  setImageInsertTarget(materialChildDraft, 'content');
+}
+
+function editSingleMaterialChild(index) {
+  const child = singleForm.children[index];
+  if (!child) return;
+  selectedMaterialChildIndex.value = index;
+  materialEditingChildIndex.value = index;
+  assignMaterialChild(materialChildDraft, child);
+  materialChildDialogVisible.value = true;
+  setImageInsertTarget(materialChildDraft, 'content');
+}
+
+function saveMaterialChildDraft() {
+  const index = materialEditingChildIndex.value >= 0 ? materialEditingChildIndex.value : singleForm.children.length;
+  const payload = materialInlineChildPayload(materialChildDraft, index);
+  try {
+    validatePayload({
+      ...payload,
+      courseId: sharedCourseId.value,
+      courseName: selectedCourseName(sharedCourseId.value),
+      defaultScore: payload.score,
+      knowledgePointIds: [...sharedKnowledgePointIds.value],
+      knowledgePointNames: [...selectedKnowledgeNames.value],
+    }, `子题 ${index + 1}`);
+  } catch (error) {
+    ElMessage.error(error.message);
+    return;
+  }
+
+  const child = cloneMaterialChild(materialChildDraft);
+  child.localId = child.localId || `material-child-${materialChildLocalId++}`;
+  child.sortOrder = index + 1;
+  if (materialEditingChildIndex.value >= 0) {
+    singleForm.children.splice(materialEditingChildIndex.value, 1, child);
+    selectedMaterialChildIndex.value = materialEditingChildIndex.value;
+  } else {
+    singleForm.children.push(child);
+    selectedMaterialChildIndex.value = singleForm.children.length - 1;
+  }
+  singleForm.children.forEach((item, childIndex) => {
+    item.sortOrder = childIndex + 1;
+  });
+  materialChildDialogVisible.value = false;
+  ElMessage.success('子题已保存');
+}
+
+function deleteMaterialChildFromDialog() {
+  if (materialEditingChildIndex.value < 0) return;
+  removeSingleMaterialChild(materialEditingChildIndex.value);
+  materialChildDialogVisible.value = false;
+  materialEditingChildIndex.value = -1;
+}
+
+function baseChoiceOptions() {
+  return [
+    { optionKey: 'A', content: '', isCorrect: false, sortOrder: 1 },
+    { optionKey: 'B', content: '', isCorrect: true, sortOrder: 2 },
+    { optionKey: 'C', content: '', isCorrect: false, sortOrder: 3 },
+    { optionKey: 'D', content: '', isCorrect: false, sortOrder: 4 },
+  ];
+}
+
+function resetMaterialInlineChild(child) {
+  if (child.type === 'true_false') {
+    child.options = [
+      { optionKey: 'A', content: '正确', isCorrect: true, sortOrder: 1 },
+      { optionKey: 'B', content: '错误', isCorrect: false, sortOrder: 2 },
+    ];
+  } else if (isChoiceType(child.type)) {
+    child.options = baseChoiceOptions();
+  } else {
+    child.options = [];
+  }
+  child.answerText = '';
+  if (isTextAnswerType(child.type)) {
+    child.answerRows = normalizeAnswerRows(child.answerRows);
+  }
+  if (child.type === 'fill_blank') {
+    child.blankRows = emptyFillBlankRows();
+  }
+}
+
+function materialChildCorrectChoiceKey(child) {
+  return child.options.find((option) => option.isCorrect)?.optionKey ?? '';
+}
+
+function setMaterialChildCorrectChoice(child, value) {
+  child.options.forEach((option) => {
+    option.isCorrect = option.optionKey === value;
+  });
+}
+
+function addMaterialChildOption(child) {
+  child.options.push({
+    optionKey: optionKeyForIndex(child.options.length),
+    content: '',
+    isCorrect: false,
+    sortOrder: child.options.length + 1,
+  });
+}
+
+function removeMaterialChildOption(child, index) {
+  child.options.splice(index, 1);
+  child.options.forEach((option, optionIndex) => {
+    option.optionKey = optionKeyForIndex(optionIndex);
+    option.sortOrder = optionIndex + 1;
+  });
+  if ((child.type === 'single_choice' || child.type === 'true_false') && !child.options.some((option) => option.isCorrect)) {
+    child.options[0].isCorrect = true;
+  }
+}
+
+function insertMaterialChildBlankMarker(child) {
+  if (child.type !== 'fill_blank') return;
+  if (!child.blankRows?.length) child.blankRows = emptyFillBlankRows();
+  const marker = '____';
+  const current = String(child.content || '');
+  const needsSpace = current && !/[\s([{（【]$/.test(current);
+  child.content = `${current}${needsSpace ? ' ' : ''}${marker}`;
+  if (countBlankMarkers(child.content) > child.blankRows.length) {
+    addMaterialChildBlankAnswerRow(child);
+  }
+}
+
+function addMaterialChildBlankAnswerRow(child) {
+  child.blankRows = [...(child.blankRows?.length ? child.blankRows : []), { answerText: '' }];
+}
+
+function removeMaterialChildBlankAnswerRow(child, index) {
+  if (!child.blankRows?.length || child.blankRows.length <= 1) return;
+  child.blankRows = child.blankRows.filter((_, rowIndex) => rowIndex !== index);
+}
+
+function addSingleOption() {
+  singleForm.options.push({
+    optionKey: optionKeyForIndex(singleForm.options.length),
+    content: '',
+    isCorrect: false,
+    sortOrder: singleForm.options.length + 1,
+  });
+}
+
+function removeSingleOption(index) {
+  singleForm.options.splice(index, 1);
+  renumberSingleOptions();
+  if ((singleForm.type === 'single_choice' || singleForm.type === 'true_false') && !singleForm.options.some((option) => option.isCorrect)) {
+    singleForm.options[0].isCorrect = true;
+  }
+}
+
+function renumberSingleOptions() {
+  singleForm.options.forEach((option, index) => {
+    option.optionKey = optionKeyForIndex(index);
+    option.sortOrder = index + 1;
+  });
+}
+
+function addBlankAnswerRow() {
+  blankAnswerRows.value = [...blankAnswerRows.value, { answerText: '' }];
+}
+
+function removeBlankAnswerRow(index) {
+  if (blankAnswerRows.value.length <= 1) return;
+  blankAnswerRows.value = blankAnswerRows.value.filter((_, rowIndex) => rowIndex !== index);
+}
+
+function insertSingleBlankMarker() {
+  if (singleForm.type !== 'fill_blank') return;
+  if (!blankAnswerRows.value.length) addBlankAnswerRow();
+  const marker = '____';
+  const current = String(singleForm.content || '');
+  const needsSpace = current && !/[\s([{（【]$/.test(current);
+  singleForm.content = `${current}${needsSpace ? ' ' : ''}${marker}`;
+  if (countBlankMarkers(singleForm.content) > blankAnswerRows.value.length) {
+    addBlankAnswerRow();
+  }
+}
+
+function countBlankMarkers(content) {
+  const matches = String(content || '').match(/_{3,}|\(\s*\)|（\s*）|\[\s*\]/g);
+  return matches?.length || 0;
+}
+
+function resetSingleForm() {
+  Object.assign(singleForm, baseSingleForm());
+  selectedMaterialChildIndex.value = 0;
+  materialEditingChildIndex.value = -1;
+  materialChildDialogVisible.value = false;
+  blankAnswerRows.value = emptyFillBlankRows();
+  blankCaseSensitive.value = false;
+  blankSpaceSensitive.value = false;
+  answerReference.value = '';
+  resetSingleOptions();
+  setImageInsertTarget(singleForm, 'content');
+}
+
+function loadSingleTemplate() {
+  Object.assign(singleForm, {
+    type: 'fill_blank',
+    title: '单题示例：多空填空',
+    content: [
+      '阅读代码并填写 3 个空。题干可包含数学公式 $a^2 + b^2 = c^2$、化学式 @chem{H2SO4}。',
+      '',
+      '$$',
+      'S = \\pi\\,r^2',
+      '$$',
+      '',
+      '```python',
+      'for i in range(len(items)):',
+      '    print(items[i])',
+      '```',
+      '',
+      '第 1 空：输出函数是 ____。',
+      '第 2 空：循环范围函数是 ____。',
+      '第 3 空：获取长度函数是 ____。',
+    ].join('\n'),
+    difficulty: 1,
+    defaultScore: 6,
+    analysis: '`print` 负责输出，`range` 生成循环序列，`len` 获取长度。化学方程式示例：@chem{2H2 + O2 -> 2H2O}。',
+    options: [],
+  });
+  blankAnswerText.value = DEFAULT_BLANK_ANSWER_TEXT;
+  answerReference.value = '';
+}
+
+function refreshPreview() {
+  if (importMode.value !== 'batch') return;
+
+  try {
+    if (structuredBatchQuestions.value.length) {
+      const rows = structuredBatchQuestions.value.map((question, index) => withBatchRowKey(buildPortablePreviewRow(question, index)));
+      batchPreview.value = filterRemovedBatchRows(rows);
+      batchErrorSummary.value = rows.some((row) => row.valid === false) ? formatBatchErrors(
+        rows
+          .filter((row) => row.valid === false)
+          .map((row) => ({ number: row.number, title: row.title, message: row.errorMessage })),
+      ) : '';
+      if (selectedPreviewIndex.value >= batchPreview.value.length) {
+        selectedPreviewIndex.value = 0;
+      }
+      return;
+    }
+
+    const result = parseBatchResult(batchText.value, batchAnswerText.value);
+    batchPreview.value = filterRemovedBatchRows(
+      result.rows.map((row) =>
+        withBatchRowKey({
+          ...row,
+          knowledgePointIds: mergeIds(sharedKnowledgePointIds.value, row.knowledgePointIds),
+          knowledgePointNames: mergeTags(selectedKnowledgeNames.value, row.knowledgePointNames),
+          tagNames: mergeTags(sharedTagNames.value, row.tagNames),
+        }),
+      ),
+    );
+    batchErrorSummary.value = result.errors.length ? formatBatchErrors(result.errors) : '';
+    if (selectedPreviewIndex.value >= batchPreview.value.length) {
+      selectedPreviewIndex.value = 0;
+    }
+  } catch (error) {
+    batchPreview.value = [];
+    batchErrorSummary.value = batchText.value.trim() ? error.message : '';
+  }
+}
+
+function handleBatchTemplateInput() {
+  structuredBatchQuestions.value = [];
+  removedBatchRowKeys.value = new Set();
+  refreshPreview();
+}
+
+function handleImportModeChange() {
+  if (importMode.value === 'batch') {
+    setBatchInsertTarget('batchText');
+  } else {
+    setImageInsertTarget(singleForm, 'content');
+  }
+  refreshPreview();
+}
+
+async function previewBatch() {
+  refreshPreview();
+  if (batchErrorSummary.value) {
+    ElMessage.error('存在格式问题，请查看解析结果');
+  } else {
+    await runDuplicateCheck({ silent: true });
+    ElMessage.success(`解析到 ${batchPreview.value.length} 道题`);
+  }
+}
+
+async function importBatch() {
+  importMode.value = 'batch';
+  refreshPreview();
+  if (!batchPreview.value.length) {
+    ElMessage.error('请先粘贴题目内容');
+    return;
+  }
+  if (batchPreview.value.some((row) => row.valid === false)) {
+    ElMessage.error('批量录入格式未通过，请先修正错误');
+    return;
+  }
+  await runDuplicateCheck({ silent: true });
+  const skippedRows = batchPreview.value.filter(shouldSkipBatchRow);
+  const importRows = batchPreview.value.filter((row) => row.valid !== false && !shouldSkipBatchRow(row));
+  if (skippedRows.length) {
+    skippedRows.forEach((row) => {
+      row.statusText = row.conflictStatus === 'conflict' ? '已跳过：题目冲突' : '已跳过：重复题目';
+    });
+    ElMessage.warning(`已跳过 ${skippedRows.length} 道重复/冲突题，其余题目继续导入`);
+  } else if (batchPreview.value.some((row) => row.conflictStatus === 'similar')) {
+    ElMessage.warning('检测到相似题目，已在解析结果中标注；相似题默认继续导入');
+  }
+  if (!importRows.length) {
+    ElMessage.warning('没有可导入题目，请移除重复/冲突项或修改内容后重试');
+    return;
+  }
+
+  importing.value = true;
+  let successCount = 0;
+  try {
+    for (const question of importRows) {
+      const index = batchPreview.value.indexOf(question);
+      const tagNames = question.tagNames;
+      const payload = questionPayload(question);
+      try {
+        payload.tagIds = await resolveTagIds(tagNames);
+        const created = await createQuestion(payload);
+        if (publishAfterImport.value) {
+          await publishQuestion(created.id);
+        }
+        if (index >= 0) batchPreview.value[index].statusText = publishAfterImport.value ? '已导入并发布' : '已导入';
+        successCount += 1;
+      } catch (error) {
+        if (index >= 0) {
+          batchPreview.value[index].valid = false;
+          batchPreview.value[index].statusText = error.message;
+        }
+      }
+    }
+  } finally {
+    importing.value = false;
+  }
+
+  ElMessage.success(`成功导入 ${successCount} / ${importRows.length} 道题，跳过 ${skippedRows.length} 道重复/冲突题`);
+}
+
+async function runDuplicateCheck(options = {}) {
+  if (!batchPreview.value.length || batchPreview.value.some((row) => row.valid === false)) return null;
+  duplicateChecking.value = true;
+  try {
+    const payloads = batchPreview.value.map((row) => buildDuplicateCheckPayload(row));
+    const result = await checkQuestionDuplicates({ questions: payloads });
+    for (const item of result.items ?? []) {
+      const row = batchPreview.value[item.index];
+      if (!row) continue;
+      row.conflictStatus = item.status;
+      row.conflictMessage = item.status === 'ok' ? '' : item.message;
+      row.conflictMatches = item.matches ?? [];
+    }
+    const conflictCount = result.conflictCount ?? 0;
+    const warningCount = (result.duplicateCount ?? 0) + (result.similarCount ?? 0);
+    if (!options.silent) {
+      if (conflictCount) {
+        ElMessage.warning(`发现 ${conflictCount} 道冲突题，请检查后再导入`);
+      } else if (warningCount) {
+        ElMessage.warning(`发现 ${warningCount} 道重复或相似题`);
+      } else {
+        ElMessage.success('未发现重复或冲突');
+      }
+    }
+    return result;
+  } catch (error) {
+    if (!options.silent) {
+      ElMessage.error(error.message || '重复检测失败');
+    }
+    return null;
+  } finally {
+    duplicateChecking.value = false;
+  }
+}
+
+function buildDuplicateCheckPayload(row) {
+  return {
+    courseId: row.courseId,
+    courseName: row.courseName,
+    type: row.type,
+    title: row.title,
+    comparable: buildComparableSummary(row),
+  };
+}
+
+function buildComparableSummary(row) {
+  const type = normalizeType(row.type || 'single_choice');
+  const titleKey = normalizeComparableText(row.title);
+  const contentKey = normalizeComparableText(row.content);
+  const options = comparableOptions(row.options ?? []);
+  const optionContentKey = options.map((option) => normalizeComparableText(option.content)).join('|');
+  const optionFullKey = options
+    .map((option) => `${normalizeComparableText(option.content)}:${option.isCorrect ? '1' : '0'}`)
+    .join('|');
+  const answerKey = stableStringify(isChoiceType(type) ? {} : row.answer ?? {});
+
+  return {
+    titleKey,
+    contentHash: hashComparableText(contentKey),
+    contentLength: contentKey.length,
+    optionContentHash: hashComparableText(optionContentKey),
+    optionContentLength: optionContentKey.length,
+    optionFullHash: hashComparableText(optionFullKey),
+    optionFullLength: optionFullKey.length,
+    answerHash: hashComparableText(answerKey),
+    answerLength: answerKey.length,
+  };
+}
+
+function comparableOptions(options) {
+  return [...(options ?? [])]
+    .sort((a, b) => Number(a.sortOrder ?? 0) - Number(b.sortOrder ?? 0) || String(a.optionKey ?? '').localeCompare(String(b.optionKey ?? '')))
+    .map((option, index) => ({
+      optionKey: String(option.optionKey ?? option.label ?? optionKeyForIndex(index)).trim(),
+      content: String(option.content ?? '').trim(),
+      isCorrect: Boolean(option.isCorrect),
+    }));
+}
+
+function normalizeComparableText(value) {
+  return String(value ?? '')
+    .replace(/!\[[^\]]*]\([^)]+\)/g, '![image]')
+    .replace(/\[[^\]]+]\([^)]+\)/g, '[link]')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+}
+
+function stableStringify(value) {
+  if (Array.isArray(value)) {
+    return `[${value.map((item) => stableStringify(item)).join(',')}]`;
+  }
+  if (value && typeof value === 'object') {
+    return `{${Object.keys(value)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${stableStringify(value[key])}`)
+      .join(',')}}`;
+  }
+  return JSON.stringify(value ?? null);
+}
+
+function hashComparableText(value) {
+  let hash = 0xcbf29ce484222325n;
+  const prime = 0x100000001b3n;
+  const mask = 0xffffffffffffffffn;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= BigInt(value.charCodeAt(index));
+    hash = (hash * prime) & mask;
+  }
+  return hash.toString(16).padStart(16, '0');
+}
+
+function shouldSkipBatchRow(row) {
+  return ['duplicate', 'conflict'].includes(row.conflictStatus);
+}
+
+function makeBatchRowKey(row) {
+  return [
+    String(row.number || '').trim(),
+    String(row.title || '').trim(),
+    String(row.type || '').trim(),
+    String(row.content || '').trim(),
+    JSON.stringify(row.options ?? []),
+    JSON.stringify(row.answer ?? null),
+  ].join('|');
+}
+
+function withBatchRowKey(row) {
+  return {
+    ...row,
+    batchKey: row.batchKey || makeBatchRowKey(row),
+  };
+}
+
+function filterRemovedBatchRows(rows) {
+  const removed = removedBatchRowKeys.value;
+  return rows.filter((row) => !removed.has(row.batchKey || makeBatchRowKey(row)));
+}
+
+function removeBatchPreviewRow(row) {
+  const key = row.batchKey || makeBatchRowKey(row);
+  removedBatchRowKeys.value = new Set([...removedBatchRowKeys.value, key]);
+  batchPreview.value = batchPreview.value.filter((item) => item !== row);
+  if (selectedPreviewIndex.value >= batchPreview.value.length) {
+    selectedPreviewIndex.value = Math.max(0, batchPreview.value.length - 1);
+  }
+  ElMessage.success('已从本次导入预览中移除');
+}
+
+function conflictLabel(status) {
+  const labels = { conflict: '冲突', duplicate: '重复', similar: '相似' };
+  return labels[status] || status;
+}
+
+function conflictTagType(status) {
+  if (status === 'conflict') return 'danger';
+  if (status === 'duplicate') return 'warning';
+  return 'info';
+}
+
+function selectPreview(row) {
+  const index = batchPreview.value.indexOf(row);
+  if (index >= 0) selectedPreviewIndex.value = index;
+}
+
+async function resolveTagIds(tagNames = []) {
+  const names = [...new Set(tagNames.map((name) => String(name).trim()).filter(Boolean))];
+  const ids = [];
+
+  for (const [index, name] of names.entries()) {
+    const existing = tags.value.find((tag) => tag.name === name);
+    if (existing) {
+      ids.push(existing.id);
+      continue;
+    }
+
+    const created = await createQuestionTag({
+        name,
+        code: makeTagCode(name, index),
+        type: 'QUESTION',
+    });
+    ids.push(created.id);
+    tags.value.unshift(created);
+  }
+
+  return ids;
+}
+
+function splitQuestionBlocks(text) {
+  const blocks = [];
+  let current = [];
+  let inCode = false;
+  let inMath = false;
+
+  for (const line of text.replace(/\r\n/g, '\n').split('\n')) {
+    const fenceCount = (line.match(/```/g) ?? []).length;
+    const trimmed = line.trim();
+    if (!inCode && (trimmed === '$$' || trimmed === '\\[' || trimmed === '\\]')) {
+      inMath = !inMath;
+    }
+    if (!inCode && !inMath && trimmed === '---') {
+      const block = current.join('\n').trim();
+      if (block) blocks.push(block);
+      current = [];
+      continue;
+    }
+    current.push(line);
+    if (fenceCount % 2 === 1) inCode = !inCode;
+  }
+
+  const last = current.join('\n').trim();
+  if (last) blocks.push(last);
+  return blocks;
+}
+
+function parseBatchResult(text, answerText = '') {
+  const blocks = splitQuestionBlocks(text);
+  if (!blocks.length) throw new Error('请先粘贴题目模板内容');
+  const answerConfig = parseAnswerConfig(answerText);
+  const rows = blocks.map((block, index) => {
+    const number = index + 1;
+    try {
+      return parseQuestionBlock(block, number, answerConfig);
+    } catch (error) {
+      return {
+        valid: false,
+        number,
+        title: extractField(block, '标题') || `第 ${number} 题`,
+        type: normalizeType(extractField(block, '题型') || ''),
+        defaultScore: extractField(block, '分值') || '',
+        answerText: '',
+        tagNames: parseTagNames(extractField(block, '标签')),
+        statusText: `格式错误：${error.message}`,
+        errorMessage: error.message,
+      };
+    }
+  });
+
+  return {
+    rows,
+    errors: rows
+      .filter((row) => row.valid === false)
+      .map((row) => ({ number: row.number, title: row.title, message: row.errorMessage })),
+  };
+}
+
+function parseAnswerConfig(text) {
+  const byIndex = new Map();
+  const byTitle = new Map();
+
+  for (const rawLine of text.replace(/\r\n/g, '\n').split('\n')) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith('#')) continue;
+
+    const indexMatch = line.match(/^(\d+)[.、:：]\s*(.+)$/);
+    if (indexMatch) {
+      byIndex.set(Number(indexMatch[1]), indexMatch[2].trim());
+      continue;
+    }
+
+    const titleMatch = line.match(/^(.+?)[:：]\s*(.+)$/);
+    if (titleMatch) {
+      byTitle.set(titleMatch[1].trim(), titleMatch[2].trim());
+    }
+  }
+
+  return { byIndex, byTitle };
+}
+
+function parseQuestionBlock(block, number, answerConfig) {
+  const fields = {};
+  const sections = { content: [], options: [], analysis: [] };
+  const fieldMap = {
+    标题: 'title',
+    课程: 'courseName',
+    题型: 'type',
+    难度: 'difficulty',
+    分值: 'defaultScore',
+    标签: 'tags',
+    知识点: 'knowledgePoints',
+    答案: 'answer',
+    hydro题目: 'hydroProblem',
+    hydro题号: 'hydroProblem',
+    hydroproblem: 'hydroProblem',
+    hydroproblemid: 'hydroProblem',
+    hydroproblemname: 'hydroProblem',
+    externalproblemid: 'hydroProblem',
+    hydro链接: 'hydroUrl',
+    hydro地址: 'hydroUrl',
+    hydroproblemurl: 'hydroUrl',
+    externalproblemurl: 'hydroUrl',
+    hydro语言: 'hydroLanguages',
+    hydrolanguages: 'hydroLanguages',
+  };
+  const sectionMap = { 题干: 'content', 选项: 'options', 解析: 'analysis' };
+  let currentSection = '';
+
+  for (const line of block.split('\n')) {
+    const trimmed = line.trim();
+    const fieldMatch = trimmed.match(/^(标题|课程|题型|难度|分值|标签|知识点|答案|Hydro\s*题目|Hydro\s*题号|hydroProblem|hydroProblemId|hydroProblemName|externalProblemId|Hydro\s*链接|Hydro\s*地址|hydroProblemUrl|externalProblemUrl|Hydro\s*语言|hydroLanguages)[:：]\s*(.*)$/i);
+    if (!currentSection && fieldMatch) {
+      const fieldKey = fieldMatch[1].replace(/\s+/g, '').toLowerCase();
+      fields[fieldMap[fieldKey] ?? fieldMap[fieldMatch[1]]] = fieldMatch[2].trim();
+      continue;
+    }
+
+    const sectionMatch = trimmed.match(/^(题干|选项|解析)[:：]\s*(.*)$/);
+    if (sectionMatch) {
+      currentSection = sectionMap[sectionMatch[1]];
+      if (sectionMatch[2]) sections[currentSection].push(sectionMatch[2]);
+      continue;
+    }
+
+    if (currentSection) {
+      sections[currentSection].push(line);
+    }
+  }
+
+  const type = normalizeType(fields.type || '单选题');
+  const defaultScore = Number(fields.defaultScore || 2);
+  const difficulty = Number(fields.difficulty || 1);
+  const title = fields.title || `未命名题目 ${number}`;
+  const answerText = answerConfig.byIndex.get(number) ?? answerConfig.byTitle.get(title) ?? fields.answer ?? '';
+  const answerKeys = parseAnswerKeys(answerText);
+  const knowledgePointNames = parseTagNames(fields.knowledgePoints);
+  const courseName = normalizeCourseName(fields.courseName);
+  const courseId = courseName ? resolveCourseIdForImportedQuestion('', courseName) : sharedCourseId.value;
+  const payload = {
+    valid: true,
+    number,
+    courseId,
+    courseName: selectedCourseName(courseId) || courseName,
+    knowledgePointIds: resolveKnowledgePointIdsByName(knowledgePointNames),
+    knowledgePointNames,
+    type,
+    title,
+    tagNames: parseTagNames(fields.tags),
+    content: sections.content.join('\n').trim(),
+    difficulty: Number.isFinite(difficulty) ? difficulty : 1,
+    defaultScore: Number.isFinite(defaultScore) ? defaultScore : 2,
+    analysis: sections.analysis.join('\n').trim(),
+    options: [],
+  };
+
+  if (isChoiceType(type)) {
+    payload.options = parseOptions(sections.options.join('\n'), answerKeys, type);
+  }
+
+  if (type === 'programming') {
+    payload.programmingRef = buildProgrammingRefFromValues({
+      externalProblemId: fields.hydroProblem,
+      externalProblemUrl: fields.hydroUrl,
+      languagesText: fields.hydroLanguages,
+    });
+  }
+
+  if (type === 'fill_blank') {
+    payload.answer = buildFillBlankAnswer(answerText, payload.defaultScore, blankAnswerOptions());
+  } else if (!isChoiceType(type) && answerText) {
+    payload.answer = { reference: answerText };
+  }
+
+  validatePayload(payload, `第 ${number} 题`);
+  return {
+    ...payload,
+    answerText: answerText || payload.options.filter((option) => option.isCorrect).map((option) => option.optionKey).join(','),
+    statusText: '待导入',
+  };
+}
+
+function parseOptions(text, answerKeys, type) {
+  if (type === 'true_false' && !text.trim()) {
+    const truthy = answerKeys.includes('A') || answerKeys.includes('正确') || answerKeys.includes('TRUE');
+    return [
+      { optionKey: 'A', content: '正确', isCorrect: truthy || !answerKeys.length, sortOrder: 1 },
+      { optionKey: 'B', content: '错误', isCorrect: !truthy && answerKeys.length > 0, sortOrder: 2 },
+    ];
+  }
+
+  const options = [];
+  let current = null;
+  let inCode = false;
+
+  for (const line of text.replace(/\r\n/g, '\n').split('\n')) {
+    const match = !inCode ? line.match(/^\s*([A-Z])[.、:：]\s*(.*)$/i) : null;
+    if (match) {
+      if (current) options.push(current);
+      current = { optionKey: match[1].toUpperCase(), contentLines: [match[2]] };
+    } else if (current) {
+      current.contentLines.push(line);
+    }
+
+    const fenceCount = (line.match(/```/g) ?? []).length;
+    if (fenceCount % 2 === 1) inCode = !inCode;
+  }
+  if (current) options.push(current);
+
+  return options.map((option, index) => ({
+    optionKey: option.optionKey || optionKeyForIndex(index),
+    content: option.contentLines.join('\n').trim(),
+    isCorrect: answerKeys.includes(option.optionKey),
+    sortOrder: index + 1,
+  }));
+}
+
+function validatePayload(payload, label) {
+  if (!payload.courseId && !normalizeCourseName(payload.courseName)) throw new Error(`${label}：请选择课程或填写课程名称`);
+  if (!payload.title?.trim()) throw new Error(`${label}：请填写标题`);
+  if (!payload.content?.trim()) throw new Error(`${label}：请填写题干`);
+  if (!Number.isFinite(Number(payload.difficulty)) || payload.difficulty < 1 || payload.difficulty > 5) {
+    throw new Error(`${label}：难度必须是 1-5`);
+  }
+  if (!Number.isFinite(Number(payload.defaultScore)) || payload.defaultScore < 0) {
+    throw new Error(`${label}：分值不能小于 0`);
+  }
+
+  if (isChoiceType(payload.type)) {
+    const options = payload.options ?? [];
+    const correctCount = options.filter((option) => option.isCorrect).length;
+    if (options.length < 2 || options.some((option) => !option.content?.trim())) {
+      throw new Error(`${label}：请至少填写两个完整选项`);
+    }
+    if ((payload.type === 'single_choice' || payload.type === 'true_false') && correctCount !== 1) {
+      throw new Error(`${label}：单选/判断题必须有且只有一个正确选项`);
+    }
+    if (payload.type === 'multiple_choice' && correctCount < 2) {
+      throw new Error(`${label}：多选题至少需要两个正确选项`);
+    }
+  }
+
+  if (payload.type === 'fill_blank') {
+    const blanks = payload.answer?.blanks ?? [];
+    if (!blanks.length || blanks.every((blank) => !blank.answers?.length)) {
+      throw new Error(`${label}：请至少填写一个空位答案`);
+    }
+  }
+
+  if (payload.type === 'material') {
+    const children = payload.inlineChildren ?? payload.children ?? [];
+    if (!children.length) {
+      throw new Error(`${label}：材料/组合题至少需要添加一道子题`);
+    }
+    children.forEach((child, index) => {
+      validatePayload({
+        ...child,
+        courseId: payload.courseId,
+        courseName: payload.courseName,
+        defaultScore: child.score,
+        knowledgePointIds: payload.knowledgePointIds,
+        knowledgePointNames: payload.knowledgePointNames,
+      }, `${label}子题 ${index + 1}`);
+      if (!Number.isFinite(Number(child.score)) || Number(child.score) <= 0) {
+        throw new Error(`${label}：第 ${index + 1} 道子题分值必须大于 0`);
+      }
+    });
+    if (new Set(children.map((child) => `${child.type}:${child.title}:${child.content}`)).size !== children.length) {
+      throw new Error(`${label}：材料/组合题不能重复添加完全相同的子题`);
+    }
+  }
+}
+
+function loadBatchTemplate() {
+  structuredBatchQuestions.value = [];
+  removedBatchRowKeys.value = new Set();
+  batchText.value = [
+    '标题：批量示例：Python 输出',
+    '题型：单选题',
+    '难度：1',
+    '分值：2',
+    '标签：Python,代码阅读',
+    '知识点：变量与表达式',
+    '题干：',
+    '阅读代码，输出结果是什么？题干可包含数学公式 $a^2 + b^2 = c^2$ 和化学式 @chem{CO2}。',
+    '',
+    '$$',
+    'f(x)=x^2+2x+1',
+    '$$',
+    '',
+    '```python',
+    'print(1 + 2)',
+    '```',
+    '选项：',
+    'A. `1`',
+    'B. `3`',
+    'C. `12`',
+    'D. `None`',
+    '解析：',
+    '表达式 `1 + 2` 的结果是 `3`。常用特殊符号：≤ ≥ ≠ ± × ÷ √ ∑ ∞。',
+    '---',
+    '标题：批量示例：可变容器',
+    '题型：多选题',
+    '难度：2',
+    '分值：4',
+    '标签：Python,数据结构',
+    '知识点：列表,字典',
+    '题干：',
+    'Python 中哪些是常见可变容器？',
+    '选项：',
+    'A. list',
+    'B. dict',
+    'C. int',
+    'D. str',
+    'E. set',
+    '解析：',
+    '`list`、`dict` 和 `set` 可以原地修改。',
+    '---',
+    '标题：批量示例：多空填空',
+    '题型：填空题',
+    '难度：1',
+    '分值：6',
+    '标签：Python,基础语法',
+    '知识点：循环,函数',
+    '题干：',
+    '补全代码相关概念：输出函数是 ____，循环范围函数是 ____，获取序列长度函数是 ____。',
+    '解析：',
+    '`print` 输出内容，`range` 生成循环范围，`len` 返回长度。',
+  ].join('\n');
+  batchAnswerText.value = ['1. B', '2. A,B,E', '3. 第1空：print；第2空：range；第3空：len'].join('\n');
+  refreshPreview();
+}
+
+function insertCodeBlock(target, field) {
+  target[field] = `${target[field] || ''}\n\`\`\`python\nprint("hello")\n\`\`\`\n`;
+  setImageInsertTarget(target, field);
+}
+
+function insertFormatSnippet(command) {
+  const snippet = formatSnippets[command];
+  if (!snippet) return;
+  insertMarkdownSnippet(snippet);
+}
+
+function insertMarkdownSnippet(markdown) {
+  if (!assetInsertTarget.value) {
+    if (importMode.value === 'batch') {
+      setBatchInsertTarget('batchText');
+    } else {
+      setImageInsertTarget(singleForm, 'content');
+    }
+  }
+
+  if (assetInsertTarget.value?.type === 'object') {
+    appendMarkdownToObject(assetInsertTarget.value.target, assetInsertTarget.value.field, markdown);
+  } else if (assetInsertTarget.value?.field === 'batchAnswerText') {
+    batchAnswerText.value = appendMarkdownText(batchAnswerText.value, markdown);
+  } else if (assetInsertTarget.value?.field === 'singleContent') {
+    singleForm.content = appendMarkdownText(singleForm.content, markdown);
+  } else {
+    batchText.value = appendMarkdownText(batchText.value, markdown);
+  }
+
+  refreshPreview();
+}
+
+function setImageInsertTarget(target, field) {
+  assetInsertTarget.value = { type: 'object', target, field };
+}
+
+function setBatchInsertTarget(field) {
+  assetInsertTarget.value = { type: 'batch', field };
+}
+
+async function handleAssetUploadChange(uploadFile) {
+  const file = uploadFile?.raw;
+  if (!file) return;
+  try {
+    await uploadAssetFile(file);
+    assetDrawerVisible.value = true;
+  } finally {
+    assetUploadRef.value?.clearFiles?.();
+    assetDrawerUploadRef.value?.clearFiles?.();
+    assetUploadKey.value += 1;
+  }
+}
+
+async function handlePortableImportChange(uploadFile) {
+  const file = uploadFile?.raw;
+  if (!file) return;
+
+  try {
+    const name = String(file.name || '').toLowerCase();
+    if (name.endsWith('.zip')) {
+      await loadQuestionZipPackage(file);
+    } else if (name.endsWith('.json')) {
+      const rows = portableQuestionsFromJson(JSON.parse(await file.text()));
+      applyPortableQuestions(rows, 'JSON');
+    } else if (name.endsWith('.csv')) {
+      const rows = parseCsvRows(await file.text());
+      ensurePortableCsvRows(rows);
+      const questions = rows.map(normalizePortableQuestion);
+      applyPortableQuestions(questions, 'CSV');
+    } else {
+      structuredBatchQuestions.value = [];
+      removedBatchRowKeys.value = new Set();
+      batchText.value = await file.text();
+      batchAnswerText.value = '';
+      importMode.value = 'batch';
+      refreshPreview();
+      ElMessage.success('已载入模板文本，请检查解析结果');
+    }
+  } catch (error) {
+    ElMessage.error(error.message || '题目文件导入失败');
+  } finally {
+    portableUploadRef.value?.clearFiles?.();
+    portableUploadKey.value += 1;
+  }
+}
+
+async function loadQuestionZipPackage(file) {
+  const entries = parseStoredZip(await file.arrayBuffer());
+  const assetUrlMap = await uploadZipAssets(entries);
+  const templateEntry = entries.get('questions-template.md');
+  const answerEntry = entries.get('answers.txt');
+  const jsonEntry = entries.get('questions.json');
+
+  if (jsonEntry) {
+    const rows = portableQuestionsFromJson(JSON.parse(decodeText(jsonEntry.data))).map((row) =>
+      rewritePortableQuestionAssets(row, assetUrlMap),
+    );
+    applyPortableQuestions(rows, '题目压缩包');
+    return;
+  }
+
+  if (templateEntry) {
+    structuredBatchQuestions.value = [];
+    removedBatchRowKeys.value = new Set();
+    batchText.value = rewritePortableAssetPaths(decodeText(templateEntry.data), assetUrlMap);
+    batchAnswerText.value = answerEntry ? decodeText(answerEntry.data) : '';
+    importMode.value = 'batch';
+    refreshPreview();
+    ElMessage.success('题目压缩包已载入，可预览后批量导入');
+    return;
+  }
+
+  throw new Error('压缩包内缺少 questions-template.md 或 questions.json');
+}
+
+async function uploadZipAssets(entries) {
+  const assetUrlMap = new Map();
+  const assetEntries = [...entries.values()].filter((entry) => entry.name.startsWith('assets/') && !entry.name.endsWith('/'));
+  for (const entry of assetEntries) {
+    const filename = entry.name.split('/').pop() || 'asset';
+    const blob = new Blob([entry.data], { type: mimeByFilename(filename) });
+    const uploadFile = new File([blob], filename, { type: blob.type || 'application/octet-stream' });
+    const asset = await uploadAssetFile(uploadFile, { silent: true });
+    assetUrlMap.set(entry.name, asset.url);
+  }
+  if (assetEntries.length) {
+    ElMessage.success(`已恢复 ${assetEntries.length} 个题目附件`);
+  }
+  return assetUrlMap;
+}
+
+function applyPortableQuestions(rows, sourceLabel) {
+  const questions = rows.filter(Boolean);
+  if (!questions.length) throw new Error(`${sourceLabel} 中没有可导入的题目`);
+  structuredBatchQuestions.value = questions;
+  removedBatchRowKeys.value = new Set();
+  const { template, answers } = portableQuestionsToBatch(questions);
+  batchText.value = template;
+  batchAnswerText.value = answers;
+  importMode.value = 'batch';
+  refreshPreview();
+  ElMessage.success(`已从 ${sourceLabel} 解析 ${questions.length} 道题，请检查后导入`);
+}
+
+function ensurePortableCsvRows(rows) {
+  if (!rows.length) return;
+  const headers = new Set(Object.keys(rows[0] ?? {}));
+  const legacyPaperColumns = ['no', 'section', 'title', 'type', 'score', 'content', 'answer', 'analysis'].every((key) =>
+    headers.has(key),
+  );
+  const hasTransferFields = ['contentMarkdown', 'optionsJson', 'answerJson', 'scoringRuleJson'].some((key) => headers.has(key));
+  if (legacyPaperColumns && !hasTransferFields) {
+    throw new Error(
+      '这是旧版试卷文档 CSV，只包含阅读展示字段，缺少可回导字段：contentMarkdown、optionsJson、answerJson、scoringRuleJson、tagNames、knowledgePointNames。请用新版“CSV/JSON 迁移导出”重新导出。',
+    );
+  }
+}
+
+function buildPortablePreviewRow(question, index) {
+  const number = index + 1;
+  const knowledgePointNames = mergeTags(selectedKnowledgeNames.value, question.knowledgePointNames);
+  const courseName = normalizeCourseName(question.courseName ?? question.course?.name);
+  const courseId = resolveCourseIdForImportedQuestion(question.courseId, courseName);
+  const payload = {
+    valid: true,
+    number,
+    courseId,
+    courseName: selectedCourseName(courseId) || courseName,
+    knowledgePointIds: mergeIds(sharedKnowledgePointIds.value, resolveKnowledgePointIdsByName(knowledgePointNames)),
+    knowledgePointNames,
+    type: normalizeType(question.type || 'single_choice'),
+    title: question.title,
+    tagNames: mergeTags(sharedTagNames.value, question.tagNames),
+    content: question.content,
+    difficulty: Number(question.difficulty) || 1,
+    defaultScore: Number(question.defaultScore ?? question.score) || 2,
+    analysis: question.analysis ?? '',
+    options: question.options ?? [],
+    answer: question.answer,
+    scoringRule: question.scoringRule,
+    programmingRef: normalizeProgrammingRef(question.programmingRef),
+    allowOptionShuffle: question.allowOptionShuffle,
+    answerText: portableAnswerForImport(question),
+    statusText: '待导入',
+  };
+
+  try {
+    validatePayload(payload, `第 ${number} 题`);
+    return payload;
+  } catch (error) {
+    return {
+      ...payload,
+      valid: false,
+      statusText: `格式错误：${error.message}`,
+      errorMessage: error.message,
+    };
+  }
+}
+
+async function handleImagePaste(event, target, field) {
+  const file = extractImageFromClipboard(event);
+  if (!file) return;
+
+  event.preventDefault();
+  setImageInsertTarget(target, field);
+  const asset = await uploadAssetFile(file);
+  insertUploadedAsset(asset);
+}
+
+async function handleBatchImagePaste(event, field) {
+  const file = extractImageFromClipboard(event);
+  if (!file) return;
+
+  event.preventDefault();
+  setBatchInsertTarget(field);
+  const asset = await uploadAssetFile(file);
+  insertUploadedAsset(asset);
+}
+
+function extractImageFromClipboard(event) {
+  const items = [...(event.clipboardData?.items ?? [])];
+  return items.find((item) => item.type?.startsWith('image/'))?.getAsFile() ?? null;
+}
+
+async function uploadAssetFile(file, options = {}) {
+  uploadingAsset.value = true;
+  try {
+    const formData = new FormData();
+    formData.append('file', file);
+    const asset = await uploadQuestionAsset(formData);
+    const normalized = normalizeUploadedAsset(asset);
+    await prepareAssetPreview(normalized);
+    uploadedAssets.value = [normalized, ...uploadedAssets.value.filter((item) => item.url !== normalized.url)].slice(0, 24);
+    if (!options.silent) {
+      ElMessage.success(normalized.isImage ? '图片已上传' : '附件已上传');
+    }
+    return normalized;
+  } finally {
+    uploadingAsset.value = false;
+  }
+}
+
+function insertUploadedAsset(asset) {
+  const markdown = assetMarkdown(asset);
+  if (!markdown) return;
+
+  if (!assetInsertTarget.value) {
+    setBatchInsertTarget(importMode.value === 'batch' ? 'batchText' : 'singleContent');
+  }
+
+  if (assetInsertTarget.value?.type === 'object') {
+    appendMarkdownToObject(assetInsertTarget.value.target, assetInsertTarget.value.field, markdown);
+  } else if (assetInsertTarget.value?.field === 'batchAnswerText') {
+    batchAnswerText.value = appendMarkdownText(batchAnswerText.value, markdown);
+  } else if (assetInsertTarget.value?.field === 'singleContent') {
+    singleForm.content = appendMarkdownText(singleForm.content, markdown);
+  } else {
+    batchText.value = appendMarkdownText(batchText.value, markdown);
+  }
+
+  refreshPreview();
+}
+
+async function renameAsset(asset) {
+  const nextName = String(asset.displayName || '').trim();
+  if (!nextName) {
+    asset.displayName = asset.savedDisplayName || asset.filename;
+    return;
+  }
+  if (nextName === asset.savedDisplayName) return;
+
+  const oldUrl = asset.url;
+  const oldMarkdown = assetMarkdown(asset);
+  try {
+    const renamed = normalizeUploadedAsset(
+      await renameQuestionAsset(asset.filename, { displayName: nextName }),
+    );
+    releaseAssetPreview(asset);
+    await prepareAssetPreview(renamed);
+    Object.assign(asset, renamed);
+    replaceAssetReferences(oldUrl, asset.url, oldMarkdown, assetMarkdown(asset));
+    ElMessage.success('附件已重命名');
+  } catch (error) {
+    asset.displayName = asset.savedDisplayName || asset.displayName;
+    ElMessage.error(error.message);
+  }
+}
+
+async function removeUploadedAsset(asset) {
+  try {
+    await removeQuestionAsset(asset.filename);
+    releaseAssetPreview(asset);
+    uploadedAssets.value = uploadedAssets.value.filter((item) => item.url !== asset.url);
+    removeAssetReferences(asset.url);
+    ElMessage.success('附件已删除');
+    refreshPreview();
+  } catch (error) {
+    ElMessage.error(error.message);
+  }
+}
+
+async function loadQuestionAssetReport() {
+  assetReportLoading.value = true;
+  try {
+    assetReport.value = await getQuestionAssetReport();
+    ElMessage.success('资源检查完成');
+  } catch (error) {
+    ElMessage.error(error.message || '资源检查失败');
+  } finally {
+    assetReportLoading.value = false;
+  }
+}
+
+async function cleanupQuestionAssetOrphans() {
+  if (!assetReport.value?.orphanCount) return;
+  try {
+    await ElMessageBox.confirm(
+      `将删除 ${assetReport.value.orphanCount} 个未被题目、试卷快照或作答实例引用的本地题目附件。此操作不可恢复，是否继续？`,
+      '清理孤立附件',
+      { type: 'warning' },
+    );
+  } catch {
+    return;
+  }
+
+  assetCleanupLoading.value = true;
+  try {
+    const result = await cleanupQuestionAssets();
+    const deletedUrls = new Set((result.deleted ?? []).map((item) => item.url));
+    if (deletedUrls.size) {
+      uploadedAssets.value = uploadedAssets.value.filter((asset) => !deletedUrls.has(asset.url));
+    }
+    ElMessage.success(`已清理 ${result.deletedCount} 个孤立附件${result.failedCount ? `，${result.failedCount} 个失败` : ''}`);
+    await loadQuestionAssetReport();
+  } catch (error) {
+    ElMessage.error(error.message || '清理失败');
+  } finally {
+    assetCleanupLoading.value = false;
+  }
+}
+
+function normalizeUploadedAsset(asset) {
+  const filename = asset?.filename || '附件';
+  const displayName = asset?.displayName || filename.replace(/\.[^.]+$/, '') || filename;
+  return {
+    ...asset,
+    displayName,
+    savedDisplayName: displayName,
+    isImage: Boolean(asset?.isImage) || /\.(png|jpe?g|gif|webp|svg)$/i.test(filename),
+    align: asset?.align || 'center',
+    width: Number(asset?.width) || 80,
+    previewUrl: asset?.previewUrl || '',
+  };
+}
+
+async function prepareAssetPreview(asset) {
+  if (!asset?.isImage || !asset?.filename) return;
+  try {
+    const blob = await getQuestionAssetContent(asset.filename);
+    asset.previewUrl = URL.createObjectURL(blob);
+  } catch {
+    asset.previewUrl = '';
+  }
+}
+
+function releaseAssetPreview(asset) {
+  if (asset?.previewUrl?.startsWith('blob:')) URL.revokeObjectURL(asset.previewUrl);
+  if (asset) asset.previewUrl = '';
+}
+
+function assetMarkdown(asset) {
+  const url = asset?.url;
+  if (!url) return asset?.markdown || '';
+  const label = String(asset.displayName || asset.filename || '附件').trim() || '附件';
+  return asset.isImage ? `![${label}](${assetImageUrl(asset)})` : `[${label}](${url})`;
+}
+
+function assetImageUrl(asset) {
+  const url = new URL(asset.url, window.location.origin);
+  url.searchParams.set('align', ['left', 'center', 'right'].includes(asset.align) ? asset.align : 'center');
+  url.searchParams.set('w', String(clampImageWidth(asset.width)));
+  return `${url.pathname}${url.search}${url.hash}`;
+}
+
+function clampImageWidth(value) {
+  const nextValue = Number(value);
+  if (!Number.isFinite(nextValue)) return 80;
+  return Math.min(100, Math.max(20, Math.round(nextValue)));
+}
+
+function parseStoredZip(arrayBuffer) {
+  const bytes = new Uint8Array(arrayBuffer);
+  const view = new DataView(arrayBuffer);
+  const entries = new Map();
+  let offset = 0;
+
+  while (offset + 30 <= bytes.length) {
+    const signature = view.getUint32(offset, true);
+    if (signature === 0x02014b50 || signature === 0x06054b50) break;
+    if (signature !== 0x04034b50) {
+      offset += 1;
+      continue;
+    }
+
+    const flags = view.getUint16(offset + 6, true);
+    const method = view.getUint16(offset + 8, true);
+    const compressedSize = view.getUint32(offset + 18, true);
+    const filenameLength = view.getUint16(offset + 26, true);
+    const extraLength = view.getUint16(offset + 28, true);
+    const nameStart = offset + 30;
+    const dataStart = nameStart + filenameLength + extraLength;
+    const dataEnd = dataStart + compressedSize;
+    if (flags & 0x08) throw new Error('暂不支持带数据描述符的 ZIP，请使用系统导出的题目压缩包');
+    if (method !== 0) throw new Error('暂不支持压缩加密 ZIP，请使用系统导出的题目压缩包');
+    if (dataEnd > bytes.length) throw new Error('ZIP 文件不完整或已损坏');
+
+    const name = decodeText(bytes.slice(nameStart, nameStart + filenameLength)).replace(/\\/g, '/');
+    entries.set(name, { name, data: bytes.slice(dataStart, dataEnd) });
+    offset = dataEnd;
+  }
+
+  if (!entries.size) throw new Error('未识别到可导入的 ZIP 内容');
+  return entries;
+}
+
+function portableQuestionsFromJson(value) {
+  if (Array.isArray(value)) return value.map(normalizePortableQuestion);
+  if (Array.isArray(value?.questions)) return value.questions.map(normalizePortableQuestion);
+  throw new Error('JSON 中缺少 questions 数组');
+}
+
+function normalizePortableQuestion(record) {
+  const importPayload = normalizePortableJson(record?.importPayload);
+  const source = importPayload && typeof importPayload === 'object' && !Array.isArray(importPayload)
+    ? { ...importPayload }
+    : { ...record };
+  const course = source.course ?? record?.course ?? {};
+  const tagNames = normalizeNameList(source.tagNames ?? record?.tagNames ?? record?.tags);
+  const knowledgePointNames = normalizeNameList(source.knowledgePointNames ?? record?.knowledgePointNames ?? record?.knowledgePoints);
+  const answer = normalizePortableJson(source.answerJson ?? source.answer ?? record?.answerJson ?? record?.answer);
+  const options = applyPortableAnswerToOptions(
+    normalizePortableOptions(source.optionsJson ?? source.options ?? record?.optionsJson ?? record?.options),
+    answer,
+  );
+  const scoringRule = normalizePortableJson(source.scoringRuleJson ?? source.scoringRule ?? record?.scoringRuleJson ?? record?.scoringRule);
+  const programmingRef = normalizeProgrammingRef(
+    source.programmingRef ?? {
+      externalProblemId: source.hydroProblemId ?? source.hydroProblemName ?? source.hydroProblem ?? source.externalProblemId,
+      externalProblemUrl: source.hydroProblemUrl ?? source.hydroUrl ?? source.externalProblemUrl,
+      languages: source.hydroLanguages ?? source.languages,
+    },
+  );
+
+  return {
+    type: normalizeType(source.type || record?.type || 'single_choice'),
+    title: String(source.title || record?.title || '未命名题目').trim(),
+    content: String(source.contentMarkdown ?? source.content ?? record?.contentMarkdown ?? record?.content ?? '').trim(),
+    difficulty: Number(source.difficulty ?? record?.difficulty ?? 1) || 1,
+    defaultScore: Number(source.defaultScore ?? source.score ?? record?.defaultScore ?? record?.score ?? 2) || 2,
+    analysis: String(source.analysisMarkdown ?? source.analysis ?? record?.analysisMarkdown ?? record?.analysis ?? '').trim(),
+    tagNames,
+    knowledgePointNames,
+    options,
+    answer,
+    scoringRule,
+    programmingRef,
+    allowOptionShuffle: normalizeBoolean(source.allowOptionShuffle ?? record?.allowOptionShuffle),
+    courseId: source.courseId ?? record?.courseId ?? course?.id,
+    courseName: source.courseName ?? record?.courseName ?? course?.name,
+  };
+}
+
+function normalizePortableOptions(value) {
+  const parsed = normalizePortableJson(value);
+  if (!Array.isArray(parsed)) return [];
+  return parsed.map((option, index) => ({
+    id: option.id ?? option.optionId,
+    optionKey: String(option.optionKey ?? option.label ?? optionKeyForIndex(index)).trim() || optionKeyForIndex(index),
+    content: String(option.content ?? option.contentMarkdown ?? '').trim(),
+    isCorrect: option.isCorrect === true || option.isCorrect === 'true',
+    sortOrder: Number(option.sortOrder ?? index + 1) || index + 1,
+  }));
+}
+
+function normalizePortableJson(value) {
+  if (value && typeof value === 'object') return value;
+  const text = String(value ?? '').trim();
+  if (!text) return {};
+  try {
+    return JSON.parse(text);
+  } catch {
+    return text;
+  }
+}
+
+function applyPortableAnswerToOptions(options, answer) {
+  if (!Array.isArray(answer?.correctOptionIds) || !options.length) return options;
+  const correctIds = new Set(answer.correctOptionIds.map((item) => String(item)));
+  return options.map((option) => ({
+    ...option,
+    isCorrect: option.isCorrect || correctIds.has(String(option.id)) || correctIds.has(String(option.optionKey)),
+  }));
+}
+
+function normalizeBoolean(value) {
+  if (value === true || value === 'true' || value === '1' || value === 1) return true;
+  if (value === false || value === 'false' || value === '0' || value === 0) return false;
+  return undefined;
+}
+
+function normalizeNameList(value) {
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => (typeof item === 'string' ? item : item?.name))
+      .map((name) => String(name ?? '').trim())
+      .filter(isMeaningfulName);
+  }
+  return parseTagNames(value);
+}
+
+function rewritePortableQuestionAssets(question, assetUrlMap) {
+  return {
+    ...question,
+    content: rewritePortableAssetPaths(question.content, assetUrlMap),
+    analysis: rewritePortableAssetPaths(question.analysis, assetUrlMap),
+    options: question.options.map((option) => ({
+      ...option,
+      content: rewritePortableAssetPaths(option.content, assetUrlMap),
+    })),
+  };
+}
+
+function rewritePortableAssetPaths(value, assetUrlMap) {
+  let result = String(value ?? '');
+  for (const [assetPath, url] of assetUrlMap.entries()) {
+    result = result.split(assetPath).join(url);
+  }
+  return result;
+}
+
+function portableQuestionsToBatch(questions) {
+  const blocks = [];
+  const answers = [];
+  questions.forEach((question, index) => {
+    blocks.push(portableQuestionBlock(question));
+    const answer = portableAnswerForImport(question);
+    if (answer) answers.push(`${index + 1}. ${answer}`);
+  });
+  return {
+    template: blocks.join('\n---\n'),
+    answers: answers.join('\n'),
+  };
+}
+
+function portableQuestionBlock(question) {
+  const lines = [
+    `标题：${question.title}`,
+    question.courseName ? `课程：${question.courseName}` : '',
+    `题型：${typeLabel(question.type)}`,
+    `难度：${question.difficulty}`,
+    `分值：${question.defaultScore}`,
+  ].filter(Boolean);
+  if (question.tagNames?.length) lines.push(`标签：${question.tagNames.join(',')}`);
+  if (question.knowledgePointNames?.length) lines.push(`知识点：${question.knowledgePointNames.join(',')}`);
+  if (question.type === 'programming' && question.programmingRef?.externalProblemId) {
+    lines.push(`Hydro题目：${question.programmingRef.externalProblemId}`);
+    if (question.programmingRef.externalProblemUrl) lines.push(`Hydro链接：${question.programmingRef.externalProblemUrl}`);
+    if (question.programmingRef.languages?.length) lines.push(`Hydro语言：${question.programmingRef.languages.join(',')}`);
+  }
+  lines.push('题干：', question.content);
+  if (isChoiceType(question.type)) {
+    lines.push('选项：');
+    for (const option of question.options) {
+      const [firstLine, ...restLines] = String(option.content || '').split('\n');
+      lines.push(`${option.optionKey}. ${firstLine ?? ''}`);
+      lines.push(...restLines);
+    }
+  }
+  if (question.analysis) lines.push('解析：', question.analysis);
+  return lines.join('\n').trim();
+}
+
+function portableAnswerForImport(question) {
+  if (isChoiceType(question.type)) {
+    const correctKeys = question.options.filter((option) => option.isCorrect).map((option) => option.optionKey);
+    if (correctKeys.length) return correctKeys.join(',');
+
+    if (typeof question.answer === 'string') return question.answer;
+    if (Array.isArray(question.answer?.correctOptionIds)) {
+      return question.answer.correctOptionIds
+        .map((id) => question.options.find((option) => option.id === id || option.optionKey === id)?.optionKey)
+        .filter(Boolean)
+        .join(',');
+    }
+  }
+
+  if (question.type === 'fill_blank' && Array.isArray(question.answer?.blanks)) {
+    return fillBlankAnswerTextFromRules(question.answer.blanks).replace(/\n/g, '；');
+  }
+
+  if (typeof question.answer?.reference === 'string') return question.answer.reference;
+  if (typeof question.answer === 'string') return question.answer;
+  return '';
+}
+
+function parseCsvRows(text) {
+  const rows = parseCsvTable(text);
+  if (!rows.length) return [];
+  const headers = rows[0].map((header) => String(header || '').replace(/^\uFEFF/, '').trim());
+  return rows
+    .slice(1)
+    .filter((row) => row.some((cell) => String(cell ?? '').trim()))
+    .map((row) => Object.fromEntries(headers.map((header, index) => [header, row[index] ?? ''])));
+}
+
+function parseCsvTable(text) {
+  const rows = [];
+  let row = [];
+  let cell = '';
+  let inQuotes = false;
+  const source = String(text ?? '').replace(/\r\n/g, '\n');
+
+  for (let i = 0; i < source.length; i += 1) {
+    const char = source[i];
+    const next = source[i + 1];
+    if (inQuotes) {
+      if (char === '"' && next === '"') {
+        cell += '"';
+        i += 1;
+      } else if (char === '"') {
+        inQuotes = false;
+      } else {
+        cell += char;
+      }
+      continue;
+    }
+
+    if (char === '"') {
+      inQuotes = true;
+    } else if (char === ',') {
+      row.push(cell);
+      cell = '';
+    } else if (char === '\n') {
+      row.push(cell);
+      rows.push(row);
+      row = [];
+      cell = '';
+    } else {
+      cell += char;
+    }
+  }
+
+  row.push(cell);
+  rows.push(row);
+  return rows;
+}
+
+function decodeText(value) {
+  return new TextDecoder('utf-8').decode(value);
+}
+
+function mimeByFilename(filename) {
+  const extension = String(filename).split('.').pop()?.toLowerCase();
+  const map = {
+    png: 'image/png',
+    jpg: 'image/jpeg',
+    jpeg: 'image/jpeg',
+    gif: 'image/gif',
+    webp: 'image/webp',
+    svg: 'image/svg+xml',
+    pdf: 'application/pdf',
+    json: 'application/json',
+    csv: 'text/csv',
+    txt: 'text/plain',
+    md: 'text/markdown',
+  };
+  return map[extension] || 'application/octet-stream';
+}
+
+function appendMarkdownToObject(target, field, markdown) {
+  target[field] = appendMarkdownText(target[field], markdown);
+}
+
+function appendMarkdownText(value, markdown) {
+  const current = String(value || '').trimEnd();
+  return `${current}${current ? '\n\n' : ''}${markdown}\n`;
+}
+
+function replaceAssetReferences(oldUrl, nextUrl, oldMarkdown, nextMarkdown) {
+  const replaceValue = (value) => String(value || '').split(oldMarkdown).join(nextMarkdown).split(oldUrl).join(nextUrl);
+  singleForm.content = replaceValue(singleForm.content);
+  singleForm.analysis = replaceValue(singleForm.analysis);
+  singleForm.options.forEach((option) => {
+    option.content = replaceValue(option.content);
+  });
+  batchText.value = replaceValue(batchText.value);
+  batchAnswerText.value = replaceValue(batchAnswerText.value);
+  refreshPreview();
+}
+
+function removeAssetReferences(url) {
+  const removeValue = (value) =>
+    String(value || '')
+      .split('\n')
+      .filter((line) => !line.includes(url))
+      .join('\n')
+      .replace(/\n{3,}/g, '\n\n');
+  singleForm.content = removeValue(singleForm.content);
+  singleForm.analysis = removeValue(singleForm.analysis);
+  singleForm.options.forEach((option) => {
+    option.content = removeValue(option.content);
+  });
+  batchText.value = removeValue(batchText.value);
+  batchAnswerText.value = removeValue(batchAnswerText.value);
+}
+
+function fileExt(asset) {
+  const match = String(asset.filename || asset.url || '').match(/\.([a-z0-9]+)$/i);
+  return match ? match[1].toUpperCase().slice(0, 5) : 'FILE';
+}
+
+function formatFileSize(size) {
+  const value = Number(size || 0);
+  if (!value) return '未知大小';
+  if (value < 1024) return `${value} B`;
+  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KiB`;
+  return `${(value / 1024 / 1024).toFixed(1)} MiB`;
+}
+
+function getSingleAnswerText() {
+  if (isChoiceType(singleForm.type)) {
+    return singleForm.options.filter((option) => option.isCorrect).map((option) => option.optionKey).join(',');
+  }
+  if (singleForm.type === 'fill_blank') return blankAnswerText.value;
+  if (singleForm.type === 'material') return `${singleForm.children.length} 道子题`;
+  return answerReference.value;
+}
+
+function buildSingleProgrammingRefPayload() {
+  normalizeHydroProblemInput(singleForm.programmingRef);
+  return buildProgrammingRefFromValues({
+    judgeProvider: singleForm.programmingRef.judgeProvider,
+    externalProblemId: singleForm.programmingRef.externalProblemId,
+    externalProblemUrl: effectiveHydroProblemUrl(singleForm.programmingRef),
+    platformBaseUrl: singleForm.programmingRef.platformBaseUrl,
+    domainId: singleForm.programmingRef.domainId,
+    domainName: singleForm.programmingRef.domainName,
+    accountId: singleForm.programmingRef.accountId,
+    accountLabel: singleForm.programmingRef.accountLabel,
+    languagesText: singleForm.programmingRef.languagesText,
+    timeLimit: singleForm.programmingRef.timeLimit,
+    memoryLimit: singleForm.programmingRef.memoryLimit,
+    judgeConfig: singleForm.programmingRef.judgeConfig,
+  });
+}
+
+function normalizeProgrammingRef(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const ref = buildProgrammingRefFromValues({
+    judgeProvider: value.judgeProvider ?? value.platformCode ?? value.judgeConfig?.platformCode,
+    externalProblemId: value.externalProblemId ?? value.hydroProblemId ?? value.hydroProblemName ?? value.hydroProblem,
+    externalProblemUrl: value.externalProblemUrl ?? value.hydroProblemUrl ?? value.hydroUrl,
+    platformBaseUrl: value.platformBaseUrl,
+    domainId: value.domainId,
+    domainName: value.domainName,
+    accountId: value.accountId,
+    accountLabel: value.accountLabel,
+    languagesText: Array.isArray(value.languages) ? value.languages.join(',') : value.languages ?? value.hydroLanguages,
+    timeLimit: value.timeLimit,
+    memoryLimit: value.memoryLimit,
+    judgeConfig: value.judgeConfig,
+  });
+  return ref?.externalProblemId ? ref : null;
+}
+
+function buildProgrammingRefFromValues({
+  judgeProvider,
+  externalProblemId,
+  externalProblemUrl,
+  platformBaseUrl,
+  domainId,
+  domainName,
+  accountId,
+  accountLabel,
+  languagesText,
+  timeLimit,
+  memoryLimit,
+  judgeConfig,
+}) {
+  const problemId = String(externalProblemId ?? '').trim();
+  if (!problemId) return null;
+  const inferredBaseUrl = String(platformBaseUrl ?? '').trim() || baseUrlFromProblemUrl(externalProblemUrl);
+  const inferredSite = inferredBaseUrl
+    ? hydroSiteOptions.value.find((site) => sameHydroBaseUrl(site.value, inferredBaseUrl))
+    : null;
+  const provider = String(judgeProvider ?? inferredSite?.judgeProvider ?? '').trim().toLowerCase() || undefined;
+  const ref = {
+    judgeProvider: provider,
+    externalProblemId: problemId,
+    externalProblemUrl: String(externalProblemUrl ?? '').trim() || undefined,
+    platformBaseUrl: inferredSite?.value || inferredBaseUrl || undefined,
+    domainId: String(domainId ?? '').trim() || undefined,
+    domainName: String(domainName ?? '').trim() || undefined,
+    accountId: accountId || undefined,
+    accountLabel: String(accountLabel ?? '').trim() || undefined,
+    languages: parseHydroLanguages(languagesText || 'cc.cc17o2, py.py3'),
+  };
+  if (!ref.judgeProvider) delete ref.judgeProvider;
+  if (timeLimit) ref.timeLimit = Number(timeLimit);
+  if (memoryLimit) ref.memoryLimit = Number(memoryLimit);
+  if (judgeConfig) {
+    ref.judgeConfig = {
+      ...judgeConfig,
+      ...(provider ? { platformCode: provider } : {}),
+    };
+  }
+  return ref;
+}
+
+async function pullSingleHydroProblem() {
+  normalizeHydroProblemInput(singleForm.programmingRef);
+  if (!canPullSingleHydroProblem.value) {
+    ElMessage.warning('请先填写 Hydro 题号或链接');
+    return;
+  }
+
+  const problemUrl = effectiveHydroProblemUrl(singleForm.programmingRef);
+  singleHydroPulling.value = true;
+  try {
+    const pulled = await pullHydroProblem({
+        problemId: singleForm.programmingRef.externalProblemId.trim(),
+        problemUrl: problemUrl || undefined,
+        platformBaseUrl: singleForm.programmingRef.platformBaseUrl.trim() || undefined,
+        domainId: singleForm.programmingRef.domainId.trim() || undefined,
+        domainName: singleForm.programmingRef.domainName.trim() || undefined,
+        accountId: singleForm.programmingRef.accountId || undefined,
+        judgeProvider: singleForm.programmingRef.judgeProvider || undefined,
+      });
+    applyPulledHydroProblem(singleForm, pulled);
+    refreshPreview();
+    scheduleSingleDuplicateCheck();
+    ElMessage.success('Hydro 题目已拉取');
+  } catch (error) {
+    ElMessage.error(error.message || 'Hydro 题目拉取失败');
+  } finally {
+    singleHydroPulling.value = false;
+  }
+}
+
+function applyPulledHydroProblem(target, pulled) {
+  const ref = pulled.programmingRef ?? pulled;
+  target.type = 'programming';
+  target.title = pulled.title || target.title;
+  target.content = pulled.content || target.content;
+  target.programmingRef.externalProblemId = ref.externalProblemId || pulled.externalProblemId || target.programmingRef.externalProblemId;
+  target.programmingRef.externalProblemUrl = ref.externalProblemUrl || pulled.externalProblemUrl || target.programmingRef.externalProblemUrl;
+  target.programmingRef.platformBaseUrl = ref.platformBaseUrl || ref.judgeConfig?.platformBaseUrl || target.programmingRef.platformBaseUrl;
+  target.programmingRef.judgeProvider = ref.judgeProvider || ref.judgeConfig?.platformCode || target.programmingRef.judgeProvider || 'hydro';
+  const pulledDomainId = ref.domainId || ref.judgeConfig?.domainId || target.programmingRef.domainId || 'system';
+  target.programmingRef.domainId = pulledDomainId;
+  target.programmingRef.domainName = ref.domainName || ref.judgeConfig?.domainName || pulledDomainId;
+  target.programmingRef.accountId = ref.accountId || ref.judgeConfig?.accountId || target.programmingRef.accountId || '';
+  target.programmingRef.accountLabel = ref.accountLabel || ref.judgeConfig?.accountLabel || target.programmingRef.accountLabel || '';
+  target.programmingRef.languagesText = (ref.languages || pulled.languages || []).join(', ') || target.programmingRef.languagesText;
+  target.programmingRef.timeLimit = ref.timeLimit ?? pulled.timeLimit ?? null;
+  target.programmingRef.memoryLimit = ref.memoryLimit ?? pulled.memoryLimit ?? null;
+  target.programmingRef.judgeConfig = ref.judgeConfig ?? null;
+  resetSingleOptions();
+}
+
+function parseHydroLanguages(value) {
+  return String(value || '')
+    .split(/[,，、\s]+/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function openSingleHydroProblem() {
+  if (!singleHydroProblemUrl.value) return;
+  window.open(singleHydroProblemUrl.value, '_blank', 'noopener,noreferrer');
+}
+
+function effectiveHydroProblemUrl(ref) {
+  const explicit = String(ref?.externalProblemUrl || '').trim();
+  if (!explicit) return '';
+  const explicitProblemId = problemIdFromHydroUrl(explicit);
+  const currentProblemId = cleanHydroProblemId(ref?.externalProblemId);
+  if (explicitProblemId && currentProblemId && explicitProblemId !== currentProblemId) return '';
+  return explicit;
+}
+
+function cleanHydroProblemId(value) {
+  return String(value || '').trim().replace(/^#/, '');
+}
+
+function parseHydroProblemUrl(value) {
+  const raw = String(value || '').trim();
+  if (!/^https?:\/\//i.test(raw)) return null;
+  try {
+    const parsed = new URL(raw);
+    const problemId = problemIdFromHydroUrl(raw);
+    if (!problemId) return null;
+    return {
+      url: raw,
+      problemId,
+      baseUrl: `${parsed.protocol}//${parsed.host}`,
+      domainId: domainIdFromHydroUrl(raw) || 'system',
+    };
+  } catch {
+    return null;
+  }
+}
+
+function problemIdFromHydroUrl(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  const match = raw.match(/\/p\/([^/?#]+)/);
+  return match?.[1] ? decodeURIComponent(match[1]).trim() : '';
+}
+
+function domainIdFromHydroUrl(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  const match = raw.match(/\/d\/([^/]+)\/p\//);
+  return match?.[1] ? decodeURIComponent(match[1]).trim() : 'system';
+}
+
+function normalizeBaseUrl(value) {
+  const raw = String(value || 'https://oj.example.com').trim() || 'https://oj.example.com';
+  return (/^https?:\/\//i.test(raw) ? raw : `http://${raw}`).replace(/\/+$/, '');
+}
+
+function shortHost(value) {
+  try {
+    return new URL(normalizeBaseUrl(value)).host;
+  } catch {
+    return String(value || '').replace(/^https?:\/\//i, '').replace(/\/+$/, '');
+  }
+}
+
+function canonicalHost(value) {
+  return shortHost(value).toLowerCase().replace(/^www\./, '');
+}
+
+function sameHydroBaseUrl(left, right) {
+  const leftHost = canonicalHost(left);
+  const rightHost = canonicalHost(right);
+  return Boolean(leftHost && rightHost && leftHost === rightHost);
+}
+
+function baseUrlFromProblemUrl(url) {
+  try {
+    const parsed = new URL(String(url || '').trim());
+    return `${parsed.protocol}//${parsed.host}`;
+  } catch {
+    return '';
+  }
+}
+
+function programmingRefBaseUrl(ref) {
+  const raw = ref?.platformBaseUrl || baseUrlFromProblemUrl(ref?.externalProblemUrl);
+  return raw ? normalizeBaseUrl(raw) : '';
+}
+
+function matchingHydroAccountsForRef(ref) {
+  const targetBaseUrl = programmingRefBaseUrl(ref);
+  if (!targetBaseUrl) return hydroAccounts.value;
+  return hydroAccounts.value.filter((account) => sameHydroBaseUrl(account.platformBaseUrl, targetBaseUrl));
+}
+
+function isChoiceType(type) {
+  return ['single_choice', 'multiple_choice', 'true_false'].includes(type);
+}
+
+function normalizeType(value) {
+  const key = String(value || '').trim().toLowerCase();
+  const map = {
+    单选: 'single_choice',
+    单选题: 'single_choice',
+    single: 'single_choice',
+    single_choice: 'single_choice',
+    多选: 'multiple_choice',
+    多选题: 'multiple_choice',
+    multiple: 'multiple_choice',
+    multiple_choice: 'multiple_choice',
+    判断: 'true_false',
+    判断题: 'true_false',
+    true_false: 'true_false',
+    填空: 'fill_blank',
+    填空题: 'fill_blank',
+    fill_blank: 'fill_blank',
+    简答: 'short_answer',
+    简答题: 'short_answer',
+    short_answer: 'short_answer',
+    编程: 'programming',
+    编程题: 'programming',
+    programming: 'programming',
+    材料: 'material',
+    材料题: 'material',
+    '材料/组合题': 'material',
+    组合题: 'material',
+    大题: 'material',
+    '大题/组合题': 'material',
+    多问题: 'material',
+    多问简答: 'material',
+    material: 'material',
+    文件上传: 'file_upload',
+    文件上传题: 'file_upload',
+    file_upload: 'file_upload',
+    scratch: 'scratch_project',
+    scratch_project: 'scratch_project',
+    arduino: 'arduino_project',
+    arduino_project: 'arduino_project',
+  };
+  return map[key] ?? key;
+}
+
+function typeLabel(value) {
+  return typeOptions.find((item) => item.value === value)?.label ?? value ?? '';
+}
+
+function parseAnswerKeys(value) {
+  return String(value || '')
+    .split(/[,，、|\s]+/)
+    .map((item) => item.trim().toUpperCase())
+    .filter(Boolean);
+}
+
+function isMeaningfulName(value) {
+  const text = String(value ?? '').trim();
+  return Boolean(text) && !['undefined', 'null', '-', '无'].includes(text.toLowerCase());
+}
+
+function parseTagNames(value) {
+  return String(value || '')
+    .split(/[,，、|/]+/)
+    .map((item) => item.trim())
+    .filter(isMeaningfulName);
+}
+
+function normalizeCourseName(value) {
+  const text = String(value ?? '').trim().replace(/\s+/g, ' ');
+  return isMeaningfulName(text) ? text : '';
+}
+
+function selectedCourseName(courseId) {
+  return courses.value.find((course) => course.id === courseId)?.name ?? '';
+}
+
+function resolveCourseIdByName(name) {
+  const key = normalizeCourseName(name).toLowerCase();
+  if (!key) return '';
+  return courses.value.find((course) => normalizeCourseName(course.name).toLowerCase() === key)?.id ?? '';
+}
+
+function resolveCourseIdForImportedQuestion(sourceCourseId, courseName) {
+  if (sharedCourseTouched.value && sharedCourseId.value) return sharedCourseId.value;
+  const matchedCourseId = resolveCourseIdByName(courseName);
+  if (matchedCourseId) return matchedCourseId;
+  const sourceId = String(sourceCourseId ?? '').trim();
+  if (sourceId && courses.value.some((course) => course.id === sourceId)) return sourceId;
+  return sharedCourseTouched.value ? sharedCourseId.value : '';
+}
+
+function resolveKnowledgePointIdsByName(names = []) {
+  if (!names.length) return [];
+  const map = new Map(flattenKnowledgeTree(knowledgeTree.value).map((item) => [item.name, item.id]));
+  return names.map((name) => map.get(name)).filter(Boolean);
+}
+
+function convertKnowledgeTree(items) {
+  return items.map((item) => ({
+    label: `${item.sortOrder ? `${item.sortOrder}. ` : ''}${item.name}`,
+    value: item.id,
+    children: convertKnowledgeTree(item.children ?? []),
+  }));
+}
+
+function flattenKnowledgeTree(items) {
+  return items.flatMap((item) => [item, ...flattenKnowledgeTree(item.children ?? [])]);
+}
+
+function mergeTags(...groups) {
+  return [...new Set(groups.flat().map((name) => String(name).trim()).filter(isMeaningfulName))];
+}
+
+function mergeIds(...groups) {
+  return [...new Set(groups.flat().filter(Boolean))];
+}
+
+function blankAnswerOptions() {
+  return {
+    ignoreCase: !blankCaseSensitive.value,
+    trimSpace: !blankSpaceSensitive.value,
+  };
+}
+
+function normalizeAnswerRows(value, fallback = 6) {
+  const numberValue = Number(value);
+  if (!Number.isFinite(numberValue)) return fallback;
+  return Math.min(24, Math.max(2, Math.round(numberValue)));
+}
+
+function isTextAnswerType(type) {
+  return ['short_answer', 'file_upload', 'scratch_project', 'arduino_project'].includes(type);
+}
+
+function entryTipForType(type) {
+  const tips = {
+    single_choice: {
+      title: '录入提示：单选题需要且只能设置一个正确选项',
+      description: '题干、选项和解析都支持 Markdown；如果选项很多，建议先写完内容再选择正确项。',
+    },
+    multiple_choice: {
+      title: '录入提示：多选题至少需要两个正确选项',
+      description: '当前判分按题型引擎规则处理；选项内容保持完整，后续导出和判分会复用同一份结构。',
+    },
+    true_false: {
+      title: '录入提示：判断题保留“正确/错误”两个选项',
+      description: '只需要选择正确项；如需解释条件或前提，写在题干或解析中。',
+    },
+    fill_blank: {
+      title: '录入提示：填空题题干中的 ____ 会作为学生看到的空位',
+      description: '答案区可按空位逐行填写；材料题里的填空小题也使用同一套录入方式。',
+    },
+    short_answer: {
+      title: '录入提示：简答题（单问）只生成一个作答框',
+      description: '如果一题包含第 1 问、第 2 问等多组子项，请改为“大题/组合题”后逐题给分。',
+    },
+    programming: {
+      title: '录入提示：编程题优先绑定 Hydro 题号或题目链接',
+      description: '绑定外部题后可拉取标题、题面和语言；本地不直接保存外部平台账号密钥。',
+    },
+    material: {
+      title: '录入提示：大题/组合题由“大题说明 + 多道子题”组成',
+      description: '子题通过弹窗新增或编辑，默认不会在题库列表中单独展示；右侧预览会按题号紧凑展示完整小题。',
+    },
+    file_upload: {
+      title: '录入提示：文件上传题适合收作业附件或项目文件',
+      description: '参考答案可填写提交要求或评分说明；作答框行数只影响学生端输入区高度。',
+    },
+    scratch_project: {
+      title: '录入提示：Scratch 项目题可写项目要求和评分说明',
+      description: '学生端按主观/项目类题型提交，后续由教师批改或结合附件检查。',
+    },
+    arduino_project: {
+      title: '录入提示：Arduino 项目题可写接线、代码和验收标准',
+      description: '建议把设备要求、提交材料和评分点拆清楚，便于后续批改。',
+    },
+  };
+  return tips[type] ?? {
+    title: '录入提示：请先填写题目标题、题干和分值',
+    description: '如果当前题型较复杂，建议先保存草稿再进入题库详情中复核。',
+  };
+}
+
+function optionKeyForIndex(index) {
+  return index < 26 ? String.fromCharCode(65 + index) : `X${index + 1}`;
+}
+
+function extractField(block, label) {
+  const match = block.match(new RegExp(`^${label}[:：]\\s*(.+)$`, 'm'));
+  return match?.[1]?.trim() ?? '';
+}
+
+function formatBatchErrors(errors) {
+  return errors.map((error) => `第 ${error.number} 题（${error.title}）：${error.message}`).join('；');
+}
+
+function batchRowClass({ row }) {
+  if (row.valid === false) return 'batch-row-error';
+  if (shouldSkipBatchRow(row)) return 'batch-row-skip';
+  return '';
+}
+
+function makeTagCode(name, index) {
+  const ascii = name.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 24);
+  return `q_${ascii || 'tag'}_${Date.now()}_${index}`;
+}
+
+watch(
+  () => (importMode.value === 'single' ? JSON.stringify(buildDuplicateCheckPayload(singlePreviewQuestion.value)) : importMode.value),
+  () => scheduleSingleDuplicateCheck(),
+);
+
+onBeforeUnmount(() => {
+  if (singleDuplicateTimer) clearTimeout(singleDuplicateTimer);
+  uploadedAssets.value.forEach(releaseAssetPreview);
+});
+
+onMounted(async () => {
+  await loadBaseData();
+  if (readRememberedSingleType()) {
+    resetSingleOptions();
+  } else {
+    loadSingleTemplate();
+  }
+  loadBatchTemplate();
+  setImageInsertTarget(singleForm, 'content');
+});
+</script>
+
+<style scoped>
+.mini-muted {
+  margin-top: 4px;
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+:deep(.batch-row-error) {
+  --el-table-tr-bg-color: #fff2f0;
+}
+
+:deep(.batch-row-skip) {
+  --el-table-tr-bg-color: #fff8e6;
+}
+
+.material-preview-child {
+  display: grid;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--el-border-color-light);
+  border-radius: 10px;
+  background: var(--el-bg-color);
+}
+
+.material-child-choice-editor {
+  padding: 10px;
+  border-radius: 8px;
+  background: var(--el-fill-color-lighter);
+}
+
+.compact-toolbar {
+  margin-bottom: 8px;
+}
+
+.material-preview-children {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.material-preview-child h4 {
+  margin: 0;
+  font-size: 15px;
+}
+
+.material-child-editor {
+  display: grid;
+  width: 100%;
+  gap: 10px;
+}
+
+.question-entry-guide {
+  margin-bottom: 12px;
+}
+
+.material-child-editor-head {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.material-child-editor-head p {
+  margin: 4px 0 0;
+}
+
+.material-child-builder {
+  display: grid;
+  grid-template-columns: minmax(180px, 240px) minmax(0, 1fr);
+  gap: 12px;
+  align-items: stretch;
+}
+
+.material-child-list {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  min-height: 180px;
+  padding: 8px;
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 10px;
+  background: var(--el-fill-color-lighter);
+}
+
+.material-child-list-item {
+  display: grid;
+  gap: 3px;
+  width: 100%;
+  padding: 9px 10px;
+  color: var(--el-text-color-primary);
+  text-align: left;
+  cursor: pointer;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: var(--el-bg-color);
+}
+
+.material-child-list-item.active,
+.material-child-list-item:hover {
+  border-color: var(--el-color-primary-light-5);
+  background: var(--el-color-primary-light-9);
+}
+
+.material-child-list-item strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.material-child-list-item small,
+.material-child-index {
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+}
+
+.material-child-actions {
+  display: grid;
+  align-content: start;
+  gap: 10px;
+}
+
+.selected-material-child-summary {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 4px 10px;
+  align-items: center;
+  padding: 10px 12px;
+  border: 1px dashed var(--el-border-color);
+  border-radius: 10px;
+  background: var(--el-fill-color-light);
+}
+
+.selected-material-child-summary .mini-muted,
+.selected-material-child-summary > span:last-of-type {
+  grid-column: 1;
+}
+
+.material-child-dialog-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 12px;
+}
+
+.subjective-answer-settings {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.subjective-answer-editor {
+  display: grid;
+  width: 100%;
+  gap: 10px;
+}
+
+@media (max-width: 900px) {
+  .material-child-builder,
+  .material-child-dialog-grid {
+    grid-template-columns: 1fr;
+  }
+}
+</style>

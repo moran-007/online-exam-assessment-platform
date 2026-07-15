@@ -133,7 +133,7 @@
 import { computed, onMounted, reactive, ref } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { Edit, Plus, Refresh, Search } from '@element-plus/icons-vue';
-import { api, buildQuery } from '../api';
+import { createTag, listTags, removeTag, updateTag } from '../features/platform/api';
 import { useResponsiveColumns } from '../composables/useResponsiveColumns';
 
 const { showMediumColumns } = useResponsiveColumns();
@@ -166,13 +166,13 @@ function baseForm() {
 }
 
 async function load() {
-  const data = await api(`/tags${buildQuery({
+  const data = await listTags({
     page: pagination.page,
     pageSize: pagination.pageSize,
-    keyword: keyword.value,
-    type: typeFilter.value,
-    status: statusFilter.value,
-  })}`);
+    keyword: keyword.value || undefined,
+    type: typeFilter.value || undefined,
+    status: statusFilter.value || undefined,
+  });
   items.value = data.items;
   pagination.page = data.page;
   pagination.pageSize = data.pageSize;
@@ -230,12 +230,12 @@ async function save() {
   };
 
   if (editingId.value) {
-    await api(`/tags/${editingId.value}`, { method: 'PATCH', body: payload });
+    await updateTag(editingId.value, payload);
     ElMessage.success('标签已保存');
   } else {
     const createPayload = { ...payload };
     delete createPayload.status;
-    await api('/tags', { method: 'POST', body: createPayload });
+    await createTag(createPayload);
     ElMessage.success('已新增标签');
   }
 
@@ -256,7 +256,7 @@ async function remove(row) {
       confirmButtonText: '删除',
       cancelButtonText: '取消',
     });
-    await api(`/tags/${row.id}`, { method: 'DELETE' });
+    await removeTag(row.id);
     ElMessage.success('标签已删除');
     if (editingId.value === row.id) resetForm();
     await load();

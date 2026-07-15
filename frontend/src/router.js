@@ -1,29 +1,30 @@
 import { createRouter, createWebHistory } from 'vue-router';
 import { canAccessByMeta, firstAccessiblePath, isPrivilegedUser } from './access';
 import { getCurrentUser, getRefreshToken, getToken, hasActiveSession } from './api';
-import LoginView from './views/LoginView.vue';
-import DashboardView from './views/DashboardView.vue';
-import CourseView from './views/CourseView.vue';
-import ClassView from './views/ClassView.vue';
-import KnowledgeView from './views/KnowledgeView.vue';
-import TagView from './views/TagView.vue';
-import QuestionView from './views/QuestionView.vue';
-import QuestionImportView from './views/QuestionImportView.vue';
-import PaperView from './views/PaperView.vue';
-import PaperAnswerView from './views/PaperAnswerView.vue';
-import ExamView from './views/ExamView.vue';
-import GradingWorkbenchView from './views/GradingWorkbenchView.vue';
-import ExportView from './views/ExportView.vue';
-import StatisticsView from './views/StatisticsView.vue';
-import StudentExamView from './views/StudentExamView.vue';
-import ExamTakingView from './views/ExamTakingView.vue';
-import AttemptReviewView from './views/AttemptReviewView.vue';
-import WrongQuestionView from './views/WrongQuestionView.vue';
-import PublicQuestionView from './views/PublicQuestionView.vue';
-import StudentPaperBankView from './views/StudentPaperBankView.vue';
-import StudentProfileView from './views/StudentProfileView.vue';
-import ExternalAccountView from './views/ExternalAccountView.vue';
-import UserManagementView from './views/UserManagementView.vue';
+
+const LoginView = () => import('./views/LoginView.vue');
+const DashboardView = () => import('./views/DashboardView.vue');
+const CourseView = () => import('./views/CourseView.vue');
+const ClassView = () => import('./views/ClassView.vue');
+const KnowledgeView = () => import('./views/KnowledgeView.vue');
+const TagView = () => import('./views/TagView.vue');
+const QuestionView = () => import('./views/QuestionView.vue');
+const QuestionImportView = () => import('./views/QuestionImportView.vue');
+const PaperView = () => import('./views/PaperView.vue');
+const PaperAnswerView = () => import('./views/PaperAnswerView.vue');
+const ExamView = () => import('./views/ExamView.vue');
+const GradingWorkbenchView = () => import('./views/GradingWorkbenchView.vue');
+const ExportView = () => import('./views/ExportView.vue');
+const StatisticsView = () => import('./views/StatisticsView.vue');
+const StudentExamView = () => import('./views/StudentExamView.vue');
+const ExamTakingView = () => import('./views/ExamTakingView.vue');
+const AttemptReviewView = () => import('./views/AttemptReviewView.vue');
+const WrongQuestionView = () => import('./views/WrongQuestionView.vue');
+const PublicQuestionView = () => import('./views/PublicQuestionView.vue');
+const StudentPaperBankView = () => import('./views/StudentPaperBankView.vue');
+const StudentProfileView = () => import('./views/StudentProfileView.vue');
+const ExternalAccountView = () => import('./views/ExternalAccountView.vue');
+const UserManagementView = () => import('./views/UserManagementView.vue');
 
 const routes = [
   { path: '/login', component: LoginView, meta: { public: true } },

@@ -121,7 +121,15 @@
 import { computed, onMounted, reactive, ref } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { Delete, Link, Refresh } from '@element-plus/icons-vue';
-import { api, setSession } from '../api';
+import { setSession } from '../api';
+import { changeOwnPassword, getCurrentProfile } from '../features/platform/api';
+import {
+  bindMyHydroAccount,
+  listHydroPlatforms,
+  listMyHydroAccounts,
+  removeOwnHydroAccount,
+  testOwnHydroAccount,
+} from '../features/hydro/api';
 
 const user = ref(null);
 const hydroAccounts = ref([]);
@@ -157,7 +165,7 @@ const roleName = computed(() => {
 });
 
 async function load() {
-  user.value = await api('/auth/me');
+  user.value = await getCurrentProfile();
   setSession({ user: user.value });
   if (canManageOwnExternalAccounts.value) {
     await loadPlatforms();
@@ -170,7 +178,7 @@ const canManageOwnExternalAccounts = computed(() =>
 );
 
 async function loadPlatforms() {
-  platforms.value = await api('/hydro/platforms');
+  platforms.value = await listHydroPlatforms();
   const platform = platforms.value[0];
   if (platform && !hydroForm.platformBaseUrl) {
     hydroForm.platformCode = platform.code;
@@ -179,7 +187,7 @@ async function loadPlatforms() {
 }
 
 async function loadHydroAccounts() {
-  hydroAccounts.value = await api('/hydro/my/accounts');
+  hydroAccounts.value = await listMyHydroAccounts();
   if (hydroAccounts.value.length) {
     editHydroAccount(hydroAccounts.value[0]);
   } else {
@@ -203,12 +211,9 @@ async function changePassword() {
 
   passwordSaving.value = true;
   try {
-    await api('/users/me/password', {
-      method: 'POST',
-      body: {
+    await changeOwnPassword({
         currentPassword: passwordForm.currentPassword,
         newPassword: passwordForm.newPassword,
-      },
     });
     passwordForm.currentPassword = '';
     passwordForm.newPassword = '';
@@ -237,9 +242,7 @@ async function saveHydroAccount() {
   hydroSaving.value = true;
   try {
     const platform = platforms.value.find((item) => item.code === hydroForm.platformCode);
-    const saved = await api('/hydro/my/account', {
-      method: 'PUT',
-      body: {
+    const saved = await bindMyHydroAccount({
         id: hydroForm.id || undefined,
         platformCode: hydroForm.platformCode,
         platformName: platform?.name,
@@ -249,7 +252,6 @@ async function saveHydroAccount() {
         hydroUsername,
         hydroUserId,
         bindStatus: hydroForm.bindStatus,
-      },
     });
     editHydroAccount(saved);
     await loadHydroAccounts();
@@ -270,7 +272,7 @@ async function testHydroAccount(row = null) {
   hydroTesting.value = !row;
   hydroTestingId.value = accountId;
   try {
-    const result = await api(`/hydro/my/accounts/${accountId}/test`, { method: 'POST' });
+    const result = await testOwnHydroAccount(accountId);
     await loadHydroAccounts();
     ElMessage[result.success ? 'success' : 'warning'](result.message || '检测完成');
   } catch (error) {
@@ -288,7 +290,7 @@ async function deleteHydroAccount(row) {
       confirmButtonText: '删除',
       cancelButtonText: '取消',
     });
-    await api(`/hydro/my/accounts/${row.id}`, { method: 'DELETE' });
+    await removeOwnHydroAccount(row.id);
     await loadHydroAccounts();
     ElMessage.success('外部账号已删除');
   } catch (error) {

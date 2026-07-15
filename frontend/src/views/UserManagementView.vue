@@ -258,7 +258,17 @@
 import { computed, nextTick, onMounted, reactive, ref } from 'vue';
 import { ElMessage } from 'element-plus';
 import { Edit, Key, Plus, Refresh, Search } from '@element-plus/icons-vue';
-import { api, buildQuery } from '../api';
+import {
+  createRole,
+  createUser,
+  listPermissions,
+  listRoles,
+  listUsers,
+  resetUserPassword,
+  updateRole,
+  updateRolePermissions,
+  updateUser,
+} from '../features/platform/api';
 
 const activeTab = ref('users');
 const users = ref([]);
@@ -407,15 +417,13 @@ async function refreshAll() {
 async function loadUsers() {
   userLoading.value = true;
   try {
-    const result = await api(
-      `/users${buildQuery({
+    const result = await listUsers({
         page: userPagination.page,
         pageSize: userPagination.pageSize,
-        keyword: userFilters.keyword,
-        userType: userFilters.userType,
-        status: userFilters.status,
-      })}`,
-    );
+        keyword: userFilters.keyword || undefined,
+        userType: userFilters.userType || undefined,
+        status: userFilters.status || undefined,
+      });
     users.value = result.items || [];
     userPagination.page = result.page;
     userPagination.pageSize = result.pageSize;
@@ -433,14 +441,14 @@ function loadFirstUserPage() {
 async function loadRoles() {
   roleLoading.value = true;
   try {
-    roles.value = await api('/users/roles');
+    roles.value = await listRoles();
   } finally {
     roleLoading.value = false;
   }
 }
 
 async function loadPermissions() {
-  permissions.value = await api('/users/permissions');
+  permissions.value = await listPermissions();
 }
 
 function openCreateUserDialog() {
@@ -510,15 +518,12 @@ async function saveUser() {
       roleIds: userForm.roleIds,
     };
     if (editingUserId.value) {
-      await api(`/users/${editingUserId.value}`, { method: 'PATCH', body });
+      await updateUser(editingUserId.value, body);
       ElMessage.success('用户已保存');
     } else {
-      await api('/users', {
-        method: 'POST',
-        body: {
+      await createUser({
           ...body,
           username: userForm.username,
-        },
       });
       ElMessage.success('用户已创建');
     }
@@ -544,10 +549,7 @@ async function resetPassword() {
 
   savingResetPassword.value = true;
   try {
-    await api(`/users/${resetPasswordUser.value.id}/reset-password`, {
-      method: 'POST',
-      body: { password: resetPasswordForm.password },
-    });
+    await resetUserPassword(resetPasswordUser.value.id, { password: resetPasswordForm.password });
     ElMessage.success('密码已重置');
     resetPasswordDialogVisible.value = false;
   } catch (error) {
@@ -589,10 +591,10 @@ async function saveRole() {
       status: roleForm.status,
     };
     if (editingRoleId.value) {
-      await api(`/users/roles/${editingRoleId.value}`, { method: 'PATCH', body });
+      await updateRole(editingRoleId.value, body);
       ElMessage.success('角色已保存');
     } else {
-      await api('/users/roles', { method: 'POST', body });
+      await createRole(body);
       ElMessage.success('角色已创建');
     }
     roleDialogVisible.value = false;
@@ -619,10 +621,7 @@ async function saveRolePermissions() {
 
   savingPermissions.value = true;
   try {
-    await api(`/users/roles/${selectedRole.value.id}/permissions`, {
-      method: 'PUT',
-      body: { permissionIds },
-    });
+    await updateRolePermissions(selectedRole.value.id, { permissionIds });
     ElMessage.success('权限已保存');
     permissionDrawerVisible.value = false;
     await Promise.all([loadRoles(), loadUsers()]);

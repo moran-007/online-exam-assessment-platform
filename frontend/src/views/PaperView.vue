@@ -591,7 +591,24 @@ import { computed, onMounted, reactive, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { Bottom, Check, Close, Delete, DocumentCopy, Edit, Plus, Refresh, Top, Upload } from '@element-plus/icons-vue';
-import { api, buildQuery } from '../api';
+import { getKnowledgeTree, listCourses, listTags } from '../features/platform/api';
+import { listQuestions, uploadQuestionAsset } from '../features/questions/api';
+import {
+  addPaperQuestion,
+  addPaperQuestionsByTags,
+  copyPaper,
+  createPaper as createPaperRequest,
+  generatePaperFromWrongFrequency,
+  getPaper,
+  importPaper,
+  listPapers,
+  movePaperQuestion,
+  publishPaper as publishPaperRequest,
+  removePaperQuestion,
+  updatePaper,
+  updatePaperQuestion as updatePaperQuestionRequest,
+  updatePaperQuestionSnapshot,
+} from '../features/papers/api';
 import MarkdownRenderer from '../components/MarkdownRenderer.vue';
 import { useResponsiveColumns } from '../composables/useResponsiveColumns';
 import {
@@ -706,20 +723,18 @@ const bulkKnowledgeTreeOptions = computed(() => convertKnowledgeTree(bulkKnowled
 
 async function loadAll() {
   const [coursePage, paperPage, questionPage, tagPage] = await Promise.all([
-    api('/courses?pageSize=100'),
-    api(
-      `/papers${buildQuery({
+    listCourses({ pageSize: 100 }),
+    listPapers({
         page: paperPagination.page,
         pageSize: paperPagination.pageSize,
-        keyword: paperFilter.keyword,
-        courseId: paperFilter.courseId,
+        keyword: paperFilter.keyword || undefined,
+        courseId: paperFilter.courseId || undefined,
         scope: paperScope.value,
         sortBy: paperFilter.sortBy,
         sortOrder: paperFilter.sortOrder,
-      })}`,
-    ),
-    api('/questions?pageSize=100&status=published'),
-    api('/tags?pageSize=100&type=QUESTION'),
+      }),
+    listQuestions({ pageSize: 100, status: 'published' }),
+    listTags({ pageSize: 100, type: 'QUESTION' }),
   ]);
   courses.value = coursePage.items;
   papers.value = paperPage.items;
@@ -769,7 +784,7 @@ async function createPaper() {
     ElMessage.error('请填写试卷名称');
     return;
   }
-  const created = await api('/papers', { method: 'POST', body: form });
+  const created = await createPaperRequest(form);
   ElMessage.success('已创建');
   form.name = '';
   createPaperVisible.value = false;
@@ -797,9 +812,7 @@ async function handlePaperImportChange(uploadFile) {
       return;
     }
 
-    const result = await api('/papers/import', {
-      method: 'POST',
-      body: {
+    const result = await importPaper({
         name: packageData.paperName,
         courseId,
         durationMinutes: packageData.durationMinutes,
@@ -807,7 +820,6 @@ async function handlePaperImportChange(uploadFile) {
         shuffleOptions: packageData.shuffleOptions,
         reuseExisting: true,
         questions: packageData.questions,
-      },
     });
     ElMessage.success(`已导入试卷：${result.questionCount} 题，复用 ${result.reusedCount} 题`);
     paperFilter.courseId = courseId;
@@ -901,7 +913,7 @@ async function uploadPaperZipAssets(entries) {
     const filename = entry.name.split('/').pop() || 'asset';
     const formData = new FormData();
     formData.append('file', new File([new Blob([entry.data], { type: mimeByFilename(filename) })], filename));
-    const asset = await api('/uploads/question-assets', { method: 'POST', body: formData });
+    const asset = await uploadQuestionAsset(formData);
     if (asset?.url) assetUrlMap.set(entry.name, asset.url);
   }
   return assetUrlMap;
@@ -931,10 +943,7 @@ async function generateWrongFrequencyPaper() {
     questionType: wrongFrequencyForm.questionType || undefined,
     sectionTitle: wrongFrequencyForm.sectionTitle.trim() || undefined,
   };
-  const result = await api('/papers/generate-from-wrong-frequency', {
-    method: 'POST',
-    body: payload,
-  });
+  const result = await generatePaperFromWrongFrequency(payload);
   ElMessage.success(`已按错题频次生成 ${result.questionCount} 道题`);
   wrongFrequencyVisible.value = false;
   paperScope.value = 'draft';
@@ -992,7 +1001,7 @@ async function copyPaperAsDraft(row) {
       confirmButtonText: '复制草稿',
       cancelButtonText: '取消',
     });
-    const created = await api(`/papers/${sourceId}/copy`, { method: 'POST' });
+    const created = await copyPaper(sourceId);
     ElMessage.success('已复制为草稿试卷');
     paperScope.value = 'draft';
     paperFilter.sortBy = 'createdAt';
@@ -1009,7 +1018,7 @@ async function copyPaperAsDraft(row) {
 }
 
 async function loadDetail() {
-  detail.value = selectedPaperId.value ? decoratePaperDetail(await api(`/papers/${selectedPaperId.value}`)) : null;
+  detail.value = selectedPaperId.value ? decoratePaperDetail(await getPaper(selectedPaperId.value)) : null;
   if (detail.value) {
     Object.assign(editPaperForm, {
       name: detail.value.name,
@@ -1030,7 +1039,7 @@ async function handleBulkCourseChange() {
 }
 
 async function loadBulkKnowledgeTree() {
-  bulkKnowledgeTree.value = bulkForm.courseId ? await api(`/knowledge-points/tree?courseId=${bulkForm.courseId}`) : [];
+  bulkKnowledgeTree.value = bulkForm.courseId ? await getKnowledgeTree(bulkForm.courseId) : [];
 }
 
 function syncSelectedQuestionScore() {
@@ -1045,7 +1054,7 @@ async function addQuestion() {
     ElMessage.error('请选择试卷和题目');
     return;
   }
-  await api(`/papers/${selectedPaperId.value}/questions`, { method: 'POST', body: addForm });
+  await addPaperQuestion(selectedPaperId.value, addForm);
   ElMessage.success('已加入试卷');
   await refreshSelectedPaper();
 }
@@ -1068,16 +1077,13 @@ async function addQuestionsByTags() {
     questionType: bulkForm.questionType || undefined,
     count: bulkForm.random ? bulkForm.count : undefined,
   };
-  const result = await api(`/papers/${selectedPaperId.value}/questions/by-tags`, {
-    method: 'POST',
-    body: payload,
-  });
+  const result = await addPaperQuestionsByTags(selectedPaperId.value, payload);
   ElMessage.success(`已加入 ${result.addedCount} 道题`);
   await refreshSelectedPaper();
 }
 
 async function savePaperInfo() {
-  await api(`/papers/${selectedPaperId.value}`, { method: 'PATCH', body: editPaperForm });
+  await updatePaper(selectedPaperId.value, editPaperForm);
   ElMessage.success('试卷信息已保存');
   await refreshSelectedPaper();
 }
@@ -1087,12 +1093,9 @@ async function unpublishPaper() {
 }
 
 async function updatePaperQuestion(paperQuestion) {
-  await api(`/papers/${selectedPaperId.value}/questions/${paperQuestion.id}`, {
-    method: 'PATCH',
-    body: {
+  await updatePaperQuestionRequest(selectedPaperId.value, paperQuestion.id, {
       score: paperQuestion.editScore,
       sectionTitle: paperQuestion.editSectionTitle,
-    },
   });
   ElMessage.success('题目调整已保存');
   await refreshSelectedPaper();
@@ -1138,9 +1141,7 @@ async function saveSnapshotDisplay() {
 
   snapshotSaving.value = true;
   try {
-    await api(`/papers/${selectedPaperId.value}/questions/${snapshotForm.paperQuestionId}/snapshot`, {
-      method: 'PATCH',
-      body: {
+    await updatePaperQuestionSnapshot(selectedPaperId.value, snapshotForm.paperQuestionId, {
         title: snapshotForm.title,
         content: snapshotForm.content,
         analysis: snapshotForm.analysis,
@@ -1152,7 +1153,6 @@ async function saveSnapshotDisplay() {
               sortOrder: index + 1,
             }))
           : undefined,
-      },
     });
     ElMessage.success('显示内容已保存');
     snapshotEditorVisible.value = false;
@@ -1165,16 +1165,13 @@ async function saveSnapshotDisplay() {
 }
 
 async function moveQuestion(paperQuestion, direction) {
-  await api(`/papers/${selectedPaperId.value}/questions/${paperQuestion.id}/move`, {
-    method: 'POST',
-    body: { direction },
-  });
+  await movePaperQuestion(selectedPaperId.value, paperQuestion.id, { direction });
   await refreshSelectedPaper();
 }
 
 async function removeQuestion(paperQuestion) {
   await ElMessageBox.confirm(`确认从试卷中删除“${snapshot(paperQuestion).title}”？`, '删除题目', { type: 'warning' });
-  await api(`/papers/${selectedPaperId.value}/questions/${paperQuestion.id}`, { method: 'DELETE' });
+  await removePaperQuestion(selectedPaperId.value, paperQuestion.id);
   ElMessage.success('已删除题目');
   await refreshSelectedPaper();
 }
@@ -1232,9 +1229,9 @@ async function changePaperStatus(row, targetStatus) {
     }
 
     if (targetStatus === 'published') {
-      await api(`/papers/${paperId}/publish`, { method: 'POST' });
+      await publishPaperRequest(paperId);
     } else {
-      await api(`/papers/${paperId}`, { method: 'PATCH', body: { status: targetStatus } });
+      await updatePaper(paperId, { status: targetStatus });
     }
 
     ElMessage.success(`试卷状态已更新为${statusLabel('paper', targetStatus)}`);

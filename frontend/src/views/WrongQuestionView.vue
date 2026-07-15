@@ -242,6 +242,7 @@
             <el-radio-button label="pdf">PDF</el-radio-button>
             <el-radio-button label="docx">Word</el-radio-button>
             <el-radio-button label="csv">CSV</el-radio-button>
+            <el-radio-button label="xlsx">Excel</el-radio-button>
           </el-radio-group>
         </el-form-item>
         <el-form-item label="内容">
@@ -283,7 +284,17 @@ import { computed, onMounted, reactive, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { Aim, Check, Delete, Document, Download, Hide, Link, Plus, Refresh, Search } from '@element-plus/icons-vue';
-import { api, buildQuery } from '../api';
+import {
+  addStudentWrongQuestion,
+  generateStudentWrongQuestionPaper,
+  getWrongQuestionEvents,
+  getWrongQuestionInsights,
+  listWrongQuestions,
+  recordWrongQuestionPractice,
+  setWrongQuestionStatus,
+} from '../features/exams/api';
+import { checkQuestionAnswer, listPublicQuestions } from '../features/questions/api';
+import { createWrongQuestionExportTask } from '../features/exports/api';
 import AnswerFeedback from '../components/AnswerFeedback.vue';
 import CodeAnswerEditor from '../components/CodeAnswerEditor.vue';
 import MarkdownRenderer from '../components/MarkdownRenderer.vue';
@@ -326,8 +337,8 @@ const canUseActiveActions = computed(() => wrongTab.value === 'active' && items.
 
 async function load() {
   const [wrongItems, insightData] = await Promise.all([
-    api(`/student/wrong-questions${buildQuery({ mastery: wrongTab.value })}`),
-    api('/student/wrong-questions/insights'),
+    listWrongQuestions({ mastery: wrongTab.value }),
+    getWrongQuestionInsights(),
   ]);
   items.value = wrongItems;
   Object.assign(insights, {
@@ -339,7 +350,7 @@ async function load() {
 }
 
 async function loadCandidates() {
-  const data = await api(`/questions/public/list${buildQuery({ pageSize: 30, keyword: candidateKeyword.value })}`);
+  const data = await listPublicQuestions({ pageSize: 30, keyword: candidateKeyword.value || undefined });
   candidates.value = data.items;
   selectedCandidateId.value = candidates.value.some((question) => question.id === selectedCandidateId.value)
     ? selectedCandidateId.value
@@ -348,10 +359,7 @@ async function loadCandidates() {
 
 async function addWrongQuestion() {
   if (!selectedCandidateId.value) return;
-  await api('/student/wrong-questions', {
-    method: 'POST',
-    body: { questionId: selectedCandidateId.value },
-  });
+  await addStudentWrongQuestion({ questionId: selectedCandidateId.value });
   ElMessage.success('已加入错题本');
   await load();
 }
@@ -363,13 +371,10 @@ async function generateWrongPaper() {
     confirmButtonText: '生成试卷',
     cancelButtonText: '取消',
   });
-  const result = await api('/student/wrong-questions/paper', {
-    method: 'POST',
-    body: {
+  const result = await generateStudentWrongQuestionPaper({
       name: `我的错题组卷 ${new Date().toISOString().replace(/[-:.]/g, '').slice(0, 15)}`,
       count: items.value.length,
       random: false,
-    },
   });
   ElMessage.success(`已生成 ${result.questionCount} 道题的错题卷`);
   router.push({
@@ -379,12 +384,9 @@ async function generateWrongPaper() {
 }
 
 async function exportWrongQuestions() {
-  const task = await api('/exports/student/wrong-questions', {
-    method: 'POST',
-    body: {
+  const task = await createWrongQuestionExportTask({
       type: 'wrong_questions',
       ...exportForm,
-    },
   });
   exportVisible.value = false;
   ElMessage.success(`错题导出任务已加入队列：${task.id?.slice?.(0, 8) ?? ''}，请到导出中心下载`);
@@ -405,19 +407,13 @@ async function checkPractice() {
   if (!practice.value) return;
   const payload = payloadForAnswer();
   let recordedResult = null;
-  practiceResult.value = await api(`/questions/${practice.value.question.id}/check-answer`, {
-    method: 'POST',
-    body: payload,
-  });
+  practiceResult.value = await checkQuestionAnswer(practice.value.question.id, payload);
   if (practiceResult.value?.isCorrect !== null && practiceResult.value?.isCorrect !== undefined) {
-    recordedResult = await api(`/student/wrong-questions/${practice.value.question.id}/practice-result`, {
-      method: 'POST',
-      body: {
+    recordedResult = await recordWrongQuestionPractice(practice.value.question.id, {
         answer: payload,
         isCorrect: Boolean(practiceResult.value.isCorrect),
         score: practiceResult.value.score ?? 0,
         totalScore: practiceResult.value.totalScore ?? practice.value.question.defaultScore ?? 0,
-      },
     });
   }
   if (practiceResult.value?.isCorrect) {
@@ -455,7 +451,7 @@ function openReminder(questionId) {
 
 async function showEvents(row) {
   traceTitle.value = row.question.title;
-  traceEvents.value = await api(`/student/wrong-questions/${row.question.id}/events`);
+  traceEvents.value = await getWrongQuestionEvents(row.question.id);
   traceVisible.value = true;
 }
 
@@ -475,10 +471,7 @@ async function markWrongQuestionMastered(row) {
 }
 
 async function updateWrongQuestionStatus(row, masteryStatus) {
-  await api(`/student/wrong-questions/${row.question.id}/status`, {
-    method: 'PATCH',
-    body: { masteryStatus },
-  });
+  await setWrongQuestionStatus(row.question.id, { masteryStatus });
   items.value = items.value.filter((item) => item.question.id !== row.question.id);
   if (practice.value?.question.id === row.question.id) {
     practice.value = null;

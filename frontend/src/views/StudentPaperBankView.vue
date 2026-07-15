@@ -76,7 +76,7 @@
 import { onMounted, reactive, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { EditPen, Refresh, Search } from '@element-plus/icons-vue';
-import { api, buildQuery } from '../api';
+import { listStudentPapers } from '../features/exams/api';
 import { useResponsiveColumns } from '../composables/useResponsiveColumns';
 
 const router = useRouter();
@@ -91,15 +91,13 @@ const pagination = reactive({ page: 1, pageSize: 20, total: 0 });
 const pageSizes = [20, 50, 100];
 
 async function load() {
-  const data = await api(
-    `/student/papers${buildQuery({
+  const data = await listStudentPapers({
       page: pagination.page,
       pageSize: pagination.pageSize,
-      keyword: filter.keyword,
+      keyword: filter.keyword || undefined,
       sortBy: filter.sortBy,
       sortOrder: filter.sortOrder,
-    })}`,
-  );
+    });
   items.value = data.items;
   pagination.page = data.page;
   pagination.pageSize = data.pageSize;

@@ -183,7 +183,17 @@
 import { computed, onMounted, reactive, ref } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { ArrowLeft, ArrowRight, Check, Close, Edit, Refresh, Search } from '@element-plus/icons-vue';
-import { api, buildQuery } from '../api';
+import { listManagedExams } from '../features/exams/api';
+import {
+  batchGradeAnswers,
+  cancelRegradeRun,
+  confirmRegradeRun,
+  finishGradingAttempt,
+  getGradingAttempt,
+  gradeAnswer,
+  listGradingAnswers,
+  previewRegradeRun,
+} from '../features/grading/api';
 import MarkdownRenderer from '../components/MarkdownRenderer.vue';
 
 const questionTypes = [
@@ -218,8 +228,8 @@ const currentQuestion = computed(() => reviewQuestions.value[currentQuestionInde
 
 async function load() {
   const [examPage, page] = await Promise.all([
-    api('/exams?pageSize=100&sortBy=createdAt&sortOrder=desc'),
-    api(`/grading/answers${buildQuery({ ...filter, page: pagination.page, pageSize: pagination.pageSize })}`),
+    listManagedExams({ pageSize: 100, sortBy: 'createdAt', sortOrder: 'desc' }),
+    listGradingAnswers({ ...filter, page: pagination.page, pageSize: pagination.pageSize }),
   ]);
   exams.value = examPage.items;
   items.value = page.items;
@@ -236,7 +246,7 @@ function loadFirstPage() {
 }
 
 async function fetchAttempt(attemptId) {
-  const detail = await api(`/grading/attempts/${attemptId}`);
+  const detail = await getGradingAttempt(attemptId);
   detail.questions = detail.questions.map((question) => ({
     ...question,
     nextScore: question.score,
@@ -260,15 +270,12 @@ async function saveGrade() {
   try {
     const attemptId = attemptDetail.value.attemptId;
     const oldQuestionId = question.questionId;
-    await api(`/grading/answers/${question.answerRecordId}`, {
-      method: 'PATCH',
-      body: question.rubric?.length
+    await gradeAnswer(question.answerRecordId, question.rubric?.length
         ? {
             rubricScores: question.rubric.map((item) => ({ criterionId: item.id, score: item.score, comment: item.comment })),
             comment: question.nextComment,
           }
-        : { score: question.nextScore, comment: question.nextComment },
-    });
+        : { score: question.nextScore, comment: question.nextComment });
     attemptDetail.value = await fetchAttempt(attemptId);
     const all = reviewQuestions.value;
     const oldIndex = Math.max(0, all.findIndex((item) => item.questionId === oldQuestionId));
@@ -277,7 +284,7 @@ async function saveGrade() {
       currentQuestionId.value = next.questionId;
       ElMessage.success('已保存，已切换到下一道待批题');
     } else {
-      await api(`/grading/attempts/${attemptId}/finish`, { method: 'POST' });
+      await finishGradingAttempt(attemptId);
       drawerVisible.value = false;
       ElMessage.success('整份试卷已完成批改');
     }
@@ -331,9 +338,10 @@ function openRegradeDialog() {
 async function previewRegrade() {
   regradeLoading.value = true;
   try {
-    regradePreview.value = await api('/grading/regrade-runs/preview', {
-      method: 'POST',
-      body: { examId: filter.examId, ruleSource: regradeForm.ruleSource, reason: regradeForm.reason },
+    regradePreview.value = await previewRegradeRun({
+      examId: filter.examId,
+      ruleSource: regradeForm.ruleSource,
+      reason: regradeForm.reason,
     });
     ElMessage.success('试算完成，正式成绩尚未改变');
   } finally {
@@ -346,7 +354,7 @@ async function confirmRegrade() {
   await ElMessageBox.confirm('确认将试算结果写入正式成绩吗？该操作会保留完整历史。', '确认重判');
   regradeLoading.value = true;
   try {
-    await api(`/grading/regrade-runs/${regradePreview.value.id}/confirm`, { method: 'POST' });
+    await confirmRegradeRun(regradePreview.value.id);
     regradeVisible.value = false;
     ElMessage.success('重判结果已应用');
     await load();
@@ -357,7 +365,7 @@ async function confirmRegrade() {
 
 async function cancelRegrade() {
   if (regradePreview.value) {
-    await api(`/grading/regrade-runs/${regradePreview.value.id}/cancel`, { method: 'POST' });
+    await cancelRegradeRun(regradePreview.value.id);
   }
   regradeVisible.value = false;
 }
@@ -371,16 +379,13 @@ async function batchGrade(mode) {
   }
   const label = mode === 'full' ? '满分' : '零分';
   await ElMessageBox.confirm(`确定将选中的 ${selectedRows.value.length} 份答案批量判为${label}吗？`, '批量批改');
-  await api('/grading/answers/batch', {
-    method: 'POST',
-    body: { answerRecordIds: selectedRows.value.map((row) => row.id), mode },
-  });
+  await batchGradeAnswers({ answerRecordIds: selectedRows.value.map((row) => row.id), mode });
   ElMessage.success(`已批改 ${selectedRows.value.length} 份答案`);
   await load();
 }
 
 async function quickGrade(row, mode) {
-  await api('/grading/answers/batch', { method: 'POST', body: { answerRecordIds: [row.id], mode } });
+  await batchGradeAnswers({ answerRecordIds: [row.id], mode });
   ElMessage.success(mode === 'full' ? '已判满分' : '已判零分');
   await load();
 }

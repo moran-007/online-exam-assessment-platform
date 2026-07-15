@@ -173,7 +173,7 @@
 import { computed, onMounted, reactive, ref } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { DocumentCopy, Edit, Plus, Refresh, Search, Upload, View } from '@element-plus/icons-vue';
-import { api, buildQuery } from '../api';
+import { createCourse, listCourses, removeCourse, updateCourse } from '../features/platform/api';
 import { useResponsiveColumns } from '../composables/useResponsiveColumns';
 
 const items = ref([]);
@@ -200,12 +200,12 @@ function baseForm() {
 }
 
 async function load() {
-  const data = await api(`/courses${buildQuery({
+  const data = await listCourses({
     page: pagination.page,
     pageSize: pagination.pageSize,
-    keyword: keyword.value,
-    status: statusFilter.value,
-  })}`);
+    keyword: keyword.value || undefined,
+    status: statusFilter.value || undefined,
+  });
   items.value = data.items;
   pagination.page = data.page;
   pagination.pageSize = data.pageSize;
@@ -265,12 +265,12 @@ async function save() {
   if (editingId.value) {
     const updatePayload = { ...payload };
     delete updatePayload.code;
-    await api(`/courses/${editingId.value}`, { method: 'PATCH', body: updatePayload });
+    await updateCourse(editingId.value, updatePayload);
     ElMessage.success('课程已保存');
   } else {
     const createPayload = { ...payload };
     delete createPayload.status;
-    await api('/courses', { method: 'POST', body: createPayload });
+    await createCourse(createPayload);
     ElMessage.success('已新增课程');
   }
 
@@ -285,10 +285,7 @@ function resetForm() {
 }
 
 async function toggleStatus(row) {
-  await api(`/courses/${row.id}`, {
-    method: 'PATCH',
-    body: { status: row.status === 'ACTIVE' ? 'DISABLED' : 'ACTIVE' },
-  });
+  await updateCourse(row.id, { status: row.status === 'ACTIVE' ? 'DISABLED' : 'ACTIVE' });
   ElMessage.success('课程状态已更新');
   await load();
 }
@@ -306,7 +303,7 @@ async function remove(row) {
       confirmButtonText: '删除',
       cancelButtonText: '取消',
     });
-    await api(`/courses/${row.id}`, { method: 'DELETE' });
+    await removeCourse(row.id);
     ElMessage.success('课程已删除');
     if (editingId.value === row.id) resetForm();
     await load();
@@ -360,24 +357,18 @@ async function importBatch() {
     for (const row of validRows) {
       try {
         if (row.existingId) {
-          await api(`/courses/${row.existingId}`, {
-            method: 'PATCH',
-            body: {
+          await updateCourse(row.existingId, {
               name: row.name,
               description: row.description,
               sortOrder: row.sortOrder,
-            },
           });
           row.statusText = '已更新';
         } else {
-          await api('/courses', {
-            method: 'POST',
-            body: {
+          await createCourse({
               name: row.name,
               code: row.code,
               description: row.description,
               sortOrder: row.sortOrder,
-            },
           });
           row.statusText = '已导入';
         }
