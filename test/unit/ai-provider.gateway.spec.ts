@@ -64,4 +64,16 @@ describe('AiProviderGateway', () => {
       systemPrompt: 'system', userPrompt: 'content', maxTokens: 4, timeoutMs: 3000,
     }).catch((error: Error) => expect(error.message).not.toContain('secret'));
   });
+
+  it('accepts an empty successful response only for a connection probe', async () => {
+    global.fetch = jest.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ choices: [{ message: { content: '' } }] }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ choices: [{ message: { content: '' } }] }), { status: 200 }));
+    const request = {
+      baseUrl: 'https://api.example.com/v1', apiKey: 'secret-key', model: 'model-a',
+      systemPrompt: 'system', userPrompt: 'content', maxTokens: 4, timeoutMs: 3000,
+    };
+    await expect(gateway.complete(request)).rejects.toThrow('未返回文本内容');
+    await expect(gateway.complete({ ...request, allowEmptyContent: true })).resolves.toMatchObject({ content: '' });
+  });
 });

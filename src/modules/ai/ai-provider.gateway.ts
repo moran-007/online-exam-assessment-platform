@@ -11,6 +11,7 @@ type AiCompletionRequest = {
   userPrompt: string;
   maxTokens: number;
   timeoutMs: number;
+  allowEmptyContent?: boolean;
 };
 
 type AiCompletionResult = {
@@ -75,7 +76,7 @@ export class AiProviderGateway {
       const first = this.record(choices[0]);
       const message = this.record(first.message);
       const content = typeof message.content === 'string' ? message.content.trim() : '';
-      if (!content) throw new BadGatewayException('AI 服务未返回文本内容');
+      if (!content && !request.allowEmptyContent) throw new BadGatewayException('AI 服务未返回文本内容');
       const usage = this.record(body.usage);
       return {
         content,

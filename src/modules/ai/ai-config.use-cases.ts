@@ -102,10 +102,16 @@ export class AiConfigUseCases {
         userPrompt: '只回复：OK',
         maxTokens: 4,
         timeoutMs: config.timeoutMs,
+        allowEmptyContent: true,
       });
       await this.prisma.aiProviderConfig.update({ where: { id }, data: { lastTestStatus: 'success', lastTestMessage: '连接成功', lastTestAt: new Date() } });
       await this.audit.log({ userId: user.id, action: 'ai:config-test', module: 'ai', targetType: 'ai_provider_config', targetId: id, afterData: { success: true, durationMs: result.durationMs } });
-      return { success: true, message: '连接成功', reply: result.content.slice(0, 20), durationMs: result.durationMs };
+      return {
+        success: true,
+        message: '连接成功',
+        reply: result.content.slice(0, 20) || '已收到模型响应',
+        durationMs: result.durationMs,
+      };
     } catch (error) {
       const message = error instanceof Error ? error.message.slice(0, 280) : '连接失败';
       await this.prisma.aiProviderConfig.update({ where: { id }, data: { lastTestStatus: 'failed', lastTestMessage: message, lastTestAt: new Date() } });
