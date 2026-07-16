@@ -30,11 +30,24 @@ export function useAiSettingsPage() {
   const presets = ref<AiProviderPreset[]>([]);
   const selectedPresetProvider = ref('');
   const form = reactive<AiConfigForm>(emptyForm(defaultScope));
-  const summaryForm = reactive({ configId: '', content: '', instruction: '', maxTokens: 1000 });
+  const summaryForm = reactive<{ configId: string; content: string; instruction: string; maxTokens?: number }>({
+    configId: '', content: '', instruction: '', maxTokens: undefined,
+  });
   const summaryResult = ref('');
   const summaryMeta = ref('');
   const summaryLoading = ref(false);
   const activeConfigurations = computed(() => configurations.value.filter((item) => item.enabled));
+  const summaryOutputLimitHint = computed(() => {
+    const selected = activeConfigurations.value.find((item) => item.id === summaryForm.configId)
+      ?? activeConfigurations.value.find((item) => item.isDefault)
+      ?? activeConfigurations.value[0];
+    const requested = optionalOutputLimit(summaryForm.maxTokens).maxTokens;
+    if (!selected) return requested ? `本次要求 ${requested} Token` : '自动使用默认模型配置上限';
+    const effective = Math.min(requested ?? selected.maxTokens, selected.maxTokens);
+    return requested
+      ? `实际不超过 ${effective} Token（配置上限 ${selected.maxTokens}）`
+      : `自动使用配置上限 ${selected.maxTokens} Token`;
+  });
 
   async function load() {
     loading.value = true;
@@ -83,6 +96,11 @@ export function useAiSettingsPage() {
       ElMessage.warning('请填写名称、Base URL、模型和 API Key');
       return;
     }
+    const configuredMaxTokens = Number(form.maxTokens);
+    if (!Number.isInteger(configuredMaxTokens) || configuredMaxTokens < 1 || configuredMaxTokens > 8192) {
+      ElMessage.warning('模型配置输出上限必须是 1–8192 之间的整数');
+      return;
+    }
     saving.value = true;
     try {
       const body = {
@@ -90,7 +108,7 @@ export function useAiSettingsPage() {
         ...(!form.id ? { scope: form.scope } : {}),
         ...(form.apiKey.trim() ? { apiKey: form.apiKey.trim() } : {}),
         enabled: form.enabled, isDefault: form.isDefault,
-        timeoutMs: Number(form.timeoutMs), maxTokens: Number(form.maxTokens),
+        timeoutMs: Number(form.timeoutMs), maxTokens: configuredMaxTokens,
         ...(form.monthlyTokenBudget ? { monthlyTokenBudget: Number(form.monthlyTokenBudget) } : {}),
         ...(form.id && !form.monthlyTokenBudget ? { monthlyTokenBudget: null } : {}),
       };
@@ -147,10 +165,10 @@ export function useAiSettingsPage() {
         configId: summaryForm.configId || undefined,
         content: summaryForm.content.trim(),
         instruction: summaryForm.instruction.trim() || undefined,
-        maxTokens: Number(summaryForm.maxTokens),
+        ...optionalOutputLimit(summaryForm.maxTokens),
       });
       summaryResult.value = result.summary;
-      summaryMeta.value = `${result.provider} / ${result.model} · ${result.durationMs}ms · 输入 ${result.usage.promptTokens} / 输出 ${result.usage.completionTokens} / 合计 ${result.usage.totalTokens} tokens · ${formatTokenQuota(result.tokenQuota)}`;
+      summaryMeta.value = `${result.provider} / ${result.model} · 请求上限 ${result.outputLimitTokens} · ${result.durationMs}ms · 输入 ${result.usage.promptTokens} / 输出 ${result.usage.completionTokens} / 合计 ${result.usage.totalTokens} tokens · ${formatTokenQuota(result.tokenQuota)}`;
     } catch (error: unknown) {
       ElMessage.error(message(error, 'AI 总结生成失败'));
     } finally {
@@ -162,14 +180,14 @@ export function useAiSettingsPage() {
   return {
     activeConfigurations, applyPreset, canCreateSystem, configurations, dialogVisible, form, formatTokenQuota, load, loading,
     openCreate, openEdit, presets, remove, save, saving, selectedPresetProvider, summarize,
-    summaryForm, summaryLoading, summaryMeta, summaryResult, testConnection, testingId,
+    summaryForm, summaryLoading, summaryMeta, summaryOutputLimitHint, summaryResult, testConnection, testingId,
   };
 }
 
 export function formatTokenQuota(quota: AiTokenQuotaDto) {
   const gap = quota.usageComplete ? '' : `，${quota.unreportedCalls} 次用量未报告`;
   const reserved = quota.reservedTokens ? `，保守预留 ${quota.reservedTokens}` : '';
-  if (quota.remainingTokens === null) return `已用 ${quota.usedTokens}${reserved}，余额未配置${gap}`;
+  if (quota.remainingTokens === null) return `已用 ${quota.usedTokens}${reserved}，本地预算不限${gap}`;
   return `已用 ${quota.usedTokens}${reserved}，剩余 ${quota.remainingTokens}${gap}`;
 }
 
@@ -179,4 +197,9 @@ function configFrom(value: unknown) {
     throw new Error('AI 配置格式无效');
   }
   return value as AiProviderConfig;
+}
+
+function optionalOutputLimit(value: unknown): { maxTokens?: number } {
+  const normalized = Number(value);
+  return Number.isInteger(normalized) && normalized > 0 ? { maxTokens: normalized } : {};
 }

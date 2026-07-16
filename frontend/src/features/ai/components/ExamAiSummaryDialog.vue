@@ -26,15 +26,17 @@
             :value="config.id"
           />
         </el-select>
-        <span class="muted">输出上限</span>
-        <el-input-number v-model="requestedMaxTokens" :min="400" :max="2000" :step="100" style="width: 140px" />
-        <span class="muted">Token（还受模型配置上限约束）</span>
+        <span class="muted">本次输出上限（可选）</span>
+        <el-input-number v-model="requestedMaxTokens" :min="100" :max="8192" :step="100" placeholder="自动" style="width: 140px" />
+        <el-button v-if="requestedMaxTokens !== undefined" link @click="requestedMaxTokens = undefined">恢复自动</el-button>
+        <span class="muted">{{ outputLimitHint }}</span>
         <el-button type="primary" :loading="working" @click="generate">
           {{ lastTask?.status === 'failed' ? '再次生成（会调用模型）' : '生成/复用草稿' }}
         </el-button>
         <el-button :disabled="!active" :loading="working" @click="regenerate">重新生成</el-button>
         <span v-if="lastTask" class="muted">
-          {{ lastTask.cacheHit ? '缓存命中' : '模型调用' }} · {{ usageLabel(lastTask) }}
+          最近一次历史{{ lastTask.cacheHit ? '缓存命中' : '模型调用' }} · {{ usageLabel(lastTask) }}
+          <template v-if="limitChanged(lastTask)"> · 当前设置 {{ effectiveOutputLimit }} Token</template>
           · 剩余 {{ quota(lastTask) }}
         </span>
       </div>
@@ -115,8 +117,8 @@ import { useExamAiSummaryDialog } from '../composables/useExamAiSummaryDialog';
 
 const state = useExamAiSummaryDialog();
 const {
-  active, canEdit, canPublish, canReview, canRevoke, editor, enabledConfigs, examName,
-  generate, history, lastTask, loading, open, preview, publish, regenerate, review, revoke,
+  active, canEdit, canPublish, canReview, canRevoke, editor, effectiveOutputLimit, enabledConfigs, examName,
+  generate, history, lastTask, loading, open, outputLimitHint, preview, publish, regenerate, review, revoke,
   requestedMaxTokens, save, selectSummary, selectedConfigId, visible, working,
 } = state;
 
@@ -140,20 +142,27 @@ function evidenceValue(value: unknown, unit?: string | null) {
 
 function quota(task: ExamSummaryTask) {
   const value = task.usage.tokenQuota.remainingTokens;
-  return value === null ? '未配置' : `${value} Token`;
+  return value === null ? '本地预算不限' : `${value} Token`;
 }
 
 function usageLabel(task: ExamSummaryTask) {
-  if (task.usage.reported === false) return `用量未报告 / 已预留 ${task.usage.reservedTokens} Token`;
-  if (task.usage.reported === null) return '未发起或未记录模型用量';
-  return `输入 ${task.usage.inputTokens} / 输出 ${task.usage.outputTokens} Token`;
+  const limit = `请求上限 ${task.usage.requestedOutputTokens} Token`;
+  if (task.usage.reported === false) return `${limit} / 用量未报告 / 已预留 ${task.usage.reservedTokens} Token`;
+  if (task.usage.reported === null) return `${limit} / 未发起或未记录模型用量`;
+  return `${limit} / 输入 ${task.usage.inputTokens} / 输出 ${task.usage.outputTokens} Token`;
 }
 
 function usageDescription(task: ExamSummaryTask) {
   if (task.usage.reported === false) {
-    return `供应商未返回准确 Token 用量，系统已按本次请求上限保守预留 ${task.usage.reservedTokens} Token。`;
+    const current = limitChanged(task) ? ` 当前设置为 ${effectiveOutputLimit.value} Token，历史预留不会被改写。` : '';
+    return `供应商未返回准确 Token 用量，系统已按该次历史请求上限保守预留 ${task.usage.reservedTokens} Token。${current}`;
   }
   return task.usage.reported === null ? '本次失败发生在模型用量形成之前，没有新增 Token 记录。' : '';
+}
+
+function limitChanged(task: ExamSummaryTask) {
+  return effectiveOutputLimit.value !== null
+    && task.usage.requestedOutputTokens !== effectiveOutputLimit.value;
 }
 </script>
 

@@ -34,6 +34,9 @@ describe('ExamSummaryTaskUseCases', () => {
     expect(result.status).toBe('succeeded');
     expect(runner.run).not.toHaveBeenCalled();
     expect(prisma.aiSummaryTask.create).not.toHaveBeenCalled();
+    expect(prisma.aiSummaryTask.findFirst).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ requestedOutputTokens: config.maxTokens }),
+    }));
   });
 
   it('retries the same failed task instead of creating a duplicate', async () => {

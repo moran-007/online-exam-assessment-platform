@@ -11,7 +11,7 @@ import { CreateExamSummaryTaskDto } from './dto/ai-summary.dto';
 import { ExamSummaryTaskRunner } from './exam-summary-task.runner';
 import { EXAM_SUMMARY_OUTPUT_SCHEMA_VERSION } from './schemas/summary-output.schema';
 import { createSummaryDatasetInputHash } from './summary-input-hash';
-import { DEFAULT_EXAM_SUMMARY_OUTPUT_TOKENS, MAX_EXAM_SUMMARY_OUTPUT_TOKENS } from './ai-summary-limits';
+import { MIN_EXAM_SUMMARY_OUTPUT_TOKENS, resolveOutputTokenLimit } from './ai-summary-limits';
 
 @Injectable()
 export class ExamSummaryTaskUseCases {
@@ -34,6 +34,11 @@ export class ExamSummaryTaskUseCases {
       this.configAccess.resolve(user, dto.configId),
       this.activeTemplate(),
     ]);
+    const requestedOutputTokens = resolveOutputTokenLimit(
+      dto.maxTokens,
+      config.maxTokens,
+      MIN_EXAM_SUMMARY_OUTPUT_TOKENS,
+    );
     const identity = {
       type: AiSummaryType.EXAM,
       subjectId: dto.examId,
@@ -44,6 +49,7 @@ export class ExamSummaryTaskUseCases {
       providerConfigId: config.id,
       modelSnapshot: config.model,
       generationKey: options.generationKey ?? 'initial',
+      requestedOutputTokens,
     };
     let task = await this.reusable(identity);
     if (!task) {
@@ -57,11 +63,6 @@ export class ExamSummaryTaskUseCases {
             },
             inputSnapshotJson: dataset as unknown as Prisma.InputJsonValue,
             promptTemplateId: template.id,
-            requestedOutputTokens: Math.min(
-              dto.maxTokens ?? DEFAULT_EXAM_SUMMARY_OUTPUT_TOKENS,
-              config.maxTokens,
-              MAX_EXAM_SUMMARY_OUTPUT_TOKENS,
-            ),
             correlationId: randomUUID(),
             createdBy: user.id,
           },
@@ -102,6 +103,7 @@ export class ExamSummaryTaskUseCases {
     providerConfigId: string;
     modelSnapshot: string;
     generationKey: string;
+    requestedOutputTokens: number;
   }) {
     return this.prisma.aiSummaryTask.findFirst({
       where: identity,

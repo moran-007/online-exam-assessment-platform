@@ -10,8 +10,9 @@ export interface RegenerateAiSummaryDto {
   /** 不传时自动选择默认模型 */
   configId?: string;
   /**
+     * 本次输出上限；不传时使用所选模型配置的输出上限
      * @minimum 100
-     * @maximum 2000
+     * @maximum 8192
      */
   maxTokens?: number;
 }

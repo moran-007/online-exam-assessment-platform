@@ -1,5 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { IsBoolean, IsIn, IsInt, IsNotEmpty, IsOptional, IsString, IsUUID, Max, MaxLength, Min } from 'class-validator';
+import { MAX_AI_OUTPUT_TOKENS } from '../ai-summary-limits';
 
 export class CreateAiProviderConfigDto {
   @ApiPropertyOptional({ enum: ['system', 'personal'], description: '系统共享配置仅超级管理员可创建' })
@@ -83,8 +84,12 @@ export class GenerateAiSummaryDto {
   @IsOptional() @IsString() @MaxLength(500)
   instruction?: string;
 
-  @ApiPropertyOptional({ default: 1000, minimum: 1, maximum: 1200 })
-  @IsOptional() @IsInt() @Min(1) @Max(1200)
+  @ApiPropertyOptional({
+    description: '本次输出上限；不传时使用所选模型配置的输出上限',
+    minimum: 1,
+    maximum: MAX_AI_OUTPUT_TOKENS,
+  })
+  @IsOptional() @IsInt() @Min(1) @Max(MAX_AI_OUTPUT_TOKENS)
   maxTokens?: number;
 }
 
@@ -158,6 +163,7 @@ export class AiSummaryResultDto {
   @ApiProperty() summary: string;
   @ApiProperty() provider: string;
   @ApiProperty() model: string;
+  @ApiProperty({ description: '本次请求实际采用的输出 Token 上限' }) outputLimitTokens: number;
   @ApiProperty({ type: () => AiUsageDto }) usage: AiUsageDto;
   @ApiProperty({ type: () => AiTokenQuotaDto }) tokenQuota: AiTokenQuotaDto;
   @ApiProperty() durationMs: number;

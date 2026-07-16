@@ -19,8 +19,9 @@ export interface GenerateAiSummaryDto {
      */
   instruction?: string;
   /**
+     * 本次输出上限；不传时使用所选模型配置的输出上限
      * @minimum 1
-     * @maximum 1200
+     * @maximum 8192
      */
   maxTokens?: number;
 }

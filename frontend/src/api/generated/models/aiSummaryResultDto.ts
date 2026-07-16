@@ -11,6 +11,8 @@ import type { AiUsageDto } from './aiUsageDto';
 export interface AiSummaryResultDto {
   durationMs: number;
   model: string;
+  /** 本次请求实际采用的输出 Token 上限 */
+  outputLimitTokens: number;
   provider: string;
   summary: string;
   tokenQuota: AiTokenQuotaDto;

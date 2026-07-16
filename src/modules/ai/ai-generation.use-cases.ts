@@ -8,6 +8,7 @@ import { AiProviderConfigAccessService } from './ai-provider-config-access.servi
 import { thinkingModeFor } from './ai-provider-request.policy';
 import { AiProviderGateway } from './ai-provider.gateway';
 import { AiTokenUsageService } from './ai-token-usage.service';
+import { resolveOutputTokenLimit } from './ai-summary-limits';
 import { GenerateAiSummaryDto } from './dto/ai.dto';
 
 @Injectable()
@@ -23,7 +24,7 @@ export class AiGenerationUseCases {
 
   async summarize(dto: GenerateAiSummaryDto, user: RequestUser) {
     const config = await this.access.resolve(user, dto.configId);
-    const requestedOutputTokens = Math.min(dto.maxTokens ?? 1000, config.maxTokens, 1200);
+    const requestedOutputTokens = resolveOutputTokenLimit(dto.maxTokens, config.maxTokens);
     await this.tokenUsage.authorize(config, requestedOutputTokens);
     const startedAt = Date.now();
     let result: Awaited<ReturnType<AiProviderGateway['complete']>>;
@@ -52,6 +53,7 @@ export class AiGenerationUseCases {
     });
     return {
       summary: result.content, provider: config.provider, model: config.model,
+      outputLimitTokens: requestedOutputTokens,
       usage: result.usage, tokenQuota, durationMs: result.durationMs,
     };
   }

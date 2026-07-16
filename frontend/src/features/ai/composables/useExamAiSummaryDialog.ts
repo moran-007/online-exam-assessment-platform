@@ -35,7 +35,7 @@ export function useExamAiSummaryDialog() {
   const examId = ref('');
   const examName = ref('');
   const selectedConfigId = ref('');
-  const requestedMaxTokens = ref(1200);
+  const requestedMaxTokens = ref<number | undefined>(undefined);
   const preview = ref<ExamSummaryDatasetPreview | null>(null);
   const configs = ref<AiProviderConfig[]>([]);
   const history = ref<AiSummaryLifecycleRecord[]>([]);
@@ -49,6 +49,23 @@ export function useExamAiSummaryDialog() {
   const canReview = computed(() => ['draft', 'in_review'].includes(active.value?.reviewStatus ?? ''));
   const canPublish = computed(() => active.value?.reviewStatus === 'approved');
   const canRevoke = computed(() => active.value?.reviewStatus === 'published');
+  const selectedConfiguration = computed(() => enabledConfigs.value.find((item) => item.id === selectedConfigId.value)
+    ?? enabledConfigs.value.find((item) => item.isDefault)
+    ?? enabledConfigs.value[0]);
+  const effectiveOutputLimit = computed(() => {
+    const configured = selectedConfiguration.value?.maxTokens;
+    const requested = optionalOutputLimit(requestedMaxTokens.value).maxTokens;
+    if (!configured) return requested ?? null;
+    return Math.min(requested ?? configured, configured);
+  });
+  const outputLimitHint = computed(() => {
+    const selected = selectedConfiguration.value;
+    const requested = optionalOutputLimit(requestedMaxTokens.value).maxTokens;
+    if (!selected) return requested ? `本次要求 ${requested} Token` : '自动使用默认模型配置上限';
+    return requested
+      ? `实际不超过 ${effectiveOutputLimit.value} Token（配置上限 ${selected.maxTokens}）`
+      : `自动使用配置上限 ${selected.maxTokens} Token`;
+  });
 
   async function open(id: string, name: string) {
     examId.value = id;
@@ -80,14 +97,14 @@ export function useExamAiSummaryDialog() {
 
   async function generate() {
     if (lastTask.value?.status === 'failed' && !await confirm(
-      '上一次调用失败。再次尝试会产生新的模型请求和 Token 用量，是否继续？',
+      `上一次调用失败。再次尝试会按当前 ${effectiveOutputLimit.value ?? '自动'} Token 上限发起新请求并产生用量，是否继续？`,
       '确认再次调用模型',
     )) return;
     await execute('生成考试总结', async () => {
       lastTask.value = await createExamSummary({
         examId: examId.value,
         configId: selectedConfigId.value || undefined,
-        maxTokens: requestedMaxTokens.value,
+        ...optionalOutputLimit(requestedMaxTokens.value),
       });
       if (lastTask.value.summary) await refresh(lastTask.value.summary.id);
       if (lastTask.value.status === 'failed') throw new Error(lastTask.value.sanitizedError || '模型生成失败');
@@ -138,11 +155,14 @@ export function useExamAiSummaryDialog() {
 
   async function regenerate() {
     if (!active.value) return;
-    if (!await confirm('重新生成会发起一次新的模型调用并记录 Token。', '确认重新生成')) return;
+    if (!await confirm(
+      `重新生成会按当前 ${effectiveOutputLimit.value ?? '自动'} Token 上限发起新模型调用并记录用量。`,
+      '确认重新生成',
+    )) return;
     await execute('重新生成', async () => {
       lastTask.value = await regenerateExamSummary(active.value!.id, {
         configId: selectedConfigId.value || undefined,
-        maxTokens: requestedMaxTokens.value,
+        ...optionalOutputLimit(requestedMaxTokens.value),
       });
       if (lastTask.value.summary) await refresh(lastTask.value.summary.id);
       if (lastTask.value.status === 'failed') throw new Error(lastTask.value.sanitizedError || '重新生成失败');
@@ -174,10 +194,15 @@ export function useExamAiSummaryDialog() {
   }
 
   return {
-    active, canEdit, canPublish, canReview, canRevoke, editor, enabledConfigs, examName,
-    generate, history, lastTask, loading, open, preview, publish, regenerate, review, revoke,
+    active, canEdit, canPublish, canReview, canRevoke, editor, effectiveOutputLimit, enabledConfigs, examName,
+    generate, history, lastTask, loading, open, outputLimitHint, preview, publish, regenerate, review, revoke,
     requestedMaxTokens, save, selectSummary, selectedConfigId, visible, working,
   };
+}
+
+function optionalOutputLimit(value: unknown): { maxTokens?: number } {
+  const normalized = Number(value);
+  return Number.isInteger(normalized) && normalized > 0 ? { maxTokens: normalized } : {};
 }
 
 async function confirm(message: string, title: string) {

@@ -67,9 +67,12 @@
           <el-input v-model="summaryForm.instruction" placeholder="总结要求（可选）" maxlength="500" show-word-limit />
           <el-input v-model="summaryForm.content" type="textarea" :rows="9" maxlength="20000" show-word-limit placeholder="粘贴需要总结的考试、教务或统计内容" />
           <div class="toolbar">
-            <span class="muted">最大输出</span><el-input-number v-model="summaryForm.maxTokens" :min="1" :max="1200" />
+            <span class="muted">本次输出上限（可选）</span>
+            <el-input-number v-model="summaryForm.maxTokens" :min="1" :max="8192" placeholder="自动" />
+            <el-button v-if="summaryForm.maxTokens !== undefined" link @click="summaryForm.maxTokens = undefined">恢复自动</el-button>
             <el-button type="primary" :loading="summaryLoading" @click="summarize">生成总结</el-button>
           </div>
+          <span class="muted">{{ summaryOutputLimitHint }}</span>
         </div>
         <div class="ai-summary-result">
           <div class="muted">{{ summaryMeta || 'AI 输出将显示在这里' }}</div>
@@ -95,10 +98,10 @@
         <el-form-item label="API Key">
           <el-input v-model="form.apiKey" type="password" show-password autocomplete="new-password" :placeholder="form.id ? '留空表示不修改' : '请输入 API Key'" />
         </el-form-item>
-        <el-form-item label="超时 / Token">
+        <el-form-item label="超时 / 配置上限">
           <div class="toolbar">
             <el-input-number v-model="form.timeoutMs" :min="3000" :max="120000" :step="1000" /> ms
-            <el-input-number v-model="form.maxTokens" :min="1" :max="8192" /> tokens
+            <el-input-number v-model="form.maxTokens" :min="1" :max="8192" /> Token（必填安全上限）
           </div>
         </el-form-item>
         <el-form-item label="月度预算">
@@ -119,7 +122,7 @@ import { useAiSettingsPage } from '../composables/useAiSettingsPage';
 const {
   activeConfigurations, applyPreset, canCreateSystem, configurations, dialogVisible, form, formatTokenQuota, load, loading,
   openCreate, openEdit, presets, remove, save, saving, selectedPresetProvider, summarize,
-  summaryForm, summaryLoading, summaryMeta, summaryResult, testConnection, testingId,
+  summaryForm, summaryLoading, summaryMeta, summaryOutputLimitHint, summaryResult, testConnection, testingId,
 } = useAiSettingsPage();
 </script>
 

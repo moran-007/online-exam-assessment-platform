@@ -2,7 +2,6 @@ import { ApiProperty } from '@nestjs/swagger';
 import { IsInt, IsObject, IsOptional, IsUUID, Max, Min } from 'class-validator';
 import { AiEvidenceRefDto } from './ai-summary.dto';
 import {
-  DEFAULT_EXAM_SUMMARY_OUTPUT_TOKENS,
   MAX_EXAM_SUMMARY_OUTPUT_TOKENS,
   MIN_EXAM_SUMMARY_OUTPUT_TOKENS,
 } from '../ai-summary-limits';
@@ -20,7 +19,7 @@ export class RegenerateAiSummaryDto {
 
   @ApiProperty({
     required: false,
-    default: DEFAULT_EXAM_SUMMARY_OUTPUT_TOKENS,
+    description: '本次输出上限；不传时使用所选模型配置的输出上限',
     minimum: MIN_EXAM_SUMMARY_OUTPUT_TOKENS,
     maximum: MAX_EXAM_SUMMARY_OUTPUT_TOKENS,
   })

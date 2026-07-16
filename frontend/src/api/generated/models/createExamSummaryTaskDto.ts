@@ -11,8 +11,9 @@ export interface CreateExamSummaryTaskDto {
   configId?: string;
   examId: string;
   /**
+     * 本次输出上限；不传时使用所选模型配置的输出上限
      * @minimum 100
-     * @maximum 2000
+     * @maximum 8192
      */
   maxTokens?: number;
 }

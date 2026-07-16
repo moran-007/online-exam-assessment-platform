@@ -269,6 +269,9 @@ test('material context keeps child answers independent and rubric grading is ava
   const aiDialog = adminPage.getByRole('dialog', { name: /AI 考试总结 · E2E material rubric exam/ });
   await expect(aiDialog).toBeVisible();
   await expect(aiDialog.getByText('统计预览始终来自确定性查询')).toBeVisible();
+  await expect(aiDialog.getByText('本次输出上限（可选）')).toBeVisible();
+  await expect(aiDialog.getByPlaceholder('自动')).toHaveValue('');
+  await expect(aiDialog.getByText('自动使用默认模型配置上限')).toBeVisible();
   await expect(aiDialog.getByText('尚未生成总结')).toBeVisible();
   await expect(aiDialog.getByText('模型调用')).toHaveCount(0);
   await mkdir('output/playwright', { recursive: true });

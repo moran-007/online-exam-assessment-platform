@@ -1405,7 +1405,7 @@ model AiSummaryTask {
   promptTemplate AiSummaryPromptTemplate @relation(fields: [promptTemplateId], references: [id], onDelete: Restrict)
   summary        AiSummary?
 
-  @@unique([type, subjectId, inputHash, datasetVersion, promptVersion, schemaVersion, providerConfigId, modelSnapshot, generationKey], map: "ai_summary_tasks_idempotency_key")
+  @@unique([type, subjectId, inputHash, datasetVersion, promptVersion, schemaVersion, providerConfigId, modelSnapshot, generationKey, requestedOutputTokens], map: "ai_summary_tasks_idempotency_key")
   @@index([status, createdAt])
   @@index([type, subjectId, createdAt])
   @@index([createdBy, createdAt])
