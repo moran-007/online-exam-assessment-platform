@@ -4,6 +4,13 @@ import Components from 'unplugin-vue-components/vite';
 import { ElementPlusResolver } from 'unplugin-vue-components/resolvers';
 
 const apiProxyTarget = process.env.VITE_API_PROXY_TARGET || 'http://localhost:3000';
+const previewPort = Number(process.env.E2E_FRONTEND_PORT || 4173);
+const apiProxy = {
+  '/api': {
+    target: apiProxyTarget,
+    changeOrigin: true,
+  },
+};
 
 export default defineConfig({
   plugins: [
@@ -40,11 +47,12 @@ export default defineConfig({
   server: {
     host: '0.0.0.0',
     port: 5173,
-    proxy: {
-      '/api': {
-        target: apiProxyTarget,
-        changeOrigin: true,
-      },
-    },
+    proxy: apiProxy,
+  },
+  preview: {
+    host: '0.0.0.0',
+    port: previewPort,
+    strictPort: true,
+    proxy: apiProxy,
   },
 });

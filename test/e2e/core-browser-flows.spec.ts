@@ -6,6 +6,7 @@ import { rm } from 'node:fs/promises';
 
 const prisma = new PrismaClient();
 const password = '123456';
+const apiBaseUrl = process.env.E2E_API_BASE_URL || 'http://127.0.0.1:3100/api/v1';
 let examId = '';
 let materialExamId = '';
 let paperName = '';
@@ -266,7 +267,7 @@ async function api(
   token?: string,
   data?: Record<string, unknown>,
 ) {
-  const response = await request.fetch(`http://127.0.0.1:3000/api/v1${path}`, {
+  const response = await request.fetch(`${apiBaseUrl}${path}`, {
     method: method.toUpperCase(),
     data,
     headers: token ? { Authorization: `Bearer ${token}` } : undefined,
