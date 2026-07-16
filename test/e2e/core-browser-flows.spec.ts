@@ -28,6 +28,11 @@ test.beforeAll(async ({ request }) => {
     username: 'e2e_admin', password, rememberMe: false,
   });
   const token = login.accessToken as string;
+  await api(request, 'post', '/ai/configurations', token, {
+    name: 'E2E Summary Model', provider: 'custom', baseUrl: 'https://e2e.invalid/v1',
+    model: 'e2e-summary-model', apiKey: 'e2e-only-key', enabled: true, isDefault: true,
+    maxTokens: 1000, monthlyTokenBudget: 10000,
+  });
   const course = await api(request, 'post', '/courses', token, {
     name: 'E2E Browser Course', code: 'e2e_browser_course', description: 'Playwright fixture', sortOrder: 1,
   });
@@ -222,6 +227,15 @@ test('privileged users can open AI settings while students are denied', async ({
   await expect(studentSummaryDialog.getByText('数据覆盖：')).toBeVisible();
   await expect(studentSummaryDialog.getByText('未提交', { exact: true })).toBeVisible();
   await studentSummaryDialog.locator('.el-dialog__headerbtn').click();
+  await expect(studentSummaryDialog).toBeHidden();
+  const studentRow = adminPage.getByRole('row', { name: /E2E Student/ });
+  await studentRow.locator('.el-checkbox').click();
+  await adminPage.getByRole('button', { name: 'AI 批量预算' }).click();
+  const budgetDialog = adminPage.getByText('确认 AI 批量预算', { exact: true });
+  await expect(budgetDialog).toBeVisible();
+  await expect(adminPage.getByText(/共 1 个任务.*最坏情况预留 1000 Token/)).toBeVisible();
+  await adminPage.locator('.el-message-box__btns .el-button--primary').click();
+  await expect(adminPage.getByText('批量预算已确认，可按需逐人生成')).toBeVisible();
   await adminPage.goto('/users');
   await expect(adminPage.getByRole('heading', { name: '用户权限' })).toBeVisible();
   await expect(adminPage.getByRole('button', { name: '新增用户' })).toBeVisible();
@@ -286,7 +300,7 @@ test('material context keeps child answers independent and rubric grading is ava
   await expect(aiDialog.getByText('统计预览始终来自确定性查询')).toBeVisible();
   await expect(aiDialog.getByText('本次输出上限（可选）')).toBeVisible();
   await expect(aiDialog.getByPlaceholder('自动')).toHaveValue('');
-  await expect(aiDialog.getByText('自动使用默认模型配置上限')).toBeVisible();
+  await expect(aiDialog.getByText('自动使用配置上限 1000 Token')).toBeVisible();
   await expect(aiDialog.getByText('尚未生成总结')).toBeVisible();
   await expect(aiDialog.getByText('模型调用')).toHaveCount(0);
   await mkdir('output/playwright', { recursive: true });

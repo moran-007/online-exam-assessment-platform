@@ -10,6 +10,7 @@ import {
 import {
   aiSummaryCreate,
   aiSummaryCreateStudent,
+  aiSummaryEstimateStudentBatch,
   aiSummaryPreview,
   aiSummaryStudentPreview,
 } from '../../../api/generated/ai-summary/ai-summary';
@@ -35,6 +36,7 @@ import type {
   AiSummaryLifecycleRecord,
   ExamSummaryDatasetPreview,
   StudentSummaryDatasetPreview,
+  StudentSummaryBatchEstimate,
   AiSummaryTask,
   RegenerateAiSummary,
   PublishedAiSummary,
@@ -60,6 +62,8 @@ export const previewStudentSummaryDataset = (
 ) => generatedData(asGenerated<StudentSummaryDatasetPreview>(aiSummaryStudentPreview(studentId, params)));
 export const createStudentSummary = (body: Parameters<typeof aiSummaryCreateStudent>[0]) =>
   generatedData(asGenerated<AiSummaryTask>(aiSummaryCreateStudent(body)));
+export const estimateStudentSummaryBatch = (body: Parameters<typeof aiSummaryEstimateStudentBatch>[0]) =>
+  generatedData(asGenerated<StudentSummaryBatchEstimate>(aiSummaryEstimateStudentBatch(body)));
 export const listExamSummaryHistory = (examId: string) =>
   generatedData(asGenerated<AiSummaryLifecycleRecord[]>(aiSummaryLifecycleHistory(examId)));
 export const listStudentSummaryHistory = (studentId: string) =>

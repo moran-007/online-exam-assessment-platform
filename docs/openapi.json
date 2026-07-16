@@ -2267,6 +2267,57 @@
         ],
         "type": "object"
       },
+      "EstimateStudentSummaryBatchDto": {
+        "properties": {
+          "configId": {
+            "description": "不传时按个人默认、系统默认顺序自动选择",
+            "format": "uuid",
+            "type": "string"
+          },
+          "courseId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "examIds": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "maxItems": 20,
+            "type": "array"
+          },
+          "from": {
+            "description": "按考试结束时间筛选",
+            "format": "date-time",
+            "type": "string"
+          },
+          "maxTokens": {
+            "description": "每个学生请求的输出上限；不传时使用所选模型配置的输出上限",
+            "maximum": 8192,
+            "minimum": 100,
+            "type": "number"
+          },
+          "studentIds": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "maxItems": 20,
+            "minItems": 1,
+            "type": "array",
+            "uniqueItems": true
+          },
+          "to": {
+            "description": "按考试结束时间筛选",
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "studentIds"
+        ],
+        "type": "object"
+      },
       "ExamPerformanceDto": {
         "properties": {
           "averageScore": {
@@ -3702,6 +3753,51 @@
           "maxScore",
           "minScore",
           "gradedCount"
+        ],
+        "type": "object"
+      },
+      "StudentSummaryBatchEstimateDto": {
+        "properties": {
+          "configId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "confirmationRequired": {
+            "type": "boolean"
+          },
+          "estimatedReservedTokens": {
+            "type": "number"
+          },
+          "maxBatchSize": {
+            "type": "number"
+          },
+          "model": {
+            "type": "string"
+          },
+          "remainingTokens": {
+            "nullable": true,
+            "type": "number"
+          },
+          "requestedOutputTokensPerTask": {
+            "type": "number"
+          },
+          "taskCount": {
+            "type": "number"
+          },
+          "withinLocalBudget": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "taskCount",
+          "requestedOutputTokensPerTask",
+          "estimatedReservedTokens",
+          "remainingTokens",
+          "withinLocalBudget",
+          "confirmationRequired",
+          "maxBatchSize",
+          "configId",
+          "model"
         ],
         "type": "object"
       },
@@ -5312,6 +5408,81 @@
                     },
                     "data": {
                       "$ref": "#/components/schemas/StudentSummaryDatasetPreviewDto"
+                    },
+                    "message": {
+                      "example": "ok",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "code",
+                    "message",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "401": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "404": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "409": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "429": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "500": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "AI Summary"
+        ]
+      }
+    },
+    "/api/v1/ai-summaries/students/batch-estimate": {
+      "post": {
+        "operationId": "AiSummary_estimateStudentBatch",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EstimateStudentSummaryBatchDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "code": {
+                      "example": 0,
+                      "type": "integer"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/StudentSummaryBatchEstimateDto"
                     },
                     "message": {
                       "example": "ok",

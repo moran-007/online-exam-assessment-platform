@@ -2,6 +2,8 @@ import { Transform } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
   ArrayMaxSize,
+  ArrayMinSize,
+  ArrayUnique,
   IsArray,
   IsDateString,
   IsInt,
@@ -55,6 +57,36 @@ export class CreateStudentSummaryTaskDto extends StudentSummaryScopeQueryDto {
   })
   @IsOptional() @IsInt() @Min(MIN_STUDENT_SUMMARY_OUTPUT_TOKENS) @Max(MAX_AI_OUTPUT_TOKENS)
   maxTokens?: number;
+}
+
+export class EstimateStudentSummaryBatchDto extends StudentSummaryScopeQueryDto {
+  @ApiProperty({ type: [String], format: 'uuid', minItems: 1, maxItems: 20 })
+  @IsArray() @ArrayMinSize(1) @ArrayMaxSize(20) @ArrayUnique() @IsUUID('4', { each: true })
+  studentIds: string[];
+
+  @ApiPropertyOptional({ format: 'uuid', description: '不传时按个人默认、系统默认顺序自动选择' })
+  @IsOptional() @IsUUID()
+  configId?: string;
+
+  @ApiPropertyOptional({
+    description: '每个学生请求的输出上限；不传时使用所选模型配置的输出上限',
+    minimum: MIN_STUDENT_SUMMARY_OUTPUT_TOKENS,
+    maximum: MAX_AI_OUTPUT_TOKENS,
+  })
+  @IsOptional() @IsInt() @Min(MIN_STUDENT_SUMMARY_OUTPUT_TOKENS) @Max(MAX_AI_OUTPUT_TOKENS)
+  maxTokens?: number;
+}
+
+export class StudentSummaryBatchEstimateDto {
+  @ApiProperty() taskCount: number;
+  @ApiProperty() requestedOutputTokensPerTask: number;
+  @ApiProperty() estimatedReservedTokens: number;
+  @ApiProperty({ nullable: true }) remainingTokens: number | null;
+  @ApiProperty() withinLocalBudget: boolean;
+  @ApiProperty() confirmationRequired: boolean;
+  @ApiProperty() maxBatchSize: number;
+  @ApiProperty({ format: 'uuid' }) configId: string;
+  @ApiProperty() model: string;
 }
 
 export class AiEvidencedStringDto {

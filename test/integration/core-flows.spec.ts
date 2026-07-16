@@ -289,6 +289,19 @@ describe('core API flows', () => {
       maxTokens: 1000, monthlyTokenBudget: 5000,
     });
     const reviewer = await prisma.user.findUniqueOrThrow({ where: { username: 'test_admin' } });
+    const student = await prisma.user.findUniqueOrThrow({ where: { username: 'test_student' } });
+    const batchEstimate = await api('post', '/api/v1/ai-summaries/students/batch-estimate', adminToken, {
+      studentIds: [student.id], examIds: [exam.id], configId: modelConfig.id,
+    });
+    expect(batchEstimate).toMatchObject({
+      taskCount: 1,
+      requestedOutputTokensPerTask: 1000,
+      estimatedReservedTokens: 1000,
+      remainingTokens: 5000,
+      withinLocalBudget: true,
+      confirmationRequired: true,
+      maxBatchSize: 20,
+    });
     await prisma.aiSummaryPromptTemplate.create({
       data: {
         code: 'exam-summary', summaryType: 'EXAM', version: 1,
@@ -377,7 +390,6 @@ describe('core API flows', () => {
       where: { targetId: generated.summary.id, action: { startsWith: 'ai:summary-' } },
     })).toBe(5);
 
-    const student = await prisma.user.findUniqueOrThrow({ where: { username: 'test_student' } });
     const studentPreview = await api(
       'get', `/api/v1/ai-summaries/students/${student.id}/preview?examIds=${exam.id}`, adminToken,
     );

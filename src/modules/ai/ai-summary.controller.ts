@@ -13,10 +13,13 @@ import { ExamSummaryTaskUseCases } from './exam-summary-task.use-cases';
 import { StudentSummaryPreviewUseCases } from './student-summary-preview.use-cases';
 import {
   CreateStudentSummaryTaskDto,
+  EstimateStudentSummaryBatchDto,
+  StudentSummaryBatchEstimateDto,
   StudentSummaryDatasetPreviewDto,
   StudentSummaryScopeQueryDto,
 } from './dto/student-summary.dto';
 import { StudentSummaryTaskUseCases } from './student-summary-task.use-cases';
+import { StudentSummaryBatchEstimateUseCases } from './student-summary-batch-estimate.use-cases';
 
 @ApiTags('AI Summary')
 @ApiBearerAuth()
@@ -27,6 +30,7 @@ export class AiSummaryController {
     private readonly tasks: ExamSummaryTaskUseCases,
     private readonly studentPreviews: StudentSummaryPreviewUseCases,
     private readonly studentTasks: StudentSummaryTaskUseCases,
+    private readonly studentBatchEstimates: StudentSummaryBatchEstimateUseCases,
   ) {}
 
   @Get('exams/:examId/preview')
@@ -59,5 +63,15 @@ export class AiSummaryController {
   @ApiCreatedResponse({ type: AiSummaryTaskResponseDto })
   createStudent(@Body() dto: CreateStudentSummaryTaskDto, @CurrentUser() user: RequestUser) {
     return this.studentTasks.create(dto, user);
+  }
+
+  @Post('students/batch-estimate')
+  @Permissions('ai.summary.student.generate')
+  @ApiCreatedResponse({ type: StudentSummaryBatchEstimateDto })
+  estimateStudentBatch(
+    @Body() dto: EstimateStudentSummaryBatchDto,
+    @CurrentUser() user: RequestUser,
+  ) {
+    return this.studentBatchEstimates.estimate(dto, user);
   }
 }

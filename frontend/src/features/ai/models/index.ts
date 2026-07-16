@@ -10,6 +10,7 @@ export type {
   AiSummaryLifecycleRecordDto as AiSummaryLifecycleRecord,
   ExamSummaryDatasetPreviewDto as ExamSummaryDatasetPreview,
   StudentSummaryDatasetPreviewDto as StudentSummaryDatasetPreview,
+  StudentSummaryBatchEstimateDto as StudentSummaryBatchEstimate,
   AiSummaryTaskResponseDto as AiSummaryTask,
   AiSummaryTaskResponseDto as ExamSummaryTask,
   RegenerateAiSummaryDto as RegenerateAiSummary,

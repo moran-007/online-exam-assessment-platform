@@ -115,8 +115,10 @@
           <el-button :icon="Plus" @click="addStudents">添加学生</el-button>
           <el-button v-if="canCreateStudents" :icon="Plus" @click="openCreateStudent">新增学生</el-button>
           <el-button v-if="canCreateStudents" :icon="Upload" @click="openBatchCreateStudents">批量创建学生</el-button>
+          <el-button :disabled="!batchStudents.length" @click="estimateAiBatch">AI 批量预算</el-button>
         </div>
-        <el-table :data="detail.students" height="220">
+        <el-table :data="detail.students" height="220" @selection-change="batchStudents = $event">
+          <el-table-column type="selection" width="46" />
           <el-table-column prop="realName" label="学生" min-width="150" />
           <el-table-column prop="username" label="账号" min-width="150" />
           <el-table-column label="操作" width="150">
@@ -217,9 +219,11 @@
 
 <script setup>
 import { ref } from 'vue';
+import { ElMessage, ElMessageBox } from 'element-plus';
 import { Plus, Refresh, Search, Upload } from '@element-plus/icons-vue';
 import { useClassManagementPage } from '../composables/useClassManagementPage';
 import StudentAiSummaryDialog from '../../ai/components/StudentAiSummaryDialog.vue';
+import { estimateStudentSummaryBatch } from '../../ai/api';
 
 const {
   addStudents, addTeachers, canCreateStudents, canCreateTeachers, courses, createStudent,
@@ -235,8 +239,36 @@ const {
 } = useClassManagementPage();
 
 const studentAiDialog = ref();
+const batchStudents = ref([]);
 function openStudentAi(student) {
   const name = student.realName || student.username || '学生';
   void studentAiDialog.value?.open(student.id, name, { courseId: detail.value?.courseId || undefined });
+}
+
+async function estimateAiBatch() {
+  if (batchStudents.value.length > 20) {
+    ElMessage.warning('首版每批最多预估 20 名学生');
+    return;
+  }
+  try {
+    const estimate = await estimateStudentSummaryBatch({
+      studentIds: batchStudents.value.map((student) => student.id),
+      courseId: detail.value?.courseId || undefined,
+    });
+    const remaining = estimate.remainingTokens === null ? '本地预算不限' : `${estimate.remainingTokens} Token`;
+    const budgetState = estimate.withinLocalBudget ? '当前本地预算可覆盖' : '当前本地预算不足';
+    await ElMessageBox.confirm(
+      `共 ${estimate.taskCount} 个任务，每个请求上限 ${estimate.requestedOutputTokensPerTask} Token，` +
+      `最坏情况预留 ${estimate.estimatedReservedTokens} Token；剩余 ${remaining}，${budgetState}。` +
+      '确认本次预算？当前首版不会自动批量调用模型，请逐人生成。',
+      '确认 AI 批量预算',
+      { type: estimate.withinLocalBudget ? 'warning' : 'error', confirmButtonText: '确认预算' },
+    );
+    ElMessage.success('批量预算已确认，可按需逐人生成');
+  } catch (error) {
+    if (error !== 'cancel' && error !== 'close') {
+      ElMessage.error(error instanceof Error ? error.message : '批量预算预估失败');
+    }
+  }
 }
 </script>

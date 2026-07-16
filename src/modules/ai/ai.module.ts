@@ -18,6 +18,7 @@ import { AiSummaryTaskRunner } from './ai-summary-task.runner';
 import { AiSummaryTaskCoordinator } from './ai-summary-task.coordinator';
 import { ExamSummaryTaskUseCases } from './exam-summary-task.use-cases';
 import { StudentSummaryTaskUseCases } from './student-summary-task.use-cases';
+import { StudentSummaryBatchEstimateUseCases } from './student-summary-batch-estimate.use-cases';
 import { AiSummaryLifecycleController } from './ai-summary-lifecycle.controller';
 import { AiSummaryLifecycleUseCases } from './ai-summary-lifecycle.use-cases';
 import { AiSummaryAccessService } from './ai-summary-access.service';
@@ -42,6 +43,7 @@ import { AiSummaryQueryUseCases } from './ai-summary-query.use-cases';
     AiSummaryTaskCoordinator,
     ExamSummaryTaskUseCases,
     StudentSummaryTaskUseCases,
+    StudentSummaryBatchEstimateUseCases,
     AiSummaryLifecycleUseCases,
     AiSummaryAccessService,
     AiSummaryQueryUseCases,

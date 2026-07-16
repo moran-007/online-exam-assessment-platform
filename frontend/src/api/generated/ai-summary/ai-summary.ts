@@ -8,12 +8,14 @@
 import type {
   AiSummaryCreate201,
   AiSummaryCreateStudent201,
+  AiSummaryEstimateStudentBatch201,
   AiSummaryPreview200,
   AiSummaryStudentPreview200,
   AiSummaryStudentPreviewParams,
   ApiErrorResponse,
   CreateExamSummaryTaskDto,
-  CreateStudentSummaryTaskDto
+  CreateStudentSummaryTaskDto,
+  EstimateStudentSummaryBatchDto
 } from '../models';
 
 import { apiMutator } from '../../generated-mutator';
@@ -307,6 +309,75 @@ export const aiSummaryStudentPreview = async (studentId: string,
     method: 'GET'
 
 
+  }
+);}
+
+
+export type aiSummaryEstimateStudentBatchResponse201 = {
+  data: AiSummaryEstimateStudentBatch201
+  status: 201
+}
+
+export type aiSummaryEstimateStudentBatchResponse400 = {
+  data: ApiErrorResponse
+  status: 400
+}
+
+export type aiSummaryEstimateStudentBatchResponse401 = {
+  data: ApiErrorResponse
+  status: 401
+}
+
+export type aiSummaryEstimateStudentBatchResponse403 = {
+  data: ApiErrorResponse
+  status: 403
+}
+
+export type aiSummaryEstimateStudentBatchResponse404 = {
+  data: ApiErrorResponse
+  status: 404
+}
+
+export type aiSummaryEstimateStudentBatchResponse409 = {
+  data: ApiErrorResponse
+  status: 409
+}
+
+export type aiSummaryEstimateStudentBatchResponse429 = {
+  data: ApiErrorResponse
+  status: 429
+}
+
+export type aiSummaryEstimateStudentBatchResponse500 = {
+  data: ApiErrorResponse
+  status: 500
+}
+
+export type aiSummaryEstimateStudentBatchResponseSuccess = (aiSummaryEstimateStudentBatchResponse201) & {
+  headers: Headers;
+};
+export type aiSummaryEstimateStudentBatchResponseError = (aiSummaryEstimateStudentBatchResponse400 | aiSummaryEstimateStudentBatchResponse401 | aiSummaryEstimateStudentBatchResponse403 | aiSummaryEstimateStudentBatchResponse404 | aiSummaryEstimateStudentBatchResponse409 | aiSummaryEstimateStudentBatchResponse429 | aiSummaryEstimateStudentBatchResponse500) & {
+  headers: Headers;
+};
+
+export type aiSummaryEstimateStudentBatchResponse = (aiSummaryEstimateStudentBatchResponseSuccess | aiSummaryEstimateStudentBatchResponseError)
+
+export const getAiSummaryEstimateStudentBatchUrl = () => {
+
+
+
+
+  return `/api/v1/ai-summaries/students/batch-estimate`
+}
+
+export const aiSummaryEstimateStudentBatch = async (estimateStudentSummaryBatchDto: EstimateStudentSummaryBatchDto, options?: RequestInit): Promise<aiSummaryEstimateStudentBatchResponse> => {
+
+  return apiMutator<aiSummaryEstimateStudentBatchResponse>(getAiSummaryEstimateStudentBatchUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(estimateStudentSummaryBatchDto)
   }
 );}
 
