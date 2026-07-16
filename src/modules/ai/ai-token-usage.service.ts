@@ -29,6 +29,7 @@ export type AiTokenQuota = {
 type RecordUsageInput = {
   config: BudgetConfig;
   operation: string;
+  correlationId?: string;
   requestedOutputTokens: number;
   usage: AiTokenUsage;
   userId: string;
@@ -87,7 +88,7 @@ export class AiTokenUsageService {
       data: {
         providerConfigId: input.config.id,
         operation: input.operation,
-        correlationId: randomUUID(),
+        correlationId: input.correlationId ?? randomUUID(),
         requestedOutputTokens: input.requestedOutputTokens,
         inputTokens: input.usage.promptTokens,
         outputTokens: input.usage.completionTokens,

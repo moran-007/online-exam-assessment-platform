@@ -12,7 +12,18 @@ type AiCompletionRequest = {
   maxTokens: number;
   timeoutMs: number;
   allowEmptyContent?: boolean;
+  responseFormat?: AiResponseFormat;
 };
+
+export type AiResponseFormat =
+  | { type: 'json_object' }
+  | { type: 'json_schema'; json_schema: { name: string; strict: true; schema: unknown } };
+
+export class AiProviderCallException extends BadGatewayException {
+  constructor(message: string, readonly usageMayBeUnreported: boolean) {
+    super(message);
+  }
+}
 
 type AiCompletionResult = {
   content: string;
@@ -49,7 +60,9 @@ export class AiProviderGateway {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), request.timeoutMs);
     const startedAt = Date.now();
+    let requestDispatched = false;
     try {
+      requestDispatched = true;
       const response = await fetch(`${baseUrl}/chat/completions`, {
         method: 'POST',
         headers: {
@@ -65,12 +78,13 @@ export class AiProviderGateway {
           ],
           max_tokens: request.maxTokens,
           stream: false,
+          ...(request.responseFormat ? { response_format: request.responseFormat } : {}),
         }),
         redirect: 'error',
         signal: controller.signal,
       });
       const payload = await this.readJson(response);
-      if (!response.ok) throw new BadGatewayException(this.providerError(payload, response.status));
+      if (!response.ok) throw new AiProviderCallException(this.providerError(payload, response.status), false);
       const body = this.record(payload);
       const choices = Array.isArray(body.choices) ? body.choices : [];
       const first = this.record(choices[0]);
@@ -84,9 +98,14 @@ export class AiProviderGateway {
         durationMs: Date.now() - startedAt,
       };
     } catch (error) {
-      if (error instanceof BadRequestException || error instanceof BadGatewayException) throw error;
-      if (error instanceof Error && error.name === 'AbortError') throw new BadGatewayException('AI 服务调用超时');
-      throw new BadGatewayException('AI 服务连接失败');
+      if (error instanceof BadRequestException || error instanceof AiProviderCallException) throw error;
+      if (error instanceof Error && error.name === 'AbortError') {
+        throw new AiProviderCallException('AI 服务调用超时', true);
+      }
+      if (error instanceof BadGatewayException) {
+        throw new AiProviderCallException(error.message, requestDispatched);
+      }
+      throw new AiProviderCallException('AI 服务连接失败', requestDispatched);
     } finally {
       clearTimeout(timeout);
     }

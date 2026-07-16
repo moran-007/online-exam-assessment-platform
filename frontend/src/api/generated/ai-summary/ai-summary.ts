@@ -6,11 +6,82 @@
  * OpenAPI spec version: 1.0
  */
 import type {
+  AiSummaryCreate201,
   AiSummaryPreview200,
-  ApiErrorResponse
+  ApiErrorResponse,
+  CreateExamSummaryTaskDto
 } from '../models';
 
 import { apiMutator } from '../../generated-mutator';
+
+export type aiSummaryCreateResponse201 = {
+  data: AiSummaryCreate201
+  status: 201
+}
+
+export type aiSummaryCreateResponse400 = {
+  data: ApiErrorResponse
+  status: 400
+}
+
+export type aiSummaryCreateResponse401 = {
+  data: ApiErrorResponse
+  status: 401
+}
+
+export type aiSummaryCreateResponse403 = {
+  data: ApiErrorResponse
+  status: 403
+}
+
+export type aiSummaryCreateResponse404 = {
+  data: ApiErrorResponse
+  status: 404
+}
+
+export type aiSummaryCreateResponse409 = {
+  data: ApiErrorResponse
+  status: 409
+}
+
+export type aiSummaryCreateResponse429 = {
+  data: ApiErrorResponse
+  status: 429
+}
+
+export type aiSummaryCreateResponse500 = {
+  data: ApiErrorResponse
+  status: 500
+}
+
+export type aiSummaryCreateResponseSuccess = (aiSummaryCreateResponse201) & {
+  headers: Headers;
+};
+export type aiSummaryCreateResponseError = (aiSummaryCreateResponse400 | aiSummaryCreateResponse401 | aiSummaryCreateResponse403 | aiSummaryCreateResponse404 | aiSummaryCreateResponse409 | aiSummaryCreateResponse429 | aiSummaryCreateResponse500) & {
+  headers: Headers;
+};
+
+export type aiSummaryCreateResponse = (aiSummaryCreateResponseSuccess | aiSummaryCreateResponseError)
+
+export const getAiSummaryCreateUrl = () => {
+
+
+
+
+  return `/api/v1/ai-summaries/exams`
+}
+
+export const aiSummaryCreate = async (createExamSummaryTaskDto: CreateExamSummaryTaskDto, options?: RequestInit): Promise<aiSummaryCreateResponse> => {
+
+  return apiMutator<aiSummaryCreateResponse>(getAiSummaryCreateUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(createExamSummaryTaskDto)
+  }
+);}
+
 
 export type aiSummaryPreviewResponse200 = {
   data: AiSummaryPreview200
@@ -66,7 +137,7 @@ export const getAiSummaryPreviewUrl = (examId: string,) => {
 
 
 
-  return `/api/v1/ai/summaries/exams/${examId}/preview`
+  return `/api/v1/ai-summaries/exams/${examId}/preview`
 }
 
 export const aiSummaryPreview = async (examId: string, options?: RequestInit): Promise<aiSummaryPreviewResponse> => {

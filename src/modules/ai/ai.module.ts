@@ -12,6 +12,8 @@ import { AiTokenUsageService } from './ai-token-usage.service';
 import { SummaryOutputValidator } from './schemas/summary-output.validator';
 import { ExamSummaryDatasetBuilder } from './datasets/exam-summary-dataset.builder';
 import { ExamSummaryPreviewUseCases } from './exam-summary-preview.use-cases';
+import { ExamSummaryTaskRunner } from './exam-summary-task.runner';
+import { ExamSummaryTaskUseCases } from './exam-summary-task.use-cases';
 
 @Module({
   imports: [AuditModule, StatisticsModule],
@@ -26,6 +28,8 @@ import { ExamSummaryPreviewUseCases } from './exam-summary-preview.use-cases';
     AiGenerationUseCases,
     ExamSummaryDatasetBuilder,
     ExamSummaryPreviewUseCases,
+    ExamSummaryTaskRunner,
+    ExamSummaryTaskUseCases,
   ],
   exports: [
     AiProviderGateway,

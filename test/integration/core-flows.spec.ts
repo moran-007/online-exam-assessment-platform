@@ -1,11 +1,13 @@
 import { INestApplication } from '@nestjs/common';
-import { ExportStatus, PrismaClient, ScoringEvaluationSource, ScoringEvaluationStatus, UserStatus, UserType } from '@prisma/client';
+import { ExportStatus, Prisma, PrismaClient, ScoringEvaluationSource, ScoringEvaluationStatus, UserStatus, UserType } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
 import request = require('supertest');
 import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { createTestApp } from '../helpers/test-app';
 import { TokenService } from '../../src/modules/auth/token.service';
+import { AiProviderGateway } from '../../src/modules/ai/ai-provider.gateway';
+import { EXAM_SUMMARY_OUTPUT_SCHEMA } from '../../src/modules/ai/schemas/summary-output.schema';
 
 jest.setTimeout(60_000);
 
@@ -256,7 +258,7 @@ describe('core API flows', () => {
     expect(diagnostics).toHaveLength(1);
     expect(diagnostics[0]).toMatchObject({ answerCount: 1, correctRate: 1, anomalyCount: 0 });
 
-    const preview = await api('get', `/api/v1/ai/summaries/exams/${exam.id}/preview`, adminToken);
+    const preview = await api('get', `/api/v1/ai-summaries/exams/${exam.id}/preview`, adminToken);
     expect(preview).toMatchObject({
       datasetVersion: 'exam-summary/v1',
       exam: { id: exam.id, classId: null },
@@ -269,8 +271,48 @@ describe('core API flows', () => {
     expect(preview.inputHash).toMatch(/^[0-9a-f]{64}$/);
     expect(preview.evidence.length).toBeGreaterThan(10);
     expect(preview.evidence.every((item: { refId: string }) => item.refId)).toBe(true);
+
+    const modelConfig = await api('post', '/api/v1/ai/configurations', adminToken, {
+      name: 'Integration Summary Model', provider: 'custom', baseUrl: 'https://summary.example.com/v1',
+      model: 'integration-model', apiKey: 'integration-summary-key', enabled: true, isDefault: true,
+      maxTokens: 1000, monthlyTokenBudget: 5000,
+    });
+    const reviewer = await prisma.user.findUniqueOrThrow({ where: { username: 'test_admin' } });
+    await prisma.aiSummaryPromptTemplate.create({
+      data: {
+        code: 'exam-summary', summaryType: 'EXAM', version: 1,
+        systemPrompt: 'Only return schema-valid JSON grounded in evidence.',
+        outputSchema: EXAM_SUMMARY_OUTPUT_SCHEMA as unknown as Prisma.InputJsonValue,
+        enabled: true, reviewedBy: reviewer.id, changeReason: 'integration test', createdBy: reviewer.id,
+      },
+    });
+    const claim = { text: '本次考试已完成评分', evidenceRefs: [preview.evidence[0].refId] };
+    const complete = jest.spyOn(app.get(AiProviderGateway), 'complete').mockResolvedValue({
+      content: JSON.stringify({
+        schemaVersion: 'exam-summary-output/v1', headline: claim,
+        overview: [], strengths: [], risks: [], actions: [], needsReview: [],
+      }),
+      usage: { promptTokens: 10, completionTokens: 20, totalTokens: 30, reported: true },
+      durationMs: 5,
+    });
+    const generated = await api('post', '/api/v1/ai-summaries/exams', adminToken, {
+      examId: exam.id, configId: modelConfig.id, maxTokens: 1000,
+    });
+    const cached = await api('post', '/api/v1/ai-summaries/exams', adminToken, {
+      examId: exam.id, configId: modelConfig.id, maxTokens: 1000,
+    });
+    expect(complete).toHaveBeenCalledTimes(1);
+    complete.mockRestore();
+    expect(generated).toMatchObject({
+      status: 'succeeded', cacheHit: false,
+      usage: { inputTokens: 10, outputTokens: 20, tokenQuota: { usedTokens: 30, remainingTokens: 4970 } },
+      summary: { reviewStatus: 'draft', draftVersion: 1 },
+    });
+    expect(cached).toMatchObject({ id: generated.id, status: 'succeeded', cacheHit: true });
+    expect(await prisma.aiUsageEvent.count({ where: { providerConfigId: modelConfig.id } })).toBe(1);
+
     await request(app.getHttpServer())
-      .get(`/api/v1/ai/summaries/exams/${exam.id}/preview`)
+      .get(`/api/v1/ai-summaries/exams/${exam.id}/preview`)
       .auth(studentToken, { type: 'bearer' })
       .expect(403);
 

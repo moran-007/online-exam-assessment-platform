@@ -502,6 +502,38 @@
         ],
         "type": "object"
       },
+      "AiSummaryDraftDto": {
+        "properties": {
+          "content": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "draftVersion": {
+            "type": "number"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "reviewStatus": {
+            "enum": [
+              "draft",
+              "in_review",
+              "approved",
+              "published",
+              "revoked"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "reviewStatus",
+          "draftVersion",
+          "content"
+        ],
+        "type": "object"
+      },
       "AiSummaryResultDto": {
         "properties": {
           "durationMs": {
@@ -530,6 +562,45 @@
           "usage",
           "tokenQuota",
           "durationMs"
+        ],
+        "type": "object"
+      },
+      "AiSummaryTaskModelDto": {
+        "properties": {
+          "configId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "model": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "configId",
+          "name",
+          "model"
+        ],
+        "type": "object"
+      },
+      "AiSummaryTaskUsageDto": {
+        "properties": {
+          "inputTokens": {
+            "type": "number"
+          },
+          "outputTokens": {
+            "type": "number"
+          },
+          "tokenQuota": {
+            "$ref": "#/components/schemas/AiTokenQuotaDto"
+          }
+        },
+        "required": [
+          "inputTokens",
+          "outputTokens",
+          "tokenQuota"
         ],
         "type": "object"
       },
@@ -1289,6 +1360,29 @@
         ],
         "type": "object"
       },
+      "CreateExamSummaryTaskDto": {
+        "properties": {
+          "configId": {
+            "description": "不传时按个人默认、系统默认顺序自动选择",
+            "format": "uuid",
+            "type": "string"
+          },
+          "examId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "maxTokens": {
+            "default": 1000,
+            "maximum": 1200,
+            "minimum": 100,
+            "type": "number"
+          }
+        },
+        "required": [
+          "examId"
+        ],
+        "type": "object"
+      },
       "CreateExportDto": {
         "properties": {
           "classId": {
@@ -1900,6 +1994,64 @@
           "questions",
           "knowledgePoints",
           "evidence"
+        ],
+        "type": "object"
+      },
+      "ExamSummaryTaskResponseDto": {
+        "properties": {
+          "attemptCount": {
+            "type": "number"
+          },
+          "cacheHit": {
+            "type": "boolean"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "inputHash": {
+            "type": "string"
+          },
+          "model": {
+            "$ref": "#/components/schemas/AiSummaryTaskModelDto"
+          },
+          "sanitizedError": {
+            "nullable": true,
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "pending",
+              "processing",
+              "succeeded",
+              "failed",
+              "cancelled"
+            ],
+            "type": "string"
+          },
+          "summary": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/AiSummaryDraftDto"
+              }
+            ],
+            "nullable": true,
+            "type": "object"
+          },
+          "usage": {
+            "$ref": "#/components/schemas/AiSummaryTaskUsageDto"
+          }
+        },
+        "required": [
+          "id",
+          "status",
+          "attemptCount",
+          "inputHash",
+          "model",
+          "usage",
+          "cacheHit",
+          "sanitizedError",
+          "summary"
         ],
         "type": "object"
       },
@@ -3798,6 +3950,155 @@
   },
   "openapi": "3.0.0",
   "paths": {
+    "/api/v1/ai-summaries/exams": {
+      "post": {
+        "operationId": "AiSummary_create",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateExamSummaryTaskDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "code": {
+                      "example": 0,
+                      "type": "integer"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/ExamSummaryTaskResponseDto"
+                    },
+                    "message": {
+                      "example": "ok",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "code",
+                    "message",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "401": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "404": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "409": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "429": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "500": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "AI Summary"
+        ]
+      }
+    },
+    "/api/v1/ai-summaries/exams/{examId}/preview": {
+      "get": {
+        "operationId": "AiSummary_preview",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "examId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "code": {
+                      "example": 0,
+                      "type": "integer"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/ExamSummaryDatasetPreviewDto"
+                    },
+                    "message": {
+                      "example": "ok",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "code",
+                    "message",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "401": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "404": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "409": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "429": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "500": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "AI Summary"
+        ]
+      }
+    },
     "/api/v1/ai/configurations": {
       "get": {
         "operationId": "Ai_configurations",
@@ -4234,80 +4535,6 @@
         ],
         "tags": [
           "AI"
-        ]
-      }
-    },
-    "/api/v1/ai/summaries/exams/{examId}/preview": {
-      "get": {
-        "operationId": "AiSummary_preview",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "examId",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "properties": {
-                    "code": {
-                      "example": 0,
-                      "type": "integer"
-                    },
-                    "data": {
-                      "$ref": "#/components/schemas/ExamSummaryDatasetPreviewDto"
-                    },
-                    "message": {
-                      "example": "ok",
-                      "type": "string"
-                    }
-                  },
-                  "required": [
-                    "code",
-                    "message",
-                    "data"
-                  ],
-                  "type": "object"
-                }
-              }
-            },
-            "description": ""
-          },
-          "400": {
-            "$ref": "#/components/responses/ApiError"
-          },
-          "401": {
-            "$ref": "#/components/responses/ApiError"
-          },
-          "403": {
-            "$ref": "#/components/responses/ApiError"
-          },
-          "404": {
-            "$ref": "#/components/responses/ApiError"
-          },
-          "409": {
-            "$ref": "#/components/responses/ApiError"
-          },
-          "429": {
-            "$ref": "#/components/responses/ApiError"
-          },
-          "500": {
-            "$ref": "#/components/responses/ApiError"
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "tags": [
-          "AI Summary"
         ]
       }
     },

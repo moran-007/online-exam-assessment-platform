@@ -1,4 +1,20 @@
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { IsInt, IsOptional, IsUUID, Max, Min } from 'class-validator';
+import { AiTokenQuotaDto } from './ai.dto';
+
+export class CreateExamSummaryTaskDto {
+  @ApiProperty({ format: 'uuid' })
+  @IsUUID()
+  examId: string;
+
+  @ApiPropertyOptional({ format: 'uuid', description: '不传时按个人默认、系统默认顺序自动选择' })
+  @IsOptional() @IsUUID()
+  configId?: string;
+
+  @ApiPropertyOptional({ default: 1000, minimum: 100, maximum: 1200 })
+  @IsOptional() @IsInt() @Min(100) @Max(1200)
+  maxTokens?: number;
+}
 
 export class AiDataCoverageDto {
   @ApiProperty({ nullable: true }) from: string | null;
@@ -82,4 +98,35 @@ export class ExamSummaryDatasetPreviewDto {
   @ApiProperty({ type: () => [AiExamQuestionFactDto] }) questions: AiExamQuestionFactDto[];
   @ApiProperty({ type: () => [AiKnowledgePointFactDto] }) knowledgePoints: AiKnowledgePointFactDto[];
   @ApiProperty({ type: () => [AiEvidenceRefDto] }) evidence: AiEvidenceRefDto[];
+}
+
+export class AiSummaryTaskModelDto {
+  @ApiProperty({ format: 'uuid' }) configId: string;
+  @ApiProperty() name: string;
+  @ApiProperty() model: string;
+}
+
+export class AiSummaryTaskUsageDto {
+  @ApiProperty() inputTokens: number;
+  @ApiProperty() outputTokens: number;
+  @ApiProperty({ type: () => AiTokenQuotaDto }) tokenQuota: AiTokenQuotaDto;
+}
+
+export class AiSummaryDraftDto {
+  @ApiProperty({ format: 'uuid' }) id: string;
+  @ApiProperty({ enum: ['draft', 'in_review', 'approved', 'published', 'revoked'] }) reviewStatus: string;
+  @ApiProperty() draftVersion: number;
+  @ApiProperty({ type: 'object', additionalProperties: true }) content: Record<string, unknown>;
+}
+
+export class ExamSummaryTaskResponseDto {
+  @ApiProperty({ format: 'uuid' }) id: string;
+  @ApiProperty({ enum: ['pending', 'processing', 'succeeded', 'failed', 'cancelled'] }) status: string;
+  @ApiProperty() attemptCount: number;
+  @ApiProperty() inputHash: string;
+  @ApiProperty({ type: () => AiSummaryTaskModelDto }) model: AiSummaryTaskModelDto;
+  @ApiProperty({ type: () => AiSummaryTaskUsageDto }) usage: AiSummaryTaskUsageDto;
+  @ApiProperty() cacheHit: boolean;
+  @ApiProperty({ nullable: true }) sanitizedError: string | null;
+  @ApiProperty({ type: () => AiSummaryDraftDto, nullable: true }) summary: AiSummaryDraftDto | null;
 }
