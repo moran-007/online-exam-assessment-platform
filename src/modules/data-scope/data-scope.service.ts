@@ -80,6 +80,32 @@ export class DataScopeService {
     await this.assertClassWritable(user, exam.classId);
   }
 
+  async assertStudentSummaryAccessible(user: RequestUser, studentId: string) {
+    if (this.isUnrestricted(user)) return;
+    this.assertInScope(this.isScopedTeacher(user), '无权限访问该学生');
+    const [classMembership, authoredExamAttempt] = await Promise.all([
+      this.prisma.classStudent.findFirst({
+        where: {
+          studentId,
+          classGroup: {
+            deletedAt: null,
+            status: 'active',
+            teachers: { some: { teacherId: user.id } },
+          },
+        },
+        select: { id: true },
+      }),
+      this.prisma.examAttempt.findFirst({
+        where: {
+          userId: studentId,
+          exam: { classId: null, createdBy: user.id, deletedAt: null },
+        },
+        select: { id: true },
+      }),
+    ]);
+    this.assertInScope(Boolean(classMembership || authoredExamAttempt), '无权限访问该学生');
+  }
+
   private assertInScope(condition: boolean, message: string) {
     if (!condition) {
       throw new ForbiddenException(message);

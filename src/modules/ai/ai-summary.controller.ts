@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, ParseUUIDPipe, Post } from '@nestjs/common';
+import { Body, Controller, Get, Param, ParseUUIDPipe, Post, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiCreatedResponse, ApiOkResponse, ApiTags } from '@nestjs/swagger';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Permissions } from '../../common/decorators/permissions.decorator';
@@ -10,6 +10,8 @@ import {
 } from './dto/ai-summary.dto';
 import { ExamSummaryPreviewUseCases } from './exam-summary-preview.use-cases';
 import { ExamSummaryTaskUseCases } from './exam-summary-task.use-cases';
+import { StudentSummaryPreviewUseCases } from './student-summary-preview.use-cases';
+import { StudentSummaryDatasetPreviewDto, StudentSummaryScopeQueryDto } from './dto/student-summary.dto';
 
 @ApiTags('AI Summary')
 @ApiBearerAuth()
@@ -18,6 +20,7 @@ export class AiSummaryController {
   constructor(
     private readonly previews: ExamSummaryPreviewUseCases,
     private readonly tasks: ExamSummaryTaskUseCases,
+    private readonly studentPreviews: StudentSummaryPreviewUseCases,
   ) {}
 
   @Get('exams/:examId/preview')
@@ -32,5 +35,16 @@ export class AiSummaryController {
   @ApiCreatedResponse({ type: ExamSummaryTaskResponseDto })
   create(@Body() dto: CreateExamSummaryTaskDto, @CurrentUser() user: RequestUser) {
     return this.tasks.create(dto, user);
+  }
+
+  @Get('students/:studentId/preview')
+  @Permissions('ai.summary.student.generate')
+  @ApiOkResponse({ type: StudentSummaryDatasetPreviewDto })
+  studentPreview(
+    @Param('studentId', ParseUUIDPipe) studentId: string,
+    @Query() query: StudentSummaryScopeQueryDto,
+    @CurrentUser() user: RequestUser,
+  ) {
+    return this.studentPreviews.preview({ studentId, ...query }, user);
   }
 }

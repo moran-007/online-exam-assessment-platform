@@ -11,7 +11,9 @@ import { AiSummaryController } from './ai-summary.controller';
 import { AiTokenUsageService } from './ai-token-usage.service';
 import { SummaryOutputValidator } from './schemas/summary-output.validator';
 import { ExamSummaryDatasetBuilder } from './datasets/exam-summary-dataset.builder';
+import { StudentSummaryDatasetBuilder } from './datasets/student-summary-dataset.builder';
 import { ExamSummaryPreviewUseCases } from './exam-summary-preview.use-cases';
+import { StudentSummaryPreviewUseCases } from './student-summary-preview.use-cases';
 import { ExamSummaryTaskRunner } from './exam-summary-task.runner';
 import { ExamSummaryTaskUseCases } from './exam-summary-task.use-cases';
 import { AiSummaryLifecycleController } from './ai-summary-lifecycle.controller';
@@ -31,7 +33,9 @@ import { ExamSummaryQueryUseCases } from './exam-summary-query.use-cases';
     AiConfigUseCases,
     AiGenerationUseCases,
     ExamSummaryDatasetBuilder,
+    StudentSummaryDatasetBuilder,
     ExamSummaryPreviewUseCases,
+    StudentSummaryPreviewUseCases,
     ExamSummaryTaskRunner,
     ExamSummaryTaskUseCases,
     ExamSummaryLifecycleUseCases,

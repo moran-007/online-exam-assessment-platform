@@ -61,13 +61,36 @@ export type ExamSummaryDataset = SummaryDatasetBase & {
 
 export type StudentSummaryDataset = SummaryDatasetBase & {
   type: 'student';
-  studentId: string;
-  courseId: string | null;
-  examIds: string[];
+  student: {
+    id: string;
+    alias: string;
+  };
+  scope: {
+    courseId: string | null;
+    courseName: string | null;
+    examIds: string[];
+  };
+  coverage: {
+    selectedExamCount: EvidencedValue<number>;
+    gradedExamCount: EvidencedValue<number>;
+    notSubmittedExamCount: EvidencedValue<number>;
+    ungradedExamCount: EvidencedValue<number>;
+    gradedAnswerCount: EvidencedValue<number>;
+  };
   examPerformance: Array<{
     examId: string;
-    submittedAt: string;
-    score: EvidencedValue<number>;
+    examName: string;
+    endedAt: string;
+    status: EvidencedValue<'graded' | 'not_submitted' | 'ungraded'>;
+    submittedAt: string | null;
+    score: EvidencedValue<number | null>;
+    fullScore: EvidencedValue<number>;
+    scoreRate: EvidencedValue<number | null>;
+  }>;
+  questionTypes: Array<{
+    type: string;
+    answerCount: EvidencedValue<number>;
+    correctRate: EvidencedValue<number>;
     scoreRate: EvidencedValue<number>;
   }>;
   knowledgePoints: Array<{
@@ -75,14 +98,19 @@ export type StudentSummaryDataset = SummaryDatasetBase & {
     name: string;
     answerCount: EvidencedValue<number>;
     correctRate: EvidencedValue<number>;
+    scoreRate: EvidencedValue<number>;
   }>;
   wrongQuestions: Array<{
     questionId: string;
+    title: string;
+    questionType: string;
     wrongCount: EvidencedValue<number>;
     masteryStatus: EvidencedValue<string>;
   }>;
   programming: {
     submissionCount: EvidencedValue<number>;
     acceptedCount: EvidencedValue<number>;
+    acceptedRate: EvidencedValue<number>;
+    averageScore: EvidencedValue<number>;
   };
 };

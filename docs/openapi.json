@@ -165,6 +165,21 @@
         ],
         "type": "object"
       },
+      "AiEvidencedStringDto": {
+        "properties": {
+          "evidenceRef": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "value",
+          "evidenceRef"
+        ],
+        "type": "object"
+      },
       "AiEvidenceRefDto": {
         "properties": {
           "capturedAt": {
@@ -500,6 +515,220 @@
           "model",
           "documentationUrl",
           "note"
+        ],
+        "type": "object"
+      },
+      "AiStudentContextDto": {
+        "properties": {
+          "alias": {
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "alias"
+        ],
+        "type": "object"
+      },
+      "AiStudentCoverageMetricsDto": {
+        "properties": {
+          "gradedAnswerCount": {
+            "$ref": "#/components/schemas/AiEvidencedNumberDto"
+          },
+          "gradedExamCount": {
+            "$ref": "#/components/schemas/AiEvidencedNumberDto"
+          },
+          "notSubmittedExamCount": {
+            "$ref": "#/components/schemas/AiEvidencedNumberDto"
+          },
+          "selectedExamCount": {
+            "$ref": "#/components/schemas/AiEvidencedNumberDto"
+          },
+          "ungradedExamCount": {
+            "$ref": "#/components/schemas/AiEvidencedNumberDto"
+          }
+        },
+        "required": [
+          "selectedExamCount",
+          "gradedExamCount",
+          "notSubmittedExamCount",
+          "ungradedExamCount",
+          "gradedAnswerCount"
+        ],
+        "type": "object"
+      },
+      "AiStudentExamPerformanceDto": {
+        "properties": {
+          "endedAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "examId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "examName": {
+            "type": "string"
+          },
+          "fullScore": {
+            "$ref": "#/components/schemas/AiEvidencedNumberDto"
+          },
+          "score": {
+            "$ref": "#/components/schemas/AiEvidencedNumberDto"
+          },
+          "scoreRate": {
+            "$ref": "#/components/schemas/AiEvidencedNumberDto"
+          },
+          "status": {
+            "$ref": "#/components/schemas/AiEvidencedStringDto"
+          },
+          "submittedAt": {
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          }
+        },
+        "required": [
+          "examId",
+          "examName",
+          "endedAt",
+          "status",
+          "submittedAt",
+          "score",
+          "fullScore",
+          "scoreRate"
+        ],
+        "type": "object"
+      },
+      "AiStudentKnowledgePointFactDto": {
+        "properties": {
+          "answerCount": {
+            "$ref": "#/components/schemas/AiEvidencedNumberDto"
+          },
+          "correctRate": {
+            "$ref": "#/components/schemas/AiEvidencedNumberDto"
+          },
+          "knowledgePointId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "scoreRate": {
+            "$ref": "#/components/schemas/AiEvidencedNumberDto"
+          }
+        },
+        "required": [
+          "knowledgePointId",
+          "name",
+          "answerCount",
+          "correctRate",
+          "scoreRate"
+        ],
+        "type": "object"
+      },
+      "AiStudentProgrammingFactDto": {
+        "properties": {
+          "acceptedCount": {
+            "$ref": "#/components/schemas/AiEvidencedNumberDto"
+          },
+          "acceptedRate": {
+            "$ref": "#/components/schemas/AiEvidencedNumberDto"
+          },
+          "averageScore": {
+            "$ref": "#/components/schemas/AiEvidencedNumberDto"
+          },
+          "submissionCount": {
+            "$ref": "#/components/schemas/AiEvidencedNumberDto"
+          }
+        },
+        "required": [
+          "submissionCount",
+          "acceptedCount",
+          "acceptedRate",
+          "averageScore"
+        ],
+        "type": "object"
+      },
+      "AiStudentQuestionTypeFactDto": {
+        "properties": {
+          "answerCount": {
+            "$ref": "#/components/schemas/AiEvidencedNumberDto"
+          },
+          "correctRate": {
+            "$ref": "#/components/schemas/AiEvidencedNumberDto"
+          },
+          "scoreRate": {
+            "$ref": "#/components/schemas/AiEvidencedNumberDto"
+          },
+          "type": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "answerCount",
+          "correctRate",
+          "scoreRate"
+        ],
+        "type": "object"
+      },
+      "AiStudentSummaryScopeDto": {
+        "properties": {
+          "courseId": {
+            "format": "uuid",
+            "nullable": true,
+            "type": "string"
+          },
+          "courseName": {
+            "nullable": true,
+            "type": "string"
+          },
+          "examIds": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "courseId",
+          "courseName",
+          "examIds"
+        ],
+        "type": "object"
+      },
+      "AiStudentWrongQuestionFactDto": {
+        "properties": {
+          "masteryStatus": {
+            "$ref": "#/components/schemas/AiEvidencedStringDto"
+          },
+          "questionId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "questionType": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "wrongCount": {
+            "$ref": "#/components/schemas/AiEvidencedNumberDto"
+          }
+        },
+        "required": [
+          "questionId",
+          "title",
+          "questionType",
+          "wrongCount",
+          "masteryStatus"
         ],
         "type": "object"
       },
@@ -3405,6 +3634,81 @@
         ],
         "type": "object"
       },
+      "StudentSummaryDatasetPreviewDto": {
+        "properties": {
+          "coverage": {
+            "$ref": "#/components/schemas/AiStudentCoverageMetricsDto"
+          },
+          "dataCoverage": {
+            "$ref": "#/components/schemas/AiDataCoverageDto"
+          },
+          "datasetVersion": {
+            "type": "string"
+          },
+          "evidence": {
+            "items": {
+              "$ref": "#/components/schemas/AiEvidenceRefDto"
+            },
+            "type": "array"
+          },
+          "examPerformance": {
+            "items": {
+              "$ref": "#/components/schemas/AiStudentExamPerformanceDto"
+            },
+            "type": "array"
+          },
+          "generatedAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "inputHash": {
+            "type": "string"
+          },
+          "knowledgePoints": {
+            "items": {
+              "$ref": "#/components/schemas/AiStudentKnowledgePointFactDto"
+            },
+            "type": "array"
+          },
+          "programming": {
+            "$ref": "#/components/schemas/AiStudentProgrammingFactDto"
+          },
+          "questionTypes": {
+            "items": {
+              "$ref": "#/components/schemas/AiStudentQuestionTypeFactDto"
+            },
+            "type": "array"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/AiStudentSummaryScopeDto"
+          },
+          "student": {
+            "$ref": "#/components/schemas/AiStudentContextDto"
+          },
+          "wrongQuestions": {
+            "items": {
+              "$ref": "#/components/schemas/AiStudentWrongQuestionFactDto"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "inputHash",
+          "datasetVersion",
+          "generatedAt",
+          "dataCoverage",
+          "student",
+          "scope",
+          "coverage",
+          "examPerformance",
+          "questionTypes",
+          "knowledgePoints",
+          "wrongQuestions",
+          "programming",
+          "evidence"
+        ],
+        "type": "object"
+      },
       "SubmitHydroCodeDto": {
         "properties": {
           "accountId": {
@@ -4746,6 +5050,122 @@
                     },
                     "data": {
                       "$ref": "#/components/schemas/ExamSummaryDatasetPreviewDto"
+                    },
+                    "message": {
+                      "example": "ok",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "code",
+                    "message",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "401": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "404": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "409": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "429": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "500": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "AI Summary"
+        ]
+      }
+    },
+    "/api/v1/ai-summaries/students/{studentId}/preview": {
+      "get": {
+        "operationId": "AiSummary_studentPreview",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "studentId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "courseId",
+            "required": false,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "examIds",
+            "required": false,
+            "schema": {
+              "items": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "maxItems": 20,
+              "type": "array"
+            }
+          },
+          {
+            "description": "按考试结束时间筛选",
+            "in": "query",
+            "name": "from",
+            "required": false,
+            "schema": {
+              "format": "date-time",
+              "type": "string"
+            }
+          },
+          {
+            "description": "按考试结束时间筛选",
+            "in": "query",
+            "name": "to",
+            "required": false,
+            "schema": {
+              "format": "date-time",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "code": {
+                      "example": 0,
+                      "type": "integer"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/StudentSummaryDatasetPreviewDto"
                     },
                     "message": {
                       "example": "ok",

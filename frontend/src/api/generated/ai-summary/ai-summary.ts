@@ -8,6 +8,8 @@
 import type {
   AiSummaryCreate201,
   AiSummaryPreview200,
+  AiSummaryStudentPreview200,
+  AiSummaryStudentPreviewParams,
   ApiErrorResponse,
   CreateExamSummaryTaskDto
 } from '../models';
@@ -143,6 +145,92 @@ export const getAiSummaryPreviewUrl = (examId: string,) => {
 export const aiSummaryPreview = async (examId: string, options?: RequestInit): Promise<aiSummaryPreviewResponse> => {
 
   return apiMutator<aiSummaryPreviewResponse>(getAiSummaryPreviewUrl(examId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+export type aiSummaryStudentPreviewResponse200 = {
+  data: AiSummaryStudentPreview200
+  status: 200
+}
+
+export type aiSummaryStudentPreviewResponse400 = {
+  data: ApiErrorResponse
+  status: 400
+}
+
+export type aiSummaryStudentPreviewResponse401 = {
+  data: ApiErrorResponse
+  status: 401
+}
+
+export type aiSummaryStudentPreviewResponse403 = {
+  data: ApiErrorResponse
+  status: 403
+}
+
+export type aiSummaryStudentPreviewResponse404 = {
+  data: ApiErrorResponse
+  status: 404
+}
+
+export type aiSummaryStudentPreviewResponse409 = {
+  data: ApiErrorResponse
+  status: 409
+}
+
+export type aiSummaryStudentPreviewResponse429 = {
+  data: ApiErrorResponse
+  status: 429
+}
+
+export type aiSummaryStudentPreviewResponse500 = {
+  data: ApiErrorResponse
+  status: 500
+}
+
+export type aiSummaryStudentPreviewResponseSuccess = (aiSummaryStudentPreviewResponse200) & {
+  headers: Headers;
+};
+export type aiSummaryStudentPreviewResponseError = (aiSummaryStudentPreviewResponse400 | aiSummaryStudentPreviewResponse401 | aiSummaryStudentPreviewResponse403 | aiSummaryStudentPreviewResponse404 | aiSummaryStudentPreviewResponse409 | aiSummaryStudentPreviewResponse429 | aiSummaryStudentPreviewResponse500) & {
+  headers: Headers;
+};
+
+export type aiSummaryStudentPreviewResponse = (aiSummaryStudentPreviewResponseSuccess | aiSummaryStudentPreviewResponseError)
+
+export const getAiSummaryStudentPreviewUrl = (studentId: string,
+    params?: AiSummaryStudentPreviewParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    const explodeParameters = ["examIds"];
+
+    if (Array.isArray(value) && explodeParameters.includes(key)) {
+      value.forEach((v) => {
+        normalizedParams.append(key, v === null ? 'null' : String(v));
+      });
+      return;
+    }
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/v1/ai-summaries/students/${studentId}/preview?${stringifiedParams}` : `/api/v1/ai-summaries/students/${studentId}/preview`
+}
+
+export const aiSummaryStudentPreview = async (studentId: string,
+    params?: AiSummaryStudentPreviewParams, options?: RequestInit): Promise<aiSummaryStudentPreviewResponse> => {
+
+  return apiMutator<aiSummaryStudentPreviewResponse>(getAiSummaryStudentPreviewUrl(studentId,params),
   {
     ...options,
     method: 'GET'
