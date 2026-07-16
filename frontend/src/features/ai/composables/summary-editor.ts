@@ -1,17 +1,17 @@
 import type { AiStructuredSummaryContent, AiSummaryClaim } from '../models';
 
-export type ExamSummaryEditor = Record<
+export type SummaryEditor = Record<
   'headline' | 'overview' | 'strengths' | 'risks' | 'actions' | 'needsReview',
   string
 >;
 
 const LIST_FIELDS = ['overview', 'strengths', 'risks', 'actions', 'needsReview'] as const;
 
-export function emptyExamSummaryEditor(): ExamSummaryEditor {
+export function emptySummaryEditor(): SummaryEditor {
   return { headline: '', overview: '', strengths: '', risks: '', actions: '', needsReview: '' };
 }
 
-export function populateExamSummaryEditor(editor: ExamSummaryEditor, value: unknown | null) {
+export function populateSummaryEditor(editor: SummaryEditor, value: unknown | null) {
   const content = value === null ? null : structuredContent(value);
   editor.headline = content?.headline.text ?? '';
   for (const field of LIST_FIELDS) {
@@ -20,13 +20,14 @@ export function populateExamSummaryEditor(editor: ExamSummaryEditor, value: unkn
   return content;
 }
 
-export function examSummaryContentFromEditor(
-  editor: ExamSummaryEditor,
+export function summaryContentFromEditor(
+  editor: SummaryEditor,
   original: AiStructuredSummaryContent | null,
   fallback: string[],
+  schemaVersion: string,
 ) {
   return {
-    schemaVersion: 'exam-summary-output/v1',
+    schemaVersion,
     headline: claim(editor.headline.trim(), original?.headline, fallback),
     overview: claims(editor.overview, original?.overview, fallback),
     strengths: claims(editor.strengths, original?.strengths, fallback),

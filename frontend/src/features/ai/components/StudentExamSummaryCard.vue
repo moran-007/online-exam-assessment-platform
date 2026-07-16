@@ -2,7 +2,7 @@
   <section v-if="content" class="panel student-ai-summary">
     <div class="section-head">
       <div>
-        <h2>教师发布的 AI 考试总结</h2>
+        <h2>教师发布的 AI {{ summary.type === 'student' ? '阶段' : '考试' }}总结</h2>
         <p class="muted">已由教师人工审核 · {{ new Date(summary.publishedAt).toLocaleString() }}</p>
       </div>
       <el-tag type="success">已发布</el-tag>

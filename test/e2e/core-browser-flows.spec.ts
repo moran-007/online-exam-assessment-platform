@@ -10,6 +10,7 @@ const apiBaseUrl = process.env.E2E_API_BASE_URL || 'http://127.0.0.1:3100/api/v1
 let examId = '';
 let materialExamId = '';
 let paperName = '';
+let classId = '';
 
 test.beforeAll(async ({ request }) => {
   await rm(process.env.UPLOADS_DIR!, { recursive: true, force: true });
@@ -30,6 +31,12 @@ test.beforeAll(async ({ request }) => {
   const course = await api(request, 'post', '/courses', token, {
     name: 'E2E Browser Course', code: 'e2e_browser_course', description: 'Playwright fixture', sortOrder: 1,
   });
+  const classGroup = await api(request, 'post', '/classes', token, {
+    name: 'E2E Browser Class', courseId: course.id, code: 'e2e_browser_class', status: 'active',
+  });
+  classId = classGroup.id;
+  const student = await prisma.user.findUniqueOrThrow({ where: { username: 'e2e_student' } });
+  await api(request, 'post', `/classes/${classId}/students`, token, { userIds: [student.id] });
   const question = await api(request, 'post', '/questions', token, {
     courseId: course.id,
     type: 'single_choice',
@@ -207,6 +214,14 @@ test('privileged users can open AI settings while students are denied', async ({
   await adminPage.goto('/classes');
   await expect(adminPage.getByRole('heading', { name: '班级管理' })).toBeVisible();
   await expect(adminPage.getByRole('button', { name: '新增班级' })).toBeVisible();
+  await adminPage.getByText('E2E Browser Class', { exact: true }).click();
+  await expect(adminPage.getByText('E2E Student', { exact: true })).toBeVisible();
+  await adminPage.getByRole('button', { name: 'AI 总结' }).click();
+  const studentSummaryDialog = adminPage.getByRole('dialog', { name: /AI 学生阶段总结 · E2E Student/ });
+  await expect(studentSummaryDialog).toBeVisible();
+  await expect(studentSummaryDialog.getByText('数据覆盖：')).toBeVisible();
+  await expect(studentSummaryDialog.getByText('未提交', { exact: true })).toBeVisible();
+  await studentSummaryDialog.locator('.el-dialog__headerbtn').click();
   await adminPage.goto('/users');
   await expect(adminPage.getByRole('heading', { name: '用户权限' })).toBeVisible();
   await expect(adminPage.getByRole('button', { name: '新增用户' })).toBeVisible();

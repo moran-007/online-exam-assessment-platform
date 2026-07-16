@@ -2,9 +2,12 @@ import { computed, reactive, ref } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import {
   createExamSummary,
+  createStudentSummary,
   listAiConfigurations,
   listExamSummaryHistory,
+  listStudentSummaryHistory,
   previewExamSummaryDataset,
+  previewStudentSummaryDataset,
   publishExamSummary,
   regenerateExamSummary,
   reviewExamSummary,
@@ -15,34 +18,32 @@ import type {
   AiProviderConfig,
   AiStructuredSummaryContent,
   AiSummaryLifecycleRecord,
+  AiSummaryTask,
   ExamSummaryDatasetPreview,
-  ExamSummaryTask,
+  StudentSummaryDatasetPreview,
 } from '../models';
-import {
-  emptyExamSummaryEditor,
-  examSummaryContentFromEditor,
-  populateExamSummaryEditor,
-} from './exam-summary-editor';
+import { emptySummaryEditor, populateSummaryEditor, summaryContentFromEditor } from './summary-editor';
 
-function errorMessage(error: unknown, fallback: string) {
-  return error instanceof Error ? error.message : fallback;
-}
+export type AiSummaryKind = 'exam' | 'student';
+export type StudentSummaryScope = { courseId?: string; examIds?: string[]; from?: string; to?: string };
+type SummaryPreview = ExamSummaryDatasetPreview | StudentSummaryDatasetPreview;
 
-export function useExamAiSummaryDialog() {
+export function useAiSummaryDialog(kind: AiSummaryKind) {
   const visible = ref(false);
   const loading = ref(false);
   const working = ref(false);
-  const examId = ref('');
-  const examName = ref('');
+  const subjectId = ref('');
+  const subjectName = ref('');
+  const scope = ref<StudentSummaryScope>({});
   const selectedConfigId = ref('');
   const requestedMaxTokens = ref<number | undefined>(undefined);
-  const preview = ref<ExamSummaryDatasetPreview | null>(null);
+  const preview = ref<SummaryPreview | null>(null);
   const configs = ref<AiProviderConfig[]>([]);
   const history = ref<AiSummaryLifecycleRecord[]>([]);
   const active = ref<AiSummaryLifecycleRecord | null>(null);
-  const lastTask = ref<ExamSummaryTask | null>(null);
+  const lastTask = ref<AiSummaryTask | null>(null);
   const original = ref<AiStructuredSummaryContent | null>(null);
-  const editor = reactive(emptyExamSummaryEditor());
+  const editor = reactive(emptySummaryEditor());
 
   const enabledConfigs = computed(() => configs.value.filter((item) => item.enabled));
   const canEdit = computed(() => active.value && active.value.reviewStatus !== 'published');
@@ -67,24 +68,25 @@ export function useExamAiSummaryDialog() {
       : `自动使用配置上限 ${selected.maxTokens} Token`;
   });
 
-  async function open(id: string, name: string) {
-    examId.value = id;
-    examName.value = name;
+  async function open(id: string, name: string, nextScope: StudentSummaryScope = {}) {
+    subjectId.value = id;
+    subjectName.value = name;
+    scope.value = { ...nextScope };
     visible.value = true;
     loading.value = true;
     lastTask.value = null;
     try {
       const [dataset, availableConfigs, records] = await Promise.all([
-        previewExamSummaryDataset(id),
+        loadPreview(),
         listAiConfigurations(),
-        listExamSummaryHistory(id),
+        loadHistory(),
       ]);
       preview.value = dataset;
       configs.value = availableConfigs;
       history.value = records;
       selectSummary(records[0] ?? null);
     } catch (error: unknown) {
-      ElMessage.error(errorMessage(error, 'AI 考试总结数据加载失败'));
+      ElMessage.error(errorMessage(error, `AI ${kindLabel()}总结数据加载失败`));
     } finally {
       loading.value = false;
     }
@@ -92,7 +94,7 @@ export function useExamAiSummaryDialog() {
 
   function selectSummary(summary: AiSummaryLifecycleRecord | null) {
     active.value = summary;
-    original.value = populateExamSummaryEditor(editor, summary?.content ?? null);
+    original.value = populateSummaryEditor(editor, summary?.content ?? null);
   }
 
   async function generate() {
@@ -100,15 +102,11 @@ export function useExamAiSummaryDialog() {
       `上一次调用失败。再次尝试会按当前 ${effectiveOutputLimit.value ?? '自动'} Token 上限发起新请求并产生用量，是否继续？`,
       '确认再次调用模型',
     )) return;
-    await execute('生成考试总结', async () => {
-      lastTask.value = await createExamSummary({
-        examId: examId.value,
-        configId: selectedConfigId.value || undefined,
-        ...optionalOutputLimit(requestedMaxTokens.value),
-      });
+    await execute(`生成${kindLabel()}总结`, async () => {
+      lastTask.value = await createTask();
       if (lastTask.value.summary) await refresh(lastTask.value.summary.id);
       if (lastTask.value.status === 'failed') throw new Error(lastTask.value.sanitizedError || '模型生成失败');
-      ElMessage.success(lastTask.value.cacheHit ? '已复用相同输入的总结' : '考试总结草稿已生成');
+      ElMessage.success(lastTask.value.cacheHit ? '已复用相同输入的总结' : `${kindLabel()}总结草稿已生成`);
     });
   }
 
@@ -135,27 +133,28 @@ export function useExamAiSummaryDialog() {
 
   async function publish() {
     if (!active.value) return;
-    if (!await confirm('发布后，参加本场考试的学生可以查看该总结。', '确认发布')) return;
+    const message = kind === 'student'
+      ? '发布后，仅该学生本人可以查看此阶段总结。'
+      : '发布后，参加本场考试的学生可以查看该总结。';
+    if (!await confirm(message, '确认发布')) return;
     await execute('发布总结', async () => {
       const updated = await publishExamSummary(active.value!.id);
       await refresh(updated.id);
-      ElMessage.success('考试总结已发布');
+      ElMessage.success(`${kindLabel()}总结已发布`);
     });
   }
 
   async function revoke() {
-    if (!active.value) return;
-    if (!await confirm('撤回后，学生端将立即不可见。', '确认撤回')) return;
+    if (!active.value || !await confirm('撤回后，学生端将立即不可见。', '确认撤回')) return;
     await execute('撤回总结', async () => {
       const updated = await revokeExamSummary(active.value!.id);
       await refresh(updated.id);
-      ElMessage.success('考试总结已撤回');
+      ElMessage.success(`${kindLabel()}总结已撤回`);
     });
   }
 
   async function regenerate() {
-    if (!active.value) return;
-    if (!await confirm(
+    if (!active.value || !await confirm(
       `重新生成会按当前 ${effectiveOutputLimit.value ?? '自动'} Token 上限发起新模型调用并记录用量。`,
       '确认重新生成',
     )) return;
@@ -170,15 +169,38 @@ export function useExamAiSummaryDialog() {
     });
   }
 
+  function loadPreview() {
+    return kind === 'exam'
+      ? previewExamSummaryDataset(subjectId.value)
+      : previewStudentSummaryDataset(subjectId.value, scope.value);
+  }
+
+  function loadHistory() {
+    return kind === 'exam'
+      ? listExamSummaryHistory(subjectId.value)
+      : listStudentSummaryHistory(subjectId.value);
+  }
+
+  function createTask() {
+    const options = {
+      configId: selectedConfigId.value || undefined,
+      ...optionalOutputLimit(requestedMaxTokens.value),
+    };
+    return kind === 'exam'
+      ? createExamSummary({ examId: subjectId.value, ...options })
+      : createStudentSummary({ studentId: subjectId.value, ...scope.value, ...options });
+  }
+
   async function refresh(selectedId?: string) {
-    history.value = await listExamSummaryHistory(examId.value);
+    history.value = await loadHistory();
     selectSummary(history.value.find((item) => item.id === selectedId) ?? history.value[0] ?? null);
   }
 
   function contentFromEditor(): Record<string, unknown> {
     const fallback = original.value?.headline.evidenceRefs
       ?? (active.value?.evidence[0]?.refId ? [active.value.evidence[0].refId] : []);
-    return examSummaryContentFromEditor(editor, original.value, fallback) as unknown as Record<string, unknown>;
+    const schemaVersion = original.value?.schemaVersion ?? `${kind}-summary-output/v1`;
+    return summaryContentFromEditor(editor, original.value, fallback, schemaVersion) as unknown as Record<string, unknown>;
   }
 
   async function execute(label: string, operation: () => Promise<void>) {
@@ -193,16 +215,24 @@ export function useExamAiSummaryDialog() {
     }
   }
 
+  function kindLabel() {
+    return kind === 'student' ? '学生阶段' : '考试';
+  }
+
   return {
-    active, canEdit, canPublish, canReview, canRevoke, editor, effectiveOutputLimit, enabledConfigs, examName,
-    generate, history, lastTask, loading, open, outputLimitHint, preview, publish, regenerate, review, revoke,
-    requestedMaxTokens, save, selectSummary, selectedConfigId, visible, working,
+    active, canEdit, canPublish, canReview, canRevoke, editor, effectiveOutputLimit, enabledConfigs,
+    generate, history, kind, lastTask, loading, open, outputLimitHint, preview, publish, regenerate,
+    requestedMaxTokens, review, revoke, save, selectSummary, selectedConfigId, subjectName, visible, working,
   };
 }
 
 function optionalOutputLimit(value: unknown): { maxTokens?: number } {
   const normalized = Number(value);
   return Number.isInteger(normalized) && normalized > 0 ? { maxTokens: normalized } : {};
+}
+
+function errorMessage(error: unknown, fallback: string) {
+  return error instanceof Error ? error.message : fallback;
 }
 
 async function confirm(message: string, title: string) {

@@ -16,6 +16,13 @@
       </el-descriptions>
     </div>
 
+    <template v-if="user?.userType === 'STUDENT'">
+      <StudentExamSummaryCard v-for="summary in studentSummaries" :key="summary.id" :summary="summary" />
+      <div v-if="!studentSummaries.length" class="panel profile-panel">
+        <el-empty description="暂无教师已发布的阶段总结" :image-size="72" />
+      </div>
+    </template>
+
     <div class="panel profile-panel">
       <div class="paper-preview-head">
         <div>
@@ -123,6 +130,8 @@ import { ElMessage, ElMessageBox } from 'element-plus';
 import { Delete, Link, Refresh } from '@element-plus/icons-vue';
 import { setSession } from '../api';
 import { changeOwnPassword, getCurrentProfile } from '../features/platform/api';
+import { listPublishedSummaries } from '../features/ai/api';
+import StudentExamSummaryCard from '../features/ai/components/StudentExamSummaryCard.vue';
 import {
   bindMyHydroAccount,
   listHydroPlatforms,
@@ -132,6 +141,7 @@ import {
 } from '../features/hydro/api';
 
 const user = ref(null);
+const studentSummaries = ref([]);
 const hydroAccounts = ref([]);
 const platforms = ref([]);
 const passwordSaving = ref(false);
@@ -167,6 +177,9 @@ const roleName = computed(() => {
 async function load() {
   user.value = await getCurrentProfile();
   setSession({ user: user.value });
+  studentSummaries.value = user.value?.userType === 'STUDENT'
+    ? (await listPublishedSummaries()).filter((item) => item.type === 'student')
+    : [];
   if (canManageOwnExternalAccounts.value) {
     await loadPlatforms();
     await loadHydroAccounts();

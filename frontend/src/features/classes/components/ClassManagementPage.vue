@@ -119,8 +119,11 @@
         <el-table :data="detail.students" height="220">
           <el-table-column prop="realName" label="学生" min-width="150" />
           <el-table-column prop="username" label="账号" min-width="150" />
-          <el-table-column label="操作" width="90">
-            <template #default="{ row }"><el-button link type="danger" @click="removeStudent(row)">移除</el-button></template>
+          <el-table-column label="操作" width="150">
+            <template #default="{ row }">
+              <el-button link type="primary" @click="openStudentAi(row)">AI 总结</el-button>
+              <el-button link type="danger" @click="removeStudent(row)">移除</el-button>
+            </template>
           </el-table-column>
         </el-table>
         <el-divider />
@@ -208,12 +211,15 @@
         <el-button type="primary" :icon="Upload" :loading="studentBatchLoading" @click="createStudentsBatch">批量创建</el-button>
       </template>
     </el-dialog>
+    <StudentAiSummaryDialog ref="studentAiDialog" />
   </div>
 </template>
 
 <script setup>
+import { ref } from 'vue';
 import { Plus, Refresh, Search, Upload } from '@element-plus/icons-vue';
 import { useClassManagementPage } from '../composables/useClassManagementPage';
+import StudentAiSummaryDialog from '../../ai/components/StudentAiSummaryDialog.vue';
 
 const {
   addStudents, addTeachers, canCreateStudents, canCreateTeachers, courses, createStudent,
@@ -227,4 +233,10 @@ const {
   teacherBatchLoading, teacherBatchText, teacherBatchVisible, teacherCreateForm,
   teacherCreateLoading, teacherCreateVisible, teachers,
 } = useClassManagementPage();
+
+const studentAiDialog = ref();
+function openStudentAi(student) {
+  const name = student.realName || student.username || '学生';
+  void studentAiDialog.value?.open(student.id, name, { courseId: detail.value?.courseId || undefined });
+}
 </script>

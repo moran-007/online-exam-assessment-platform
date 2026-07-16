@@ -133,7 +133,7 @@ async function load() {
   if (!simulateStudentId.value && loaded.exam?.id) {
     try {
       const summaries = await listPublishedExamSummaries();
-      examSummary.value = summaries.find((item) => item.examId === loaded.exam.id) ?? null;
+      examSummary.value = summaries.find((item) => item.type === 'exam' && item.subjectId === loaded.exam.id) ?? null;
     } catch {
       examSummary.value = null;
     }

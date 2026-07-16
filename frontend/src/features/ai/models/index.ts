@@ -9,9 +9,12 @@ export type {
   UpdateAiProviderConfigDto as UpdateAiProviderConfig,
   AiSummaryLifecycleRecordDto as AiSummaryLifecycleRecord,
   ExamSummaryDatasetPreviewDto as ExamSummaryDatasetPreview,
-  ExamSummaryTaskResponseDto as ExamSummaryTask,
+  StudentSummaryDatasetPreviewDto as StudentSummaryDatasetPreview,
+  AiSummaryTaskResponseDto as AiSummaryTask,
+  AiSummaryTaskResponseDto as ExamSummaryTask,
   RegenerateAiSummaryDto as RegenerateAiSummary,
-  StudentPublishedAiSummaryDto as StudentPublishedAiSummary,
+  PublishedAiSummaryDto as PublishedAiSummary,
+  PublishedAiSummaryDto as StudentPublishedAiSummary,
 } from '../../../api/generated/models';
 
 export type AiSummaryClaim = { text: string; evidenceRefs: string[] };
