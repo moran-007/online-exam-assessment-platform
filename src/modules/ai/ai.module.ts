@@ -14,10 +14,14 @@ import { ExamSummaryDatasetBuilder } from './datasets/exam-summary-dataset.build
 import { ExamSummaryPreviewUseCases } from './exam-summary-preview.use-cases';
 import { ExamSummaryTaskRunner } from './exam-summary-task.runner';
 import { ExamSummaryTaskUseCases } from './exam-summary-task.use-cases';
+import { AiSummaryLifecycleController } from './ai-summary-lifecycle.controller';
+import { ExamSummaryLifecycleUseCases } from './exam-summary-lifecycle.use-cases';
+import { ExamSummaryAccessService } from './exam-summary-access.service';
+import { ExamSummaryQueryUseCases } from './exam-summary-query.use-cases';
 
 @Module({
   imports: [AuditModule, StatisticsModule],
-  controllers: [AiController, AiSummaryController],
+  controllers: [AiController, AiSummaryController, AiSummaryLifecycleController],
   providers: [
     AiProviderGateway,
     AiProviderCapabilityRegistry,
@@ -30,6 +34,9 @@ import { ExamSummaryTaskUseCases } from './exam-summary-task.use-cases';
     ExamSummaryPreviewUseCases,
     ExamSummaryTaskRunner,
     ExamSummaryTaskUseCases,
+    ExamSummaryLifecycleUseCases,
+    ExamSummaryAccessService,
+    ExamSummaryQueryUseCases,
   ],
   exports: [
     AiProviderGateway,

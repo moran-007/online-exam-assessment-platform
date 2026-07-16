@@ -2,7 +2,7 @@ import '../setup-env';
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
 import { PrismaClient, UserType } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
-import { rm } from 'node:fs/promises';
+import { mkdir, rm } from 'node:fs/promises';
 
 const prisma = new PrismaClient();
 const password = '123456';
@@ -178,7 +178,9 @@ test('public visitors and teachers load their lazy feature routes', async ({ bro
   await expect(publicPage.getByText('E2E autosave question', { exact: true })).toBeVisible();
 
   await login(teacherPage, 'e2e_teacher');
-  await expect(teacherPage).toHaveURL(/\/external-accounts$/);
+  await expect(teacherPage).toHaveURL(/\/ai-settings$/);
+  await expect(teacherPage.getByRole('heading', { name: 'AI 模型配置' })).toBeVisible();
+  await teacherPage.goto('/external-accounts');
   await expect(teacherPage.getByRole('heading', { name: '外部账号' })).toBeVisible();
   await expect(teacherPage.getByText('我的账号', { exact: true })).toBeVisible();
 
@@ -186,7 +188,7 @@ test('public visitors and teachers load their lazy feature routes', async ({ bro
   await teacherContext.close();
 });
 
-test('only a super administrator can open the lazy AI settings route', async ({ browser }) => {
+test('privileged users can open AI settings while students are denied', async ({ browser }) => {
   const adminContext = await browser.newContext();
   const studentContext = await browser.newContext();
   const adminPage = await adminContext.newPage();
@@ -247,6 +249,18 @@ test('material context keeps child answers independent and rubric grading is ava
   await adminPage.getByRole('button', { name: '生成试算' }).click();
   await expect(adminPage.getByText('试算完成，正式成绩尚未改变')).toBeVisible();
   await expect(adminPage.getByText('扫描答案')).toBeVisible();
+
+  await adminPage.goto('/statistics');
+  const examRow = adminPage.getByRole('row', { name: /E2E material rubric exam/ });
+  await expect(examRow).toBeVisible();
+  await examRow.getByRole('button', { name: 'AI 总结' }).click();
+  const aiDialog = adminPage.getByRole('dialog', { name: /AI 考试总结 · E2E material rubric exam/ });
+  await expect(aiDialog).toBeVisible();
+  await expect(aiDialog.getByText('统计预览始终来自确定性查询')).toBeVisible();
+  await expect(aiDialog.getByText('尚未生成总结')).toBeVisible();
+  await expect(aiDialog.getByText('模型调用')).toHaveCount(0);
+  await mkdir('output/playwright', { recursive: true });
+  await aiDialog.screenshot({ path: 'output/playwright/ai-exam-summary-dialog.png' });
   await admin.close();
   await student.close();
 });

@@ -34,6 +34,8 @@
       class="batch-alert"
     />
 
+    <StudentExamSummaryCard v-if="examSummary" :summary="examSummary" />
+
     <main class="review-list">
       <section v-for="(question, index) in result.questionResults" :key="question.questionId" class="review-question">
         <header class="review-question-head">
@@ -79,7 +81,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive } from 'vue';
+import { computed, onMounted, reactive, ref } from 'vue';
 import { Back } from '@element-plus/icons-vue';
 import { useRoute, useRouter } from 'vue-router';
 import { getStudentAttemptResult } from '../features/exams/api';
@@ -87,6 +89,8 @@ import MarkdownRenderer from '../components/MarkdownRenderer.vue';
 import QuestionReviewHost from '../components/QuestionReviewHost.vue';
 import { questionTypeLabel } from '../question-engine/registry';
 import { statusLabel, statusTagType } from '../statusMeta';
+import { listPublishedExamSummaries } from '../features/ai/api';
+import StudentExamSummaryCard from '../features/ai/components/StudentExamSummaryCard.vue';
 
 const route = useRoute();
 const router = useRouter();
@@ -102,6 +106,7 @@ const result = reactive({
   visibility: null,
   questionResults: [],
 });
+const examSummary = ref(null);
 
 const hiddenDetailLabels = computed(() => {
   const visibility = result.visibility ?? {};
@@ -120,10 +125,19 @@ const restrictionTitle = computed(() => {
 });
 
 async function load() {
-  Object.assign(result, await getStudentAttemptResult(
+  const loaded = await getStudentAttemptResult(
     String(route.params.attemptId),
     simulateStudentId.value || undefined,
-  ));
+  );
+  Object.assign(result, loaded);
+  if (!simulateStudentId.value && loaded.exam?.id) {
+    try {
+      const summaries = await listPublishedExamSummaries();
+      examSummary.value = summaries.find((item) => item.examId === loaded.exam.id) ?? null;
+    } catch {
+      examSummary.value = null;
+    }
+  }
 }
 
 function goBack() {

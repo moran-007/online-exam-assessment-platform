@@ -23,7 +23,11 @@ export class ExamSummaryTaskUseCases {
     private readonly metrics: MetricsService,
   ) {}
 
-  async create(dto: CreateExamSummaryTaskDto, user: RequestUser) {
+  async create(
+    dto: CreateExamSummaryTaskDto,
+    user: RequestUser,
+    options: { generationKey?: string; sourceSummaryId?: string } = {},
+  ) {
     const dataset = await this.builder.build(dto.examId, user);
     const [config, template] = await Promise.all([
       this.configAccess.resolve(user, dto.configId),
@@ -38,6 +42,7 @@ export class ExamSummaryTaskUseCases {
       schemaVersion: EXAM_SUMMARY_OUTPUT_SCHEMA_VERSION,
       providerConfigId: config.id,
       modelSnapshot: config.model,
+      generationKey: options.generationKey ?? 'initial',
     };
     let task = await this.reusable(identity);
     if (!task) {
@@ -45,7 +50,10 @@ export class ExamSummaryTaskUseCases {
         task = await this.prisma.aiSummaryTask.create({
           data: {
             ...identity,
-            scopeJson: { examId: dto.examId },
+            scopeJson: {
+              examId: dto.examId,
+              ...(options.sourceSummaryId ? { sourceSummaryId: options.sourceSummaryId } : {}),
+            },
             inputSnapshotJson: dataset as unknown as Prisma.InputJsonValue,
             promptTemplateId: template.id,
             requestedOutputTokens: Math.min(dto.maxTokens ?? 1000, config.maxTokens, 1200),
@@ -88,6 +96,7 @@ export class ExamSummaryTaskUseCases {
     schemaVersion: string;
     providerConfigId: string;
     modelSnapshot: string;
+    generationKey: string;
   }) {
     return this.prisma.aiSummaryTask.findFirst({
       where: identity,

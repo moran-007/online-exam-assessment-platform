@@ -34,6 +34,9 @@
         <el-button type="success" plain :icon="DocumentAdd" :loading="generatingWrongPaper" @click="generateWrongPaper">
           高频错题组卷
         </el-button>
+        <el-button type="primary" :icon="MagicStick" :disabled="!filter.examId" @click="openAiSummary()">
+          AI 考试总结
+        </el-button>
       </div>
     </div>
 
@@ -97,6 +100,11 @@
             <el-table-column prop="submitCount" label="提交" width="80" />
             <el-table-column prop="averageScore" label="平均分" width="100" />
             <el-table-column v-if="showMediumColumns" prop="maxScore" label="最高" width="80" />
+            <el-table-column label="操作" width="126" fixed="right">
+              <template #default="{ row }">
+                <el-button size="small" type="primary" plain @click.stop="openAiSummary(row)">AI 总结</el-button>
+              </template>
+            </el-table-column>
           </el-table>
         </el-tab-pane>
         <el-tab-pane label="知识点表现">
@@ -199,25 +207,38 @@
     <HydroWritebackDialog />
 
     <ReviewRulesDrawer />
+
+    <ExamAiSummaryDialog ref="aiSummaryDialog" />
   </div>
 </template>
 
 <script lang="ts">
-import { defineComponent } from 'vue';
+import { defineComponent, ref } from 'vue';
+import { MagicStick } from '@element-plus/icons-vue';
 import { useStatisticsPage } from '../composables/useStatisticsPage';
 import { provideStatisticsPageContext } from '../composables/statisticsPageContext';
 import StatisticsMetrics from './StatisticsMetrics.vue';
 import EChartPanel from '../../../components/EChartPanel.vue';
 import HydroWritebackDialog from './HydroWritebackDialog.vue';
 import ReviewRulesDrawer from './ReviewRulesDrawer.vue';
+import ExamAiSummaryDialog from '../../ai/components/ExamAiSummaryDialog.vue';
 
 export default defineComponent({
   name: 'StatisticsPage',
-  components: { StatisticsMetrics, EChartPanel, HydroWritebackDialog, ReviewRulesDrawer },
+  components: { StatisticsMetrics, EChartPanel, HydroWritebackDialog, ReviewRulesDrawer, ExamAiSummaryDialog },
   setup() {
     const context = useStatisticsPage();
+    const aiSummaryDialog = ref<InstanceType<typeof ExamAiSummaryDialog>>();
+    function openAiSummary(value?: unknown) {
+      const row = value && typeof value === 'object' ? value as Record<string, unknown> : {};
+      const id = typeof row.examId === 'string' ? row.examId : context.filter.examId;
+      if (!id) return;
+      const option = context.exams.value.find((exam) => exam.id === id);
+      const name = typeof row.examName === 'string' ? row.examName : option?.name ?? '考试';
+      void aiSummaryDialog.value?.open(id, name);
+    }
     provideStatisticsPageContext(context);
-    return context;
+    return { ...context, aiSummaryDialog, MagicStick, openAiSummary };
   },
 });
 </script>

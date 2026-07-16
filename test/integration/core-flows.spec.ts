@@ -1,5 +1,5 @@
 import { INestApplication } from '@nestjs/common';
-import { ExportStatus, Prisma, PrismaClient, ScoringEvaluationSource, ScoringEvaluationStatus, UserStatus, UserType } from '@prisma/client';
+import { ExportStatus, PermissionType, Prisma, PrismaClient, ScoringEvaluationSource, ScoringEvaluationStatus, UserStatus, UserType } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
 import request = require('supertest');
 import { mkdir, rm, writeFile } from 'node:fs/promises';
@@ -39,7 +39,7 @@ describe('core API flows', () => {
     const admin = await prisma.user.create({
       data: { username: 'test_admin', passwordHash, realName: 'Test Admin', userType: UserType.SUPER_ADMIN },
     });
-    await prisma.user.create({
+    const student = await prisma.user.create({
       data: { username: 'test_student', passwordHash, realName: 'Test Student', userType: UserType.STUDENT },
     });
     const teacher = await prisma.user.create({
@@ -48,6 +48,14 @@ describe('core API flows', () => {
     await prisma.user.create({
       data: { username: 'test_disabled', passwordHash, realName: 'Disabled', userType: UserType.STUDENT, status: UserStatus.DISABLED },
     });
+    const viewOwnPermission = await prisma.permission.create({
+      data: { name: 'View own AI summaries', code: 'ai.summary.view-own', type: PermissionType.API },
+    });
+    const studentRole = await prisma.role.create({ data: { name: 'Test student role', code: 'student' } });
+    await prisma.rolePermission.create({
+      data: { roleId: studentRole.id, permissionId: viewOwnPermission.id },
+    });
+    await prisma.userRole.create({ data: { userId: student.id, roleId: studentRole.id } });
     expect(admin.id).toBeTruthy();
     app = await createTestApp();
     teacherToken = (await app.get(TokenService).issueTokens({
@@ -310,6 +318,59 @@ describe('core API flows', () => {
     });
     expect(cached).toMatchObject({ id: generated.id, status: 'succeeded', cacheHit: true });
     expect(await prisma.aiUsageEvent.count({ where: { providerConfigId: modelConfig.id } })).toBe(1);
+
+    await request(app.getHttpServer())
+      .post(`/api/v1/ai-summaries/${generated.summary.id}/publish`)
+      .auth(adminToken, { type: 'bearer' })
+      .expect(409);
+    const editedContent = {
+      schemaVersion: 'exam-summary-output/v1',
+      headline: { ...claim, text: '教师已复核本次考试完成评分' },
+      overview: [], strengths: [], risks: [], actions: [], needsReview: [],
+    };
+    const edited = await api('patch', `/api/v1/ai-summaries/${generated.summary.id}`, adminToken, {
+      content: editedContent,
+    });
+    expect(edited).toMatchObject({ reviewStatus: 'draft', draftVersion: 2, content: editedContent });
+    const reviewed = await api('post', `/api/v1/ai-summaries/${generated.summary.id}/review`, adminToken);
+    expect(reviewed).toMatchObject({ reviewStatus: 'approved', reviewedBy: expect.any(String) });
+    const published = await api('post', `/api/v1/ai-summaries/${generated.summary.id}/publish`, adminToken);
+    expect(published).toMatchObject({ reviewStatus: 'published', publishedAt: expect.any(String) });
+    const studentPublished = await api('get', '/api/v1/me/ai-summaries', studentToken);
+    expect(studentPublished).toHaveLength(1);
+    expect(studentPublished[0]).toMatchObject({ id: generated.summary.id, examId: exam.id, content: editedContent });
+    await request(app.getHttpServer())
+      .get(`/api/v1/ai-summaries/${generated.summary.id}`)
+      .auth(studentToken, { type: 'bearer' })
+      .expect(403);
+    const history = await api('get', `/api/v1/exams/${exam.id}/ai-summaries`, adminToken);
+    expect(history[0]).toMatchObject({ id: generated.summary.id, reviewStatus: 'published' });
+    const revoked = await api('post', `/api/v1/ai-summaries/${generated.summary.id}/revoke`, adminToken);
+    expect(revoked).toMatchObject({ reviewStatus: 'revoked', revokedAt: expect.any(String) });
+    expect(await api('get', '/api/v1/me/ai-summaries', studentToken)).toEqual([]);
+    const regenerateCall = jest.spyOn(app.get(AiProviderGateway), 'complete').mockResolvedValue({
+      content: JSON.stringify({
+        schemaVersion: 'exam-summary-output/v1', headline: claim,
+        overview: [], strengths: [], risks: [], actions: [], needsReview: [],
+      }),
+      usage: { promptTokens: 10, completionTokens: 20, totalTokens: 30, reported: true },
+      durationMs: 5,
+    });
+    const regenerated = await api(
+      'post', `/api/v1/ai-summaries/${generated.summary.id}/regenerate`, adminToken,
+      { configId: modelConfig.id, maxTokens: 1000 },
+    );
+    expect(regenerateCall).toHaveBeenCalledTimes(1);
+    regenerateCall.mockRestore();
+    expect(regenerated).toMatchObject({ status: 'succeeded', cacheHit: false });
+    expect(regenerated.id).not.toBe(generated.id);
+    expect(regenerated.summary.id).not.toBe(generated.summary.id);
+    const regenerationTask = await prisma.aiSummaryTask.findUniqueOrThrow({ where: { id: regenerated.id } });
+    expect(regenerationTask.generationKey).not.toBe('initial');
+    expect(regenerationTask.scopeJson).toMatchObject({ sourceSummaryId: generated.summary.id });
+    expect(await prisma.auditLog.count({
+      where: { targetId: generated.summary.id, action: { startsWith: 'ai:summary-' } },
+    })).toBe(5);
 
     await request(app.getHttpServer())
       .get(`/api/v1/ai-summaries/exams/${exam.id}/preview`)

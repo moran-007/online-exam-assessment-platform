@@ -1386,6 +1386,7 @@ model AiSummaryTask {
   schemaVersion         String              @map("schema_version") @db.VarChar(32)
   providerConfigId      String              @map("provider_config_id") @db.Uuid
   modelSnapshot         String              @map("model_snapshot") @db.VarChar(160)
+  generationKey         String              @default("initial") @map("generation_key") @db.VarChar(64)
   requestedOutputTokens Int                 @default(1000) @map("requested_output_tokens")
   status                AiSummaryTaskStatus @default(PENDING)
   attemptCount          Int                 @default(0) @map("attempt_count")
@@ -1404,7 +1405,7 @@ model AiSummaryTask {
   promptTemplate AiSummaryPromptTemplate @relation(fields: [promptTemplateId], references: [id], onDelete: Restrict)
   summary        AiSummary?
 
-  @@unique([type, subjectId, inputHash, datasetVersion, promptVersion, schemaVersion, providerConfigId, modelSnapshot], map: "ai_summary_tasks_idempotency_key")
+  @@unique([type, subjectId, inputHash, datasetVersion, promptVersion, schemaVersion, providerConfigId, modelSnapshot, generationKey], map: "ai_summary_tasks_idempotency_key")
   @@index([status, createdAt])
   @@index([type, subjectId, createdAt])
   @@index([createdBy, createdAt])
