@@ -28,6 +28,7 @@ export const userTypeOptions = [
 ];
 
 export const userStatusOptions = [
+  { label: '待激活', value: 'PENDING_ACTIVATION' },
   { label: '启用', value: 'ACTIVE' },
   { label: '停用', value: 'DISABLED' },
   { label: '锁定', value: 'LOCKED' },
@@ -186,8 +187,9 @@ export function useUserManagementPage() {
     savingResetPassword.value = true;
     try {
       await resetUserPassword(resetPasswordUser.value.id, { password: resetPasswordForm.password });
-      ElMessage.success('密码已重置');
+      ElMessage.success('密码已重置，账号已激活并要求首次改密');
       resetPasswordDialogVisible.value = false;
+      await loadUsers();
     } catch (error) {
       ElMessage.error(error.message || '重置失败');
     } finally {
@@ -328,6 +330,7 @@ function userStatusLabel(value) {
 
 function userStatusTag(value) {
   if (value === 'ACTIVE') return 'success';
+  if (value === 'PENDING_ACTIVATION') return 'warning';
   if (value === 'LOCKED') return 'warning';
   return 'info';
 }

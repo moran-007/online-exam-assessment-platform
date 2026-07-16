@@ -5,4 +5,5 @@ export interface RequestUser {
   userType: string;
   roles: string[];
   permissions: string[];
+  mustChangePassword?: boolean;
 }

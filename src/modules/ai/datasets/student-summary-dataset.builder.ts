@@ -1,5 +1,5 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
-import { AttemptStatus, Prisma, UserStatus, UserType, WrongQuestionSourceType } from '@prisma/client';
+import { AttemptStatus, ClassMemberStatus, Prisma, UserStatus, UserType, WrongQuestionSourceType } from '@prisma/client';
 import { RequestUser } from '../../../common/interfaces/request-user.interface';
 import { ratio } from '../../statistics/statistics-math';
 import { DataScopeService } from '../../data-scope/data-scope.service';
@@ -131,7 +131,11 @@ export class StudentSummaryDatasetBuilder {
     const [examScope, studentClasses] = await Promise.all([
       this.dataScope.examWhere(user),
       this.prisma.classStudent.findMany({
-        where: { studentId: scope.studentId, classGroup: { deletedAt: null, status: 'active' } },
+        where: {
+          studentId: scope.studentId,
+          status: ClassMemberStatus.ACTIVE,
+          classGroup: { deletedAt: null, status: 'active' },
+        },
         select: { classId: true },
       }),
     ]);

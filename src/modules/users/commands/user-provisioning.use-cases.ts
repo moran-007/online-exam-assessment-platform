@@ -61,6 +61,11 @@ export class UserProvisioningUseCases {
     });
     if (existing) {
       if (existing.userType === UserType.TEACHER && existing.status === UserStatus.ACTIVE) {
+        await this.prisma.teacherProfile.upsert({
+          where: { userId: existing.id },
+          update: {},
+          create: { userId: existing.id },
+        });
         return {
           created: false,
           teacher: {
@@ -97,6 +102,7 @@ export class UserProvisioningUseCases {
           scopeType: 'GLOBAL',
         },
       });
+      await tx.teacherProfile.create({ data: { userId: user.id } });
       return user;
     });
 
@@ -167,6 +173,7 @@ export class UserProvisioningUseCases {
         const existing = existingByUsername.get(teacher.username);
         if (existing) {
           if (existing.userType === UserType.TEACHER && existing.status === UserStatus.ACTIVE) {
+            await tx.teacherProfile.upsert({ where: { userId: existing.id }, update: {}, create: { userId: existing.id } });
             existingTeachers.push(existing);
           } else {
             skipped.push({
@@ -196,6 +203,7 @@ export class UserProvisioningUseCases {
             scopeType: 'GLOBAL',
           },
         });
+        await tx.teacherProfile.create({ data: { userId: user.id } });
         created.push(user);
       }
     });
@@ -276,6 +284,7 @@ export class UserProvisioningUseCases {
         const existing = existingByUsername.get(student.username);
         if (existing) {
           if (existing.userType === UserType.STUDENT && existing.status === UserStatus.ACTIVE) {
+            await tx.studentProfile.upsert({ where: { userId: existing.id }, update: {}, create: { userId: existing.id } });
             existingStudents.push(existing);
           } else {
             skipped.push({
@@ -305,6 +314,7 @@ export class UserProvisioningUseCases {
             scopeType: 'GLOBAL',
           },
         });
+        await tx.studentProfile.create({ data: { userId: user.id } });
         created.push(user);
       }
     });

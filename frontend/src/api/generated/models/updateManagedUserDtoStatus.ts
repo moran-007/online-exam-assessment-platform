@@ -10,6 +10,7 @@ export type UpdateManagedUserDtoStatus = typeof UpdateManagedUserDtoStatus[keyof
 
 
 export const UpdateManagedUserDtoStatus = {
+  PENDING_ACTIVATION: 'PENDING_ACTIVATION',
   ACTIVE: 'ACTIVE',
   DISABLED: 'DISABLED',
   LOCKED: 'LOCKED',

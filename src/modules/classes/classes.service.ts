@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { Prisma, UserStatus, UserType } from '@prisma/client';
+import { ClassMemberStatus, ClassTeacherRole, Prisma, UserStatus, UserType } from '@prisma/client';
 import { toPagination } from '../../common/dto/pagination-query.dto';
 import { AuditService } from '../audit/audit.service';
 import { RequestUser } from '../../common/interfaces/request-user.interface';
@@ -36,7 +36,12 @@ export class ClassesService {
         where,
         include: {
           course: { select: { name: true } },
-          _count: { select: { students: true, teachers: true } },
+          _count: {
+            select: {
+              students: { where: { status: ClassMemberStatus.ACTIVE } },
+              teachers: { where: { status: ClassMemberStatus.ACTIVE } },
+            },
+          },
         },
         orderBy: this.orderBy(query),
         skip,
@@ -64,8 +69,14 @@ export class ClassesService {
       where: { id, deletedAt: null },
       include: {
         course: true,
-        students: { include: { student: { select: { id: true, username: true, realName: true } } } },
-        teachers: { include: { teacher: { select: { id: true, username: true, realName: true } } } },
+        students: {
+          where: { status: ClassMemberStatus.ACTIVE },
+          include: { student: { select: { id: true, username: true, realName: true } } },
+        },
+        teachers: {
+          where: { status: ClassMemberStatus.ACTIVE },
+          include: { teacher: { select: { id: true, username: true, realName: true } } },
+        },
       },
     });
     if (!item) {
@@ -74,8 +85,17 @@ export class ClassesService {
     return {
       ...item,
       courseName: item.course?.name ?? '',
-      students: item.students.map((relation) => relation.student),
-      teachers: item.teachers.map((relation) => relation.teacher),
+      students: item.students.map((relation) => ({
+        ...relation.student,
+        membershipStatus: relation.status,
+        joinedAt: relation.joinedAt,
+      })),
+      teachers: item.teachers.map((relation) => ({
+        ...relation.teacher,
+        membershipStatus: relation.status,
+        teacherRole: relation.role,
+        joinedAt: relation.joinedAt,
+      })),
     };
   }
 
@@ -179,8 +199,8 @@ export class ClassesService {
       students.map((student) =>
         this.prisma.classStudent.upsert({
           where: { classId_studentId: { classId: id, studentId: student.id } },
-          update: {},
-          create: { classId: id, studentId: student.id },
+          update: { status: ClassMemberStatus.ACTIVE, leftAt: null },
+          create: { classId: id, studentId: student.id, status: ClassMemberStatus.ACTIVE },
         }),
       ),
     );
@@ -197,7 +217,10 @@ export class ClassesService {
 
   async removeStudent(id: string, studentId: string, user: RequestUser) {
     await this.dataScope.assertClassWritable(user, id);
-    await this.prisma.classStudent.deleteMany({ where: { classId: id, studentId } });
+    await this.prisma.classStudent.updateMany({
+      where: { classId: id, studentId, status: ClassMemberStatus.ACTIVE },
+      data: { status: ClassMemberStatus.LEFT, leftAt: new Date() },
+    });
     await this.audit.log({
       userId: user.id,
       action: 'class:remove-student',
@@ -209,7 +232,12 @@ export class ClassesService {
     return true;
   }
 
-  async addTeachers(id: string, teacherIds: string[], user: RequestUser) {
+  async addTeachers(
+    id: string,
+    teacherIds: string[],
+    user: RequestUser,
+    role: ClassTeacherRole = ClassTeacherRole.INSTRUCTOR,
+  ) {
     await this.dataScope.assertClassWritable(user, id);
     await this.findExisting(id);
     const teachers = await this.prisma.user.findMany({
@@ -228,8 +256,8 @@ export class ClassesService {
       teachers.map((teacher) =>
         this.prisma.classTeacher.upsert({
           where: { classId_teacherId: { classId: id, teacherId: teacher.id } },
-          update: {},
-          create: { classId: id, teacherId: teacher.id },
+          update: { status: ClassMemberStatus.ACTIVE, leftAt: null, role },
+          create: { classId: id, teacherId: teacher.id, status: ClassMemberStatus.ACTIVE, role },
         }),
       ),
     );
@@ -239,14 +267,17 @@ export class ClassesService {
       module: 'class',
       targetType: 'class',
       targetId: id,
-      afterData: { teacherIds },
+      afterData: { teacherIds, role },
     });
     return true;
   }
 
   async removeTeacher(id: string, teacherId: string, user: RequestUser) {
     await this.dataScope.assertClassWritable(user, id);
-    await this.prisma.classTeacher.deleteMany({ where: { classId: id, teacherId } });
+    await this.prisma.classTeacher.updateMany({
+      where: { classId: id, teacherId, status: ClassMemberStatus.ACTIVE },
+      data: { status: ClassMemberStatus.LEFT, leftAt: new Date() },
+    });
     await this.audit.log({
       userId: user.id,
       action: 'class:remove-teacher',

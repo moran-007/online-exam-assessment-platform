@@ -53,6 +53,7 @@ export function useClassManagementPage() {
   const studentBatchText = ref('');
   const selectedStudentIds = ref([]);
   const selectedTeacherIds = ref([]);
+  const selectedTeacherRole = ref('INSTRUCTOR');
 
   async function load() {
     const [coursePage, studentList, teacherList, page] = await Promise.all([
@@ -243,7 +244,7 @@ export function useClassManagementPage() {
 
   async function addTeachers() {
     if (!selectedTeacherIds.value.length) return;
-    await addClassTeachers(detail.value.id, { userIds: selectedTeacherIds.value });
+    await addClassTeachers(detail.value.id, { userIds: selectedTeacherIds.value, role: selectedTeacherRole.value });
     ElMessage.success('教师已添加');
     await refreshDetail();
   }
@@ -299,10 +300,10 @@ export function useClassManagementPage() {
     loadFirstPage, openBatchCreateStudents: () => { studentBatchVisible.value = true; },
     openBatchCreateTeachers: () => { teacherBatchVisible.value = true; }, openCreate,
     openCreateStudent, openCreateTeacher, openDetail, pagination, removeStudent, removeTeacher,
-    saveClass, selectedStudentIds, selectedTeacherIds, statusLabel, studentBatchDefaultPassword,
+    saveClass, selectedStudentIds, selectedTeacherIds, selectedTeacherRole, statusLabel, studentBatchDefaultPassword,
     studentBatchLoading, studentBatchText, studentBatchVisible, studentCreateForm,
     studentCreateLoading, studentCreateVisible, students, teacherBatchDefaultPassword,
-    teacherBatchLoading, teacherBatchText, teacherBatchVisible, teacherCreateForm,
+    teacherBatchLoading, teacherBatchText, teacherBatchVisible, teacherCreateForm, teacherRoleLabel,
     teacherCreateLoading, teacherCreateVisible, teachers,
   };
 }
@@ -327,4 +328,8 @@ function parseBatchText(text) {
 
 function statusLabel(status) {
   return CLASS_STATUS_LABELS[status] ?? status;
+}
+
+function teacherRoleLabel(role) {
+  return { LEAD: '负责人', INSTRUCTOR: '任课教师', ASSISTANT: '助教' }[role] || role || '-';
 }

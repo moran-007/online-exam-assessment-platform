@@ -10,11 +10,16 @@ export const studentMenuItems = [
   { path: '/student/profile', label: '个人信息', icon: 'User' },
 ];
 
+export const parentMenuItems = [
+  { path: '/profile', label: '关联学生', icon: 'User' },
+];
+
 export const adminMenuItems = [
   { path: '/dashboard', label: '看板', icon: 'DataBoard', permissions: ['statistics:read'] },
   { path: '/courses', label: '课程', icon: 'Collection', permissions: ['course:read'] },
   { path: '/classes', label: '班级', icon: 'UserFilled', permissions: ['class:read'] },
   { path: '/users', label: '用户权限', icon: 'Setting', userTypes: ['SUPER_ADMIN'] },
+  { path: '/academic-profiles', label: '教务档案', icon: 'Postcard', userTypes: ['SUPER_ADMIN', 'ADMIN'] },
   { path: '/ai-settings', label: 'AI 配置', icon: 'Setting', userTypes: ['SUPER_ADMIN', 'ADMIN', 'TEACHER', 'ASSISTANT'] },
   { path: '/knowledge', label: '课程知识点', icon: 'Share', permissions: ['knowledge-point:read'] },
   { path: '/tags', label: '标签', icon: 'PriceTag', permissions: ['tag:read'] },
@@ -31,6 +36,10 @@ export const adminMenuItems = [
 
 export function isStudent(user) {
   return user?.userType === 'STUDENT';
+}
+
+export function isParent(user) {
+  return user?.userType === 'PARENT';
 }
 
 export function isPrivilegedUser(user) {
@@ -56,6 +65,7 @@ export function canAccessByMeta(user, meta = {}) {
 export function menuForUser(user) {
   if (!user) return publicMenuItems;
   if (isStudent(user)) return studentMenuItems;
+  if (isParent(user)) return parentMenuItems;
   if (!isPrivilegedUser(user)) return publicMenuItems;
   return adminMenuItems.filter(
     (item) => (!item.userTypes?.length || item.userTypes.includes(user.userType)) && hasAnyPermission(user, item.permissions),

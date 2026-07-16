@@ -1,6 +1,6 @@
 import '../setup-env';
-import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
-import { PrismaClient, UserType } from '@prisma/client';
+import { expect, test, type APIRequestContext, type Locator, type Page } from '@playwright/test';
+import { PermissionType, PrismaClient, UserType } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
 import { mkdir, rm } from 'node:fs/promises';
 
@@ -21,7 +21,29 @@ test.beforeAll(async ({ request }) => {
       { username: 'e2e_admin', passwordHash, realName: 'E2E Admin', userType: UserType.SUPER_ADMIN },
       { username: 'e2e_teacher', passwordHash, realName: 'E2E Teacher', userType: UserType.TEACHER },
       { username: 'e2e_student', passwordHash, realName: 'E2E Student', userType: UserType.STUDENT },
+      { username: 'e2e_parent', passwordHash, realName: 'E2E Parent', phone: '13900000009', userType: UserType.PARENT },
     ],
+  });
+  const profileRead = await prisma.permission.create({
+    data: { name: 'Read academic profile', code: 'academic-profile:read', type: PermissionType.API },
+  });
+  const roleRows = await Promise.all([
+    prisma.role.create({ data: { name: 'E2E Teacher', code: 'teacher' } }),
+    prisma.role.create({ data: { name: 'E2E Student', code: 'student' } }),
+    prisma.role.create({ data: { name: 'E2E Parent', code: 'parent' } }),
+  ]);
+  await prisma.rolePermission.createMany({
+    data: roleRows.map((role) => ({ roleId: role.id, permissionId: profileRead.id })),
+  });
+  const fixtureUsers = await prisma.user.findMany({
+    where: { username: { in: ['e2e_teacher', 'e2e_student', 'e2e_parent'] } },
+    select: { id: true, userType: true },
+  });
+  await prisma.userRole.createMany({
+    data: fixtureUsers.map((user) => ({
+      userId: user.id,
+      roleId: roleRows.find((role) => role.code === user.userType.toLowerCase())!.id,
+    })),
   });
 
   const login = await api(request, 'post', '/auth/login', undefined, {
@@ -42,6 +64,12 @@ test.beforeAll(async ({ request }) => {
   classId = classGroup.id;
   const student = await prisma.user.findUniqueOrThrow({ where: { username: 'e2e_student' } });
   await api(request, 'post', `/classes/${classId}/students`, token, { userIds: [student.id] });
+  await api(request, 'post', '/legacy-migrations/preflight', token, {
+    sourceSystem: 'e2e-worker', sourceVersion: 'profile-v1',
+    students: [{ legacyId: 'conflict-student', name: 'Conflict Student', phone: '13900000008' }],
+    teachers: [], classes: [], classStudents: [],
+    accounts: [{ legacyId: 'conflict-account', username: 'e2e_student', studentLegacyId: 'conflict-student' }],
+  });
   const question = await api(request, 'post', '/questions', token, {
     courseId: course.id,
     type: 'single_choice',
@@ -252,6 +280,92 @@ test('privileged users can open AI settings while students are denied', async ({
   await studentContext.close();
 });
 
+test('academic profiles, parent scope and Gate C are operable through browser clicks', async ({ browser }) => {
+  const adminContext = await browser.newContext();
+  const parentContext = await browser.newContext();
+  const studentContext = await browser.newContext();
+  const adminPage = await adminContext.newPage();
+  const parentPage = await parentContext.newPage();
+  const studentPage = await studentContext.newPage();
+
+  await login(adminPage, 'e2e_admin');
+  await adminPage.goto('/academic-profiles');
+  await expect(adminPage.getByRole('heading', { name: '教务档案' })).toBeVisible();
+
+  const studentRow = adminPage.getByRole('row', { name: /E2E Student/ });
+  await studentRow.getByRole('button', { name: '编辑档案' }).click();
+  const studentDialog = adminPage.getByRole('dialog', { name: '编辑学生档案' });
+  await formInput(studentDialog, '学号').fill('S-E2E-001');
+  await formInput(studentDialog, '学校').fill('E2E School');
+  await formInput(studentDialog, '年级').fill('Grade 6');
+  await studentDialog.getByRole('button', { name: '保存档案' }).click();
+  await expect(adminPage.getByText('档案已保存')).toBeVisible();
+  await expect(studentRow).toContainText('S-E2E-001');
+
+  await adminPage.getByRole('tab', { name: '教师档案' }).click();
+  const teacherRow = adminPage.getByRole('row', { name: /E2E Teacher/ });
+  await teacherRow.getByRole('button', { name: '编辑档案' }).click();
+  const teacherDialog = adminPage.getByRole('dialog', { name: '编辑教师档案' });
+  await formInput(teacherDialog, '工号').fill('T-E2E-001');
+  await formInput(teacherDialog, '任教学科').fill('编程');
+  await teacherDialog.getByRole('button', { name: '保存档案' }).click();
+  await expect(adminPage.getByText('档案已保存')).toBeVisible();
+
+  await adminPage.getByRole('tab', { name: '家长关系' }).click();
+  await adminPage.getByRole('button', { name: '关联家长' }).click();
+  const parentDialog = adminPage.getByRole('dialog', { name: '关联家长与学生' });
+  await formSelect(parentDialog, '家长').click();
+  await adminPage.locator('.el-select-dropdown__item:visible', { hasText: 'E2E Parent' }).click();
+  await formSelect(parentDialog, '学生').click();
+  await adminPage.locator('.el-select-dropdown__item:visible', { hasText: 'E2E Student' }).click();
+  await parentDialog.getByRole('button', { name: '保存关系' }).click();
+  await expect(adminPage.getByText('家长关系已保存')).toBeVisible();
+  await expect(adminPage.getByRole('row', { name: /E2E Parent/ })).toContainText('E2E Student');
+
+  await adminPage.getByRole('tab', { name: '迁移演练' }).click();
+  const migrationRow = adminPage.getByRole('row', { name: /e2e-worker/ });
+  await expect(migrationRow).toContainText('预检阻断');
+  await migrationRow.getByRole('button', { name: '查看处置' }).click();
+  await adminPage.getByRole('button', { name: '处置并签字' }).click();
+  const resolutionDialog = adminPage.getByRole('dialog', { name: '处置身份冲突' });
+  await resolutionDialog.locator('input').fill('浏览器验收：保留现有账号并跳过冲突对象');
+  await resolutionDialog.locator('.el-message-box__btns .el-button--primary').click();
+  await expect(adminPage.getByText('冲突已处置并记录责任人')).toBeVisible();
+  await adminPage.getByRole('button', { name: '批准迁移' }).click();
+  const approvalDialog = adminPage.getByRole('dialog', { name: '批准档案迁移' });
+  await approvalDialog.locator('.el-message-box__btns .el-button--primary').click();
+  await expect(adminPage.getByText('迁移演练已批准')).toBeVisible();
+
+  await adminPage.goto('/classes');
+  await adminPage.getByText('E2E Browser Class', { exact: true }).click();
+  await adminPage.getByTestId('class-teacher-select').click();
+  await adminPage.locator('.el-select-dropdown__item:visible', { hasText: 'E2E Teacher' }).click();
+  await adminPage.getByTestId('class-teacher-role').click();
+  await adminPage.locator('.el-select-dropdown__item:visible', { hasText: '负责人' }).click();
+  await adminPage.getByTestId('class-add-teachers').click();
+  await expect(adminPage.getByRole('row', { name: /E2E Teacher/ })).toContainText('负责人');
+  const rosterStudent = adminPage.getByRole('row', { name: /E2E Student/ });
+  await rosterStudent.getByRole('button', { name: '移除' }).click();
+  await expect(adminPage.getByRole('row', { name: /E2E Student/ })).toHaveCount(0);
+  await adminPage.getByTestId('class-student-select').click();
+  await adminPage.locator('.el-select-dropdown__item:visible', { hasText: 'E2E Student' }).click();
+  await adminPage.getByTestId('class-add-students').click();
+  await expect(adminPage.getByRole('row', { name: /E2E Student/ })).toBeVisible();
+
+  await login(parentPage, 'e2e_parent');
+  await expect(parentPage).toHaveURL(/\/profile$/);
+  await expect(parentPage.getByRole('heading', { name: '明确关联学生' })).toBeVisible();
+  await expect(parentPage.getByText('E2E Student', { exact: true })).toBeVisible();
+  await login(studentPage, 'e2e_student');
+  await studentPage.goto('/student/profile');
+  await expect(studentPage.getByText('S-E2E-001', { exact: true })).toBeVisible();
+  await expect(studentPage.getByText('E2E School', { exact: true })).toBeVisible();
+
+  await adminContext.close();
+  await parentContext.close();
+  await studentContext.close();
+});
+
 test('material context keeps child answers independent and rubric grading is available in the browser', async ({ browser }) => {
   const student = await browser.newContext();
   const admin = await browser.newContext();
@@ -316,6 +430,14 @@ async function login(page: Page, username: string) {
   await page.getByRole('button', { name: '登录' }).click();
   await page.waitForURL((url) => url.pathname !== '/login');
   await page.waitForLoadState('networkidle');
+}
+
+function formInput(container: Locator, label: string) {
+  return container.locator('.el-form-item').filter({ hasText: label }).first().locator('input').first();
+}
+
+function formSelect(container: Locator, label: string) {
+  return container.locator('.el-form-item').filter({ hasText: label }).first().locator('.el-select');
 }
 
 async function api(

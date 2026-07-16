@@ -12,6 +12,7 @@ import { PermissionsGuard } from './common/guards/permissions.guard';
 import { RolesGuard } from './common/guards/roles.guard';
 import { AuditModule } from './modules/audit/audit.module';
 import { AiModule } from './modules/ai/ai.module';
+import { AcademicProfilesModule } from './modules/academic-profiles/academic-profiles.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { ClassesModule } from './modules/classes/classes.module';
 import { CoursesModule } from './modules/courses/courses.module';
@@ -22,6 +23,7 @@ import { GradingModule } from './modules/grading/grading.module';
 import { HealthModule } from './modules/health/health.module';
 import { HydroModule } from './modules/hydro/hydro.module';
 import { KnowledgePointsModule } from './modules/knowledge-points/knowledge-points.module';
+import { LegacyMigrationModule } from './modules/legacy-migration/legacy-migration.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
 import { PapersModule } from './modules/papers/papers.module';
 import { PrismaModule } from './modules/prisma/prisma.module';
@@ -100,6 +102,7 @@ import { ObservabilityModule } from './observability/observability.module';
     CredentialCipherModule,
     StorageModule,
     AuditModule,
+    AcademicProfilesModule,
     AiModule,
     UsersModule,
     AuthModule,
@@ -109,6 +112,7 @@ import { ObservabilityModule } from './observability/observability.module';
     DataScopeModule,
     ClassesModule,
     KnowledgePointsModule,
+    LegacyMigrationModule,
     NotificationsModule,
     TagsModule,
     UploadsModule,

@@ -104,7 +104,7 @@
           <span class="muted">{{ detail.courseName || '未绑定课程' }} · {{ statusLabel(detail.status) }}</span>
         </div>
         <div class="member-tools">
-          <el-select v-model="selectedStudentIds" multiple filterable placeholder="选择已有学生" no-data-text="暂无可选学生">
+          <el-select v-model="selectedStudentIds" data-testid="class-student-select" multiple filterable placeholder="选择已有学生" no-data-text="暂无可选学生">
             <el-option
               v-for="student in students"
               :key="student.id"
@@ -112,7 +112,7 @@
               :value="student.id"
             />
           </el-select>
-          <el-button :icon="Plus" @click="addStudents">添加学生</el-button>
+          <el-button data-testid="class-add-students" :icon="Plus" @click="addStudents">添加学生</el-button>
           <el-button v-if="canCreateStudents" :icon="Plus" @click="openCreateStudent">新增学生</el-button>
           <el-button v-if="canCreateStudents" :icon="Upload" @click="openBatchCreateStudents">批量创建学生</el-button>
           <el-button :disabled="!batchStudents.length" @click="estimateAiBatch">AI 批量预算</el-button>
@@ -130,7 +130,7 @@
         </el-table>
         <el-divider />
         <div class="member-tools">
-          <el-select v-model="selectedTeacherIds" multiple filterable placeholder="添加教师">
+          <el-select v-model="selectedTeacherIds" data-testid="class-teacher-select" multiple filterable placeholder="添加教师">
             <el-option
               v-for="teacher in teachers"
               :key="teacher.id"
@@ -138,13 +138,21 @@
               :value="teacher.id"
             />
           </el-select>
-          <el-button :icon="Plus" @click="addTeachers">添加教师</el-button>
+          <el-select v-model="selectedTeacherRole" data-testid="class-teacher-role" placeholder="任教角色" style="width: 130px">
+            <el-option label="负责人" value="LEAD" />
+            <el-option label="任课教师" value="INSTRUCTOR" />
+            <el-option label="助教" value="ASSISTANT" />
+          </el-select>
+          <el-button data-testid="class-add-teachers" :icon="Plus" @click="addTeachers">添加教师</el-button>
           <el-button v-if="canCreateTeachers" :icon="Plus" @click="openCreateTeacher">新增教师</el-button>
           <el-button v-if="canCreateTeachers" :icon="Upload" @click="openBatchCreateTeachers">批量创建教师</el-button>
         </div>
         <el-table :data="detail.teachers" height="220">
           <el-table-column prop="realName" label="教师" min-width="150" />
           <el-table-column prop="username" label="账号" min-width="150" />
+          <el-table-column label="任教角色" width="110">
+            <template #default="{ row }">{{ teacherRoleLabel(row.teacherRole) }}</template>
+          </el-table-column>
           <el-table-column label="操作" width="90">
             <template #default="{ row }"><el-button link type="danger" @click="removeTeacher(row)">移除</el-button></template>
           </el-table-column>
@@ -231,10 +239,10 @@ const {
   filter, form, formVisible, handleCommand, handleCurrent, handleSize, handleSort, items, load,
   loadFirstPage, openBatchCreateStudents, openBatchCreateTeachers, openCreate, openCreateStudent,
   openCreateTeacher, openDetail, pagination, removeStudent, removeTeacher, saveClass,
-  selectedStudentIds, selectedTeacherIds, statusLabel, studentBatchDefaultPassword,
+  selectedStudentIds, selectedTeacherIds, selectedTeacherRole, statusLabel, studentBatchDefaultPassword,
   studentBatchLoading, studentBatchText, studentBatchVisible, studentCreateForm,
   studentCreateLoading, studentCreateVisible, students, teacherBatchDefaultPassword,
-  teacherBatchLoading, teacherBatchText, teacherBatchVisible, teacherCreateForm,
+  teacherBatchLoading, teacherBatchText, teacherBatchVisible, teacherCreateForm, teacherRoleLabel,
   teacherCreateLoading, teacherCreateVisible, teachers,
 } = useClassManagementPage();
 

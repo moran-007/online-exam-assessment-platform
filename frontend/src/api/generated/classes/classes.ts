@@ -15,7 +15,8 @@ import type {
   ClassesRemoveTeacher200,
   SaveClassDto,
   UpdateClassDto,
-  UpdateClassMembersDto
+  UpdateClassMembersDto,
+  UpdateClassTeachersDto
 } from '../models';
 
 import { apiMutator } from '../../generated-mutator';
@@ -572,14 +573,14 @@ export const getClassesAddTeachersUrl = (id: string,) => {
 }
 
 export const classesAddTeachers = async (id: string,
-    updateClassMembersDto: UpdateClassMembersDto, options?: RequestInit): Promise<classesAddTeachersResponse> => {
+    updateClassTeachersDto: UpdateClassTeachersDto, options?: RequestInit): Promise<classesAddTeachersResponse> => {
 
   return apiMutator<classesAddTeachersResponse>(getClassesAddTeachersUrl(id),
   {
     ...options,
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...options?.headers },
-    body: JSON.stringify(updateClassMembersDto)
+    body: JSON.stringify(updateClassTeachersDto)
   }
 );}
 

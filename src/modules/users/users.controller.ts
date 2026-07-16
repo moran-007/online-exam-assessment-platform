@@ -32,8 +32,8 @@ export class UsersController {
 
   @Get('students')
   @Permissions('exam:read')
-  students() {
-    return this.directory.listStudents();
+  students(@CurrentUser() user: RequestUser) {
+    return this.directory.listStudents(user);
   }
 
   @Post('students')
@@ -50,8 +50,8 @@ export class UsersController {
 
   @Get('teachers')
   @Permissions('class:read')
-  teachers() {
-    return this.directory.listTeachers();
+  teachers(@CurrentUser() user: RequestUser) {
+    return this.directory.listTeachers(user);
   }
 
   @Post('teachers')

@@ -96,6 +96,7 @@ const roleName = computed(() => {
     TEACHER: '教师',
     ASSISTANT: '助教',
     STUDENT: '学生',
+    PARENT: '家长',
   };
   return names[user.value?.userType] ?? user.value?.userType ?? '公开访问';
 });

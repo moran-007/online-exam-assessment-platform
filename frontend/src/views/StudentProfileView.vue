@@ -16,6 +16,14 @@
       </el-descriptions>
     </div>
 
+    <el-alert
+      v-if="user?.mustChangePassword"
+      title="该账号由管理员激活或重置，请先在本页修改初始密码。"
+      type="warning"
+      :closable="false"
+      show-icon
+    />
+
     <template v-if="user?.userType === 'STUDENT'">
       <StudentExamSummaryCard v-for="summary in studentSummaries" :key="summary.id" :summary="summary" />
       <div v-if="!studentSummaries.length" class="panel profile-panel">
@@ -44,6 +52,38 @@
           <el-button type="primary" :loading="passwordSaving" @click="changePassword">保存新密码</el-button>
         </el-form-item>
       </el-form>
+    </div>
+
+    <div v-if="academicProfile" class="panel profile-panel">
+      <div class="paper-preview-head"><div><h2>{{ user?.userType === 'STUDENT' ? '学生档案' : '教师档案' }}</h2><span class="muted">由教务管理员维护的基础档案</span></div></div>
+      <el-descriptions :column="2" border>
+        <template v-if="user?.userType === 'STUDENT'">
+          <el-descriptions-item label="学号">{{ academicProfile.studentProfile?.studentNo || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="在读状态">{{ academicProfile.studentProfile?.enrollmentStatus || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="学校">{{ academicProfile.studentProfile?.school || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="年级">{{ academicProfile.studentProfile?.grade || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="当前班级" :span="2">{{ academicProfile.studentClasses?.map((item) => item.classGroup.name).join('、') || '未分班' }}</el-descriptions-item>
+        </template>
+        <template v-else>
+          <el-descriptions-item label="工号">{{ academicProfile.teacherProfile?.employeeNo || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="在职状态">{{ academicProfile.teacherProfile?.employmentStatus || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="任教学科">{{ academicProfile.teacherProfile?.subject || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="任教班级">{{ academicProfile.teachingClasses?.map((item) => item.classGroup.name).join('、') || '暂无' }}</el-descriptions-item>
+        </template>
+      </el-descriptions>
+    </div>
+
+    <div v-if="user?.userType === 'PARENT'" class="panel profile-panel">
+      <div class="paper-preview-head"><div><h2>明确关联学生</h2><span class="muted">只能查看教务管理员已建立关系的学生</span></div></div>
+      <el-empty v-if="!children.length" description="尚未关联学生，请联系教务管理员" :image-size="72" />
+      <template v-else>
+        <el-descriptions v-for="item in children" :key="item.student.id" :column="2" border class="child-profile">
+          <el-descriptions-item label="学生">{{ item.student.realName || item.student.username }}</el-descriptions-item>
+          <el-descriptions-item label="关系">{{ item.relationship }}{{ item.isPrimary ? '（主要联系人）' : '' }}</el-descriptions-item>
+          <el-descriptions-item label="学校">{{ item.student.studentProfile?.school || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="年级">{{ item.student.studentProfile?.grade || '-' }}</el-descriptions-item>
+        </el-descriptions>
+      </template>
     </div>
 
     <div v-if="canManageOwnExternalAccounts" class="panel profile-panel hydro-account-panel">
@@ -131,6 +171,7 @@ import { Delete, Link, Refresh } from '@element-plus/icons-vue';
 import { setSession } from '../api';
 import { changeOwnPassword, getCurrentProfile } from '../features/platform/api';
 import { listPublishedSummaries } from '../features/ai/api';
+import { getStudentProfile, getTeacherProfile, listMyChildren } from '../features/academic-profiles/api';
 import StudentExamSummaryCard from '../features/ai/components/StudentExamSummaryCard.vue';
 import {
   bindMyHydroAccount,
@@ -142,6 +183,8 @@ import {
 
 const user = ref(null);
 const studentSummaries = ref([]);
+const academicProfile = ref(null);
+const children = ref([]);
 const hydroAccounts = ref([]);
 const platforms = ref([]);
 const passwordSaving = ref(false);
@@ -170,6 +213,7 @@ const roleName = computed(() => {
     TEACHER: '教师',
     ASSISTANT: '助教',
     STUDENT: '学生',
+    PARENT: '家长',
   };
   return names[user.value?.userType] ?? user.value?.userType ?? '';
 });
@@ -177,6 +221,12 @@ const roleName = computed(() => {
 async function load() {
   user.value = await getCurrentProfile();
   setSession({ user: user.value });
+  academicProfile.value = user.value?.userType === 'STUDENT'
+    ? await getStudentProfile(user.value.id)
+    : ['TEACHER', 'ASSISTANT'].includes(user.value?.userType)
+      ? await getTeacherProfile(user.value.id)
+      : null;
+  children.value = user.value?.userType === 'PARENT' ? await listMyChildren() : [];
   studentSummaries.value = user.value?.userType === 'STUDENT'
     ? (await listPublishedSummaries()).filter((item) => item.type === 'student')
     : [];

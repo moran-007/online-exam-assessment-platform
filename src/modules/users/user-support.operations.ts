@@ -17,6 +17,8 @@ export class UserSupportOperations {
         realName: true,
         userType: true,
         status: true,
+        mustChangePassword: true,
+        activatedAt: true,
         lastLoginAt: true,
         createdAt: true,
         updatedAt: true,
@@ -116,11 +118,14 @@ export class UserSupportOperations {
       case UserType.SUPER_ADMIN:
         return 'super_admin';
       case UserType.TEACHER:
-      case UserType.ADMIN:
       case UserType.ASSISTANT:
         return 'teacher';
+      case UserType.ADMIN:
+        return 'academic_admin';
       case UserType.STUDENT:
         return 'student';
+      case UserType.PARENT:
+        return 'parent';
       default:
         return undefined;
     }

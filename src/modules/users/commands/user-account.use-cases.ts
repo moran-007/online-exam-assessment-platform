@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { Prisma, UserStatus } from '@prisma/client';
+import { Prisma, UserStatus, UserType } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
 import { RequestUser } from '../../../common/interfaces/request-user.interface';
 import { AuditService } from '../../audit/audit.service';
@@ -48,6 +48,7 @@ export class UserAccountUseCases {
       });
 
       await this.support.syncUserRoles(tx, user.id, roleIds);
+      await this.ensureProfile(tx, user.id, dto.userType);
       return user;
     });
 
@@ -89,6 +90,8 @@ export class UserAccountUseCases {
     }
     if (dto.password) {
       data.passwordHash = await bcrypt.hash(dto.password.trim(), 10);
+      data.mustChangePassword = true;
+      data.activatedAt = null;
     }
     if (dto.userType) {
       data.userType = dto.userType;
@@ -109,6 +112,9 @@ export class UserAccountUseCases {
 
       if (roleIds !== undefined) {
         await this.support.syncUserRoles(tx, id, roleIds);
+      }
+      if (dto.userType !== undefined) {
+        await this.ensureProfile(tx, id, dto.userType);
       }
     });
 
@@ -153,7 +159,11 @@ export class UserAccountUseCases {
 
     await this.prisma.user.update({
       where: { id: actor.id },
-      data: { passwordHash: await bcrypt.hash(dto.newPassword, 10) },
+      data: {
+        passwordHash: await bcrypt.hash(dto.newPassword, 10),
+        mustChangePassword: false,
+        activatedAt: new Date(),
+      },
     });
 
     await this.audit.log({
@@ -181,7 +191,12 @@ export class UserAccountUseCases {
 
     await this.prisma.user.update({
       where: { id },
-      data: { passwordHash: await bcrypt.hash(dto.password, 10) },
+      data: {
+        passwordHash: await bcrypt.hash(dto.password, 10),
+        status: UserStatus.ACTIVE,
+        mustChangePassword: true,
+        activatedAt: null,
+      },
     });
 
     await this.audit.log({
@@ -199,6 +214,15 @@ export class UserAccountUseCases {
     });
 
     return true;
+  }
+
+  private async ensureProfile(tx: Prisma.TransactionClient, userId: string, userType: UserType) {
+    if (userType === UserType.STUDENT) {
+      await tx.studentProfile.upsert({ where: { userId }, update: {}, create: { userId } });
+    }
+    if (userType === UserType.TEACHER || userType === UserType.ASSISTANT) {
+      await tx.teacherProfile.upsert({ where: { userId }, update: {}, create: { userId } });
+    }
   }
 
 }

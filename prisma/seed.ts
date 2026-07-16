@@ -1,4 +1,5 @@
 import {
+  ClassMemberStatus,
   PermissionType,
   PaperStatus,
   PaperType,
@@ -39,6 +40,10 @@ const permissions = [
   ['ai.summary.view-class', '查看班级 AI 总结'], ['ai.prompt.manage', '管理 AI 提示模板'],
   ['ai.provider.manage', '管理 AI 模型配置'],
   ['ai.provider.manage-own', '管理个人 AI 模型配置'],
+  ['academic-profile:read', '按数据范围查看教务档案'],
+  ['academic-profile:update', '维护学生和教师档案'],
+  ['parent-student:manage', '维护家长与学生关系'],
+  ['legacy-migration:manage', '预检、处置和批准历史数据迁移'],
   ['statistics:read', '查看统计'], ['audit-log:read', '查看审计日志'],
 ] as const;
 
@@ -64,6 +69,11 @@ async function main() {
       code: 'super_admin',
       name: '超级管理员',
       permissions: allPermissionCodes,
+    },
+    {
+      code: 'academic_admin',
+      name: '教务管理员',
+      permissions: allPermissionCodes.filter((code) => !['ai.provider.manage', 'ai.prompt.manage'].includes(code)),
     },
     {
       code: 'teacher',
@@ -121,12 +131,18 @@ async function main() {
         'ai.summary.revoke',
         'ai.summary.view-class',
         'ai.provider.manage-own',
+        'academic-profile:read',
       ],
     },
     {
       code: 'student',
       name: '学生',
-      permissions: ['course:read', 'knowledge-point:read', 'tag:read', 'ai.summary.view-own'],
+      permissions: ['course:read', 'knowledge-point:read', 'tag:read', 'ai.summary.view-own', 'academic-profile:read'],
+    },
+    {
+      code: 'parent',
+      name: '家长',
+      permissions: ['academic-profile:read', 'ai.summary.view-own'],
     },
   ];
 
@@ -314,6 +330,8 @@ async function main() {
   const student = await prisma.user.findUniqueOrThrow({
     where: { username: 'student001' },
   });
+  await prisma.teacherProfile.upsert({ where: { userId: teacher.id }, update: {}, create: { userId: teacher.id } });
+  await prisma.studentProfile.upsert({ where: { userId: student.id }, update: {}, create: { userId: student.id } });
   const defaultClass = await prisma.classGroup.upsert({
     where: { code: 'python_basic_demo_class' },
     update: {
@@ -340,7 +358,7 @@ async function main() {
         teacherId: teacher.id,
       },
     },
-    update: {},
+    update: { status: ClassMemberStatus.ACTIVE, leftAt: null },
     create: {
       classId: defaultClass.id,
       teacherId: teacher.id,
@@ -353,7 +371,7 @@ async function main() {
         studentId: student.id,
       },
     },
-    update: {},
+    update: { status: ClassMemberStatus.ACTIVE, leftAt: null },
     create: {
       classId: defaultClass.id,
       studentId: student.id,

@@ -74,6 +74,7 @@ export class UserIdentityReader {
       userType: user.userType,
       roles,
       permissions: [...permissions],
+      mustChangePassword: user.mustChangePassword,
     };
   }
 }

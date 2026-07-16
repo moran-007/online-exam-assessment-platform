@@ -46,7 +46,10 @@
               </template>
             </el-table-column>
             <el-table-column label="状态" width="100">
-              <template #default="{ row }"><el-tag :type="userStatusTag(row.status)">{{ userStatusLabel(row.status) }}</el-tag></template>
+              <template #default="{ row }">
+                <el-tag :type="userStatusTag(row.status)">{{ userStatusLabel(row.status) }}</el-tag>
+                <div v-if="row.mustChangePassword && row.status === 'ACTIVE'" class="muted">首次改密</div>
+              </template>
             </el-table-column>
             <el-table-column prop="lastLoginAt" label="最近登录" width="170">
               <template #default="{ row }">{{ formatDateTime(row.lastLoginAt) }}</template>

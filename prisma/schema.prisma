@@ -17,10 +17,37 @@ enum UserType {
 }
 
 enum UserStatus {
+  PENDING_ACTIVATION
   ACTIVE
   DISABLED
   LOCKED
   DELETED
+}
+
+enum ClassMemberStatus {
+  ACTIVE
+  LEFT
+}
+
+enum ClassTeacherRole {
+  LEAD
+  INSTRUCTOR
+  ASSISTANT
+}
+
+enum MigrationRunStatus {
+  PREFLIGHT_BLOCKED
+  READY
+  APPROVED
+  APPLYING
+  COMPLETED
+  FAILED
+}
+
+enum MigrationConflictStatus {
+  OPEN
+  RESOLVED
+  WAIVED
 }
 
 enum RoleStatus {
@@ -224,19 +251,21 @@ enum AiProviderConfigScope {
 }
 
 model User {
-  id           String     @id @default(uuid()) @db.Uuid
-  username     String     @unique @db.VarChar(64)
-  phone        String?    @unique @db.VarChar(32)
-  email        String?    @unique @db.VarChar(128)
-  passwordHash String     @map("password_hash") @db.VarChar(255)
-  realName     String?    @map("real_name") @db.VarChar(64)
-  avatarUrl    String?    @map("avatar_url") @db.Text
-  userType     UserType   @map("user_type")
-  status       UserStatus @default(ACTIVE)
-  lastLoginAt  DateTime?  @map("last_login_at")
-  createdAt    DateTime   @default(now()) @map("created_at")
-  updatedAt    DateTime   @updatedAt @map("updated_at")
-  deletedAt    DateTime?  @map("deleted_at")
+  id                 String     @id @default(uuid()) @db.Uuid
+  username           String     @unique @db.VarChar(64)
+  phone              String?    @unique @db.VarChar(32)
+  email              String?    @unique @db.VarChar(128)
+  passwordHash       String     @map("password_hash") @db.VarChar(255)
+  realName           String?    @map("real_name") @db.VarChar(64)
+  avatarUrl          String?    @map("avatar_url") @db.Text
+  userType           UserType   @map("user_type")
+  status             UserStatus @default(ACTIVE)
+  mustChangePassword Boolean    @default(false) @map("must_change_password")
+  activatedAt        DateTime?  @map("activated_at")
+  lastLoginAt        DateTime?  @map("last_login_at")
+  createdAt          DateTime   @default(now()) @map("created_at")
+  updatedAt          DateTime   @updatedAt @map("updated_at")
+  deletedAt          DateTime?  @map("deleted_at")
 
   roles                 UserRole[]
   authAccounts          AuthAccount[]
@@ -248,6 +277,10 @@ model User {
   examAnnouncementReads ExamAnnouncementRead[]
   wrongQuestionEvents   WrongQuestionEvent[]
   personalAiConfigs     AiProviderConfig[]     @relation("PersonalAiProviderConfigOwner")
+  studentProfile        StudentProfile?
+  teacherProfile        TeacherProfile?
+  parentStudents        ParentStudent[]        @relation("ParentStudentParent")
+  childParents          ParentStudent[]        @relation("ParentStudentStudent")
 
   @@index([userType])
   @@index([status])
@@ -410,33 +443,166 @@ model ClassGroup {
 }
 
 model ClassStudent {
-  id        String   @id @default(uuid()) @db.Uuid
-  classId   String   @map("class_id") @db.Uuid
-  studentId String   @map("student_id") @db.Uuid
-  joinedAt  DateTime @default(now()) @map("joined_at")
+  id           String            @id @default(uuid()) @db.Uuid
+  classId      String            @map("class_id") @db.Uuid
+  studentId    String            @map("student_id") @db.Uuid
+  status       ClassMemberStatus @default(ACTIVE)
+  joinedAt     DateTime          @default(now()) @map("joined_at")
+  leftAt       DateTime?         @map("left_at")
+  sourceSystem String?           @map("source_system") @db.VarChar(64)
+  updatedAt    DateTime          @updatedAt @map("updated_at")
 
   classGroup ClassGroup @relation(fields: [classId], references: [id])
   student    User       @relation("ClassStudentUser", fields: [studentId], references: [id])
 
   @@unique([classId, studentId])
-  @@index([classId])
-  @@index([studentId])
+  @@index([classId, status])
+  @@index([studentId, status])
   @@map("class_students")
 }
 
 model ClassTeacher {
-  id        String   @id @default(uuid()) @db.Uuid
-  classId   String   @map("class_id") @db.Uuid
-  teacherId String   @map("teacher_id") @db.Uuid
-  joinedAt  DateTime @default(now()) @map("joined_at")
+  id           String            @id @default(uuid()) @db.Uuid
+  classId      String            @map("class_id") @db.Uuid
+  teacherId    String            @map("teacher_id") @db.Uuid
+  role         ClassTeacherRole  @default(INSTRUCTOR)
+  status       ClassMemberStatus @default(ACTIVE)
+  joinedAt     DateTime          @default(now()) @map("joined_at")
+  leftAt       DateTime?         @map("left_at")
+  sourceSystem String?           @map("source_system") @db.VarChar(64)
+  updatedAt    DateTime          @updatedAt @map("updated_at")
 
   classGroup ClassGroup @relation(fields: [classId], references: [id])
   teacher    User       @relation("ClassTeacherUser", fields: [teacherId], references: [id])
 
   @@unique([classId, teacherId])
-  @@index([classId])
-  @@index([teacherId])
+  @@index([classId, status])
+  @@index([teacherId, status])
   @@map("class_teachers")
+}
+
+model StudentProfile {
+  id               String    @id @default(uuid()) @db.Uuid
+  userId           String    @unique @map("user_id") @db.Uuid
+  studentNo        String?   @unique @map("student_no") @db.VarChar(64)
+  gender           String?   @db.VarChar(16)
+  birthDate        DateTime? @map("birth_date") @db.Date
+  school           String?   @db.VarChar(128)
+  grade            String?   @db.VarChar(64)
+  enrollmentStatus String    @default("active") @map("enrollment_status") @db.VarChar(32)
+  enrolledAt       DateTime? @map("enrolled_at") @db.Date
+  notes            String?   @db.Text
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([enrollmentStatus])
+  @@map("student_profiles")
+}
+
+model TeacherProfile {
+  id               String    @id @default(uuid()) @db.Uuid
+  userId           String    @unique @map("user_id") @db.Uuid
+  employeeNo       String?   @unique @map("employee_no") @db.VarChar(64)
+  subject          String?   @db.VarChar(128)
+  employmentStatus String    @default("active") @map("employment_status") @db.VarChar(32)
+  joinedAt         DateTime? @map("joined_at") @db.Date
+  notes            String?   @db.Text
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([employmentStatus])
+  @@map("teacher_profiles")
+}
+
+model ParentStudent {
+  id           String            @id @default(uuid()) @db.Uuid
+  parentId     String            @map("parent_id") @db.Uuid
+  studentId    String            @map("student_id") @db.Uuid
+  relationship String            @db.VarChar(32)
+  isPrimary    Boolean           @default(false) @map("is_primary")
+  status       ClassMemberStatus @default(ACTIVE)
+  linkedAt     DateTime          @default(now()) @map("linked_at")
+  unlinkedAt   DateTime?         @map("unlinked_at")
+  createdBy    String?           @map("created_by") @db.Uuid
+  updatedBy    String?           @map("updated_by") @db.Uuid
+  createdAt    DateTime          @default(now()) @map("created_at")
+  updatedAt    DateTime          @updatedAt @map("updated_at")
+
+  parent  User @relation("ParentStudentParent", fields: [parentId], references: [id])
+  student User @relation("ParentStudentStudent", fields: [studentId], references: [id])
+
+  @@unique([parentId, studentId])
+  @@index([parentId, status])
+  @@index([studentId, status])
+  @@map("parent_students")
+}
+
+model MigrationRun {
+  id               String             @id @default(uuid()) @db.Uuid
+  sourceSystem     String             @map("source_system") @db.VarChar(64)
+  sourceVersion    String             @map("source_version") @db.VarChar(64)
+  inputFingerprint String             @map("input_fingerprint") @db.VarChar(128)
+  status           MigrationRunStatus
+  summary          Json
+  conflictCount    Int                @default(0) @map("conflict_count")
+  mappingCount     Int                @default(0) @map("mapping_count")
+  createdBy        String?            @map("created_by") @db.Uuid
+  approvedBy       String?            @map("approved_by") @db.Uuid
+  approvedAt       DateTime?          @map("approved_at")
+  startedAt        DateTime?          @map("started_at")
+  finishedAt       DateTime?          @map("finished_at")
+  failureMessage   String?            @map("failure_message") @db.Text
+  createdAt        DateTime           @default(now()) @map("created_at")
+  updatedAt        DateTime           @updatedAt @map("updated_at")
+
+  mappings  LegacyIdMapping[]
+  conflicts MigrationConflict[]
+
+  @@index([sourceSystem, inputFingerprint])
+  @@index([status, createdAt])
+  @@map("migration_runs")
+}
+
+model LegacyIdMapping {
+  id           String   @id @default(uuid()) @db.Uuid
+  runId        String   @map("run_id") @db.Uuid
+  sourceSystem String   @map("source_system") @db.VarChar(64)
+  entityType   String   @map("entity_type") @db.VarChar(32)
+  legacyId     String   @map("legacy_id") @db.VarChar(128)
+  targetId     String   @map("target_id") @db.Uuid
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  run MigrationRun @relation(fields: [runId], references: [id])
+
+  @@unique([sourceSystem, entityType, legacyId])
+  @@index([targetId])
+  @@map("legacy_id_mappings")
+}
+
+model MigrationConflict {
+  id           String                  @id @default(uuid()) @db.Uuid
+  runId        String                  @map("run_id") @db.Uuid
+  conflictKey  String                  @map("conflict_key") @db.VarChar(160)
+  entityType   String                  @map("entity_type") @db.VarChar(32)
+  legacyId     String                  @map("legacy_id") @db.VarChar(128)
+  conflictType String                  @map("conflict_type") @db.VarChar(64)
+  summary      Json
+  status       MigrationConflictStatus @default(OPEN)
+  resolution   String?                 @db.Text
+  resolvedBy   String?                 @map("resolved_by") @db.Uuid
+  resolvedAt   DateTime?               @map("resolved_at")
+  createdAt    DateTime                @default(now()) @map("created_at")
+  updatedAt    DateTime                @updatedAt @map("updated_at")
+
+  run MigrationRun @relation(fields: [runId], references: [id])
+
+  @@unique([runId, conflictKey])
+  @@index([runId, status])
+  @@map("migration_conflicts")
 }
 
 model KnowledgePoint {

@@ -10,6 +10,7 @@ export type UsersUsersStatus = typeof UsersUsersStatus[keyof typeof UsersUsersSt
 
 
 export const UsersUsersStatus = {
+  PENDING_ACTIVATION: 'PENDING_ACTIVATION',
   ACTIVE: 'ACTIVE',
   DISABLED: 'DISABLED',
   LOCKED: 'LOCKED',

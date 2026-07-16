@@ -8,6 +8,7 @@ import {
 import {
   AnswerRecordStatus,
   AttemptStatus,
+  ClassMemberStatus,
   ExamStatus,
   MasteryStatus,
   PaperStatus,
@@ -171,7 +172,7 @@ export async function findStudentUser(ctx: StudentContext, studentId: string): P
 
 export async function resolveStudentClassIds(ctx: StudentContext, studentId: string) {
     const relations = await ctx.prisma.classStudent.findMany({
-      where: { studentId, classGroup: { deletedAt: null, status: 'active' } },
+      where: { studentId, status: ClassMemberStatus.ACTIVE, classGroup: { deletedAt: null, status: 'active' } },
       select: { classId: true },
     });
     return relations.map((relation) => relation.classId);
@@ -187,6 +188,7 @@ export async function assertStudentCanAccessExam(ctx: StudentContext, examId: st
       where: {
         classId: exam.classId,
         studentId,
+        status: ClassMemberStatus.ACTIVE,
         classGroup: { deletedAt: null, status: 'active' },
       },
       select: { id: true },

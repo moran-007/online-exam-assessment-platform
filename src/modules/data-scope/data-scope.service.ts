@@ -1,5 +1,5 @@
 import { ForbiddenException, Injectable } from '@nestjs/common';
-import { Prisma, UserType } from '@prisma/client';
+import { ClassMemberStatus, Prisma, UserType } from '@prisma/client';
 import { RequestUser } from '../../common/interfaces/request-user.interface';
 import { PrismaService } from '../prisma/prisma.service';
 
@@ -22,11 +22,18 @@ export class DataScopeService {
     const relations = await this.prisma.classTeacher.findMany({
       where: {
         teacherId: user.id,
+        status: ClassMemberStatus.ACTIVE,
         classGroup: { deletedAt: null, status: 'active' },
       },
       select: { classId: true },
     });
     return relations.map((relation) => relation.classId);
+  }
+
+  async teacherIdsVisibleTo(user: RequestUser) {
+    if (this.isUnrestricted(user)) return null;
+    if (this.isScopedTeacher(user)) return [user.id];
+    return [];
   }
 
   async classWhere(user: RequestUser, classId?: string): Promise<Prisma.ClassGroupWhereInput> {
@@ -87,10 +94,11 @@ export class DataScopeService {
       this.prisma.classStudent.findFirst({
         where: {
           studentId,
+          status: ClassMemberStatus.ACTIVE,
           classGroup: {
             deletedAt: null,
             status: 'active',
-            teachers: { some: { teacherId: user.id } },
+            teachers: { some: { teacherId: user.id, status: ClassMemberStatus.ACTIVE } },
           },
         },
         select: { id: true },

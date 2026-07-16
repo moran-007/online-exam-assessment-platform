@@ -2000,6 +2000,7 @@
           },
           "status": {
             "enum": [
+              "PENDING_ACTIVATION",
               "ACTIVE",
               "DISABLED",
               "LOCKED",
@@ -2920,6 +2921,242 @@
         ],
         "type": "object"
       },
+      "LegacyAccountDto": {
+        "properties": {
+          "legacyId": {
+            "maxLength": 128,
+            "type": "string"
+          },
+          "studentLegacyId": {
+            "maxLength": 128,
+            "type": "string"
+          },
+          "teacherLegacyId": {
+            "maxLength": 128,
+            "type": "string"
+          },
+          "username": {
+            "maxLength": 64,
+            "type": "string"
+          }
+        },
+        "required": [
+          "legacyId",
+          "username"
+        ],
+        "type": "object"
+      },
+      "LegacyClassDto": {
+        "properties": {
+          "legacyId": {
+            "maxLength": 128,
+            "type": "string"
+          },
+          "name": {
+            "maxLength": 128,
+            "type": "string"
+          },
+          "status": {
+            "maxLength": 32,
+            "type": "string"
+          },
+          "teacherLegacyId": {
+            "maxLength": 128,
+            "type": "string"
+          }
+        },
+        "required": [
+          "legacyId",
+          "name"
+        ],
+        "type": "object"
+      },
+      "LegacyClassStudentDto": {
+        "properties": {
+          "classLegacyId": {
+            "maxLength": 128,
+            "type": "string"
+          },
+          "joinDate": {
+            "maxLength": 32,
+            "type": "string"
+          },
+          "leaveDate": {
+            "maxLength": 32,
+            "type": "string"
+          },
+          "legacyId": {
+            "maxLength": 128,
+            "type": "string"
+          },
+          "status": {
+            "maxLength": 32,
+            "type": "string"
+          },
+          "studentLegacyId": {
+            "maxLength": 128,
+            "type": "string"
+          }
+        },
+        "required": [
+          "legacyId",
+          "classLegacyId",
+          "studentLegacyId"
+        ],
+        "type": "object"
+      },
+      "LegacyProfileSnapshotDto": {
+        "properties": {
+          "accounts": {
+            "items": {
+              "$ref": "#/components/schemas/LegacyAccountDto"
+            },
+            "maxItems": 3000,
+            "type": "array"
+          },
+          "classes": {
+            "items": {
+              "$ref": "#/components/schemas/LegacyClassDto"
+            },
+            "maxItems": 1000,
+            "type": "array"
+          },
+          "classStudents": {
+            "items": {
+              "$ref": "#/components/schemas/LegacyClassStudentDto"
+            },
+            "maxItems": 10000,
+            "type": "array"
+          },
+          "sourceSystem": {
+            "maxLength": 64,
+            "type": "string"
+          },
+          "sourceVersion": {
+            "maxLength": 64,
+            "type": "string"
+          },
+          "students": {
+            "items": {
+              "$ref": "#/components/schemas/LegacyStudentDto"
+            },
+            "maxItems": 2000,
+            "type": "array"
+          },
+          "teachers": {
+            "items": {
+              "$ref": "#/components/schemas/LegacyTeacherDto"
+            },
+            "maxItems": 1000,
+            "type": "array"
+          }
+        },
+        "required": [
+          "sourceSystem",
+          "sourceVersion",
+          "students",
+          "teachers",
+          "classes",
+          "classStudents",
+          "accounts"
+        ],
+        "type": "object"
+      },
+      "LegacyStudentDto": {
+        "properties": {
+          "gender": {
+            "maxLength": 16,
+            "type": "string"
+          },
+          "legacyId": {
+            "maxLength": 128,
+            "type": "string"
+          },
+          "name": {
+            "maxLength": 128,
+            "type": "string"
+          },
+          "parentName": {
+            "maxLength": 128,
+            "type": "string"
+          },
+          "parentPhone": {
+            "maxLength": 32,
+            "type": "string"
+          },
+          "phone": {
+            "maxLength": 32,
+            "type": "string"
+          },
+          "school": {
+            "maxLength": 128,
+            "type": "string"
+          },
+          "status": {
+            "maxLength": 32,
+            "type": "string"
+          }
+        },
+        "required": [
+          "legacyId",
+          "name"
+        ],
+        "type": "object"
+      },
+      "LegacyTeacherDto": {
+        "properties": {
+          "legacyId": {
+            "maxLength": 128,
+            "type": "string"
+          },
+          "name": {
+            "maxLength": 128,
+            "type": "string"
+          },
+          "phone": {
+            "maxLength": 32,
+            "type": "string"
+          },
+          "status": {
+            "maxLength": 32,
+            "type": "string"
+          },
+          "subject": {
+            "maxLength": 128,
+            "type": "string"
+          }
+        },
+        "required": [
+          "legacyId",
+          "name"
+        ],
+        "type": "object"
+      },
+      "LinkParentStudentDto": {
+        "properties": {
+          "isPrimary": {
+            "type": "boolean"
+          },
+          "parentId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "relationship": {
+            "maxLength": 32,
+            "type": "string"
+          },
+          "studentId": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "parentId",
+          "studentId",
+          "relationship"
+        ],
+        "type": "object"
+      },
       "LoginDto": {
         "properties": {
           "password": {
@@ -3355,6 +3592,29 @@
         },
         "required": [
           "password"
+        ],
+        "type": "object"
+      },
+      "ResolveMigrationConflictDto": {
+        "properties": {
+          "note": {
+            "maxLength": 500,
+            "type": "string"
+          },
+          "resolutionCode": {
+            "enum": [
+              "CREATE_WITHOUT_PHONE",
+              "SKIP"
+            ],
+            "type": "string"
+          },
+          "waive": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "resolutionCode",
+          "note"
         ],
         "type": "object"
       },
@@ -4027,6 +4287,29 @@
         ],
         "type": "object"
       },
+      "UpdateClassTeachersDto": {
+        "properties": {
+          "role": {
+            "enum": [
+              "ASSISTANT",
+              "LEAD",
+              "INSTRUCTOR"
+            ],
+            "type": "string"
+          },
+          "userIds": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "userIds"
+        ],
+        "type": "object"
+      },
       "UpdateCourseDto": {
         "properties": {
           "coverUrl": {
@@ -4213,6 +4496,7 @@
           },
           "status": {
             "enum": [
+              "PENDING_ACTIVATION",
               "ACTIVE",
               "DISABLED",
               "LOCKED",
@@ -4485,6 +4769,41 @@
         ],
         "type": "object"
       },
+      "UpdateStudentProfileDto": {
+        "properties": {
+          "birthDate": {
+            "type": "string"
+          },
+          "enrolledAt": {
+            "type": "string"
+          },
+          "enrollmentStatus": {
+            "maxLength": 32,
+            "type": "string"
+          },
+          "gender": {
+            "maxLength": 16,
+            "type": "string"
+          },
+          "grade": {
+            "maxLength": 64,
+            "type": "string"
+          },
+          "notes": {
+            "maxLength": 1000,
+            "type": "string"
+          },
+          "school": {
+            "maxLength": 128,
+            "type": "string"
+          },
+          "studentNo": {
+            "maxLength": 64,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "UpdateTagDto": {
         "properties": {
           "code": {
@@ -4509,6 +4828,30 @@
               "EXAM",
               "CUSTOM"
             ],
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "UpdateTeacherProfileDto": {
+        "properties": {
+          "employeeNo": {
+            "maxLength": 64,
+            "type": "string"
+          },
+          "employmentStatus": {
+            "maxLength": 32,
+            "type": "string"
+          },
+          "joinedAt": {
+            "type": "string"
+          },
+          "notes": {
+            "maxLength": 1000,
+            "type": "string"
+          },
+          "subject": {
+            "maxLength": 128,
             "type": "string"
           }
         },
@@ -4655,6 +4998,540 @@
   },
   "openapi": "3.0.0",
   "paths": {
+    "/api/v1/academic-profiles/parent-students": {
+      "post": {
+        "operationId": "AcademicProfiles_linkParent",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LinkParentStudentDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "401": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "404": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "409": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "429": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "500": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "Academic Profile"
+        ]
+      }
+    },
+    "/api/v1/academic-profiles/parent-students/{parentId}/{studentId}": {
+      "delete": {
+        "operationId": "AcademicProfiles_unlinkParent",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "parentId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "studentId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "code": {
+                      "example": 0,
+                      "type": "integer"
+                    },
+                    "data": {
+                      "type": "boolean"
+                    },
+                    "message": {
+                      "example": "ok",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "code",
+                    "message",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "401": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "404": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "409": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "429": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "500": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "Academic Profile"
+        ]
+      }
+    },
+    "/api/v1/academic-profiles/parents": {
+      "get": {
+        "operationId": "AcademicProfiles_parents",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "keyword",
+            "required": false,
+            "schema": {
+              "maxLength": 64,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "401": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "404": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "409": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "429": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "500": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "Academic Profile"
+        ]
+      }
+    },
+    "/api/v1/academic-profiles/parents/me/students": {
+      "get": {
+        "operationId": "AcademicProfiles_myChildren",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "401": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "404": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "409": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "429": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "500": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "Academic Profile"
+        ]
+      }
+    },
+    "/api/v1/academic-profiles/students": {
+      "get": {
+        "operationId": "AcademicProfiles_students",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "keyword",
+            "required": false,
+            "schema": {
+              "maxLength": 64,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "401": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "404": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "409": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "429": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "500": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "Academic Profile"
+        ]
+      }
+    },
+    "/api/v1/academic-profiles/students/{userId}": {
+      "get": {
+        "operationId": "AcademicProfiles_student",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "userId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "401": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "404": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "409": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "429": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "500": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "Academic Profile"
+        ]
+      },
+      "patch": {
+        "operationId": "AcademicProfiles_updateStudent",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "userId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateStudentProfileDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "401": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "404": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "409": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "429": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "500": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "Academic Profile"
+        ]
+      }
+    },
+    "/api/v1/academic-profiles/teachers": {
+      "get": {
+        "operationId": "AcademicProfiles_teachers",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "keyword",
+            "required": false,
+            "schema": {
+              "maxLength": 64,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "401": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "404": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "409": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "429": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "500": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "Academic Profile"
+        ]
+      }
+    },
+    "/api/v1/academic-profiles/teachers/{userId}": {
+      "get": {
+        "operationId": "AcademicProfiles_teacher",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "userId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "401": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "404": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "409": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "429": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "500": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "Academic Profile"
+        ]
+      },
+      "patch": {
+        "operationId": "AcademicProfiles_updateTeacher",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "userId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateTeacherProfileDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "401": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "404": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "409": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "429": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "500": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "Academic Profile"
+        ]
+      }
+    },
     "/api/v1/ai-summaries/{id}": {
       "get": {
         "operationId": "AiSummaryLifecycle_detail",
@@ -7112,7 +7989,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/UpdateClassMembersDto"
+                "$ref": "#/components/schemas/UpdateClassTeachersDto"
               }
             }
           },
@@ -13821,6 +14698,462 @@
         ],
         "tags": [
           "KnowledgePoint"
+        ]
+      }
+    },
+    "/api/v1/legacy-migrations": {
+      "get": {
+        "operationId": "LegacyMigration_list",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "code": {
+                      "example": 0,
+                      "type": "integer"
+                    },
+                    "data": {
+                      "type": "object"
+                    },
+                    "message": {
+                      "example": "ok",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "code",
+                    "message",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "401": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "404": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "409": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "429": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "500": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "Legacy Migration"
+        ]
+      }
+    },
+    "/api/v1/legacy-migrations/{id}": {
+      "get": {
+        "operationId": "LegacyMigration_detail",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "code": {
+                      "example": 0,
+                      "type": "integer"
+                    },
+                    "data": {
+                      "type": "object"
+                    },
+                    "message": {
+                      "example": "ok",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "code",
+                    "message",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "401": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "404": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "409": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "429": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "500": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "Legacy Migration"
+        ]
+      }
+    },
+    "/api/v1/legacy-migrations/{id}/apply": {
+      "post": {
+        "operationId": "LegacyMigration_apply",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LegacyProfileSnapshotDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "code": {
+                      "example": 0,
+                      "type": "integer"
+                    },
+                    "data": {
+                      "type": "object"
+                    },
+                    "message": {
+                      "example": "ok",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "code",
+                    "message",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "401": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "404": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "409": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "429": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "500": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "Legacy Migration"
+        ]
+      }
+    },
+    "/api/v1/legacy-migrations/{id}/approve": {
+      "post": {
+        "operationId": "LegacyMigration_approve",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "code": {
+                      "example": 0,
+                      "type": "integer"
+                    },
+                    "data": {
+                      "type": "object"
+                    },
+                    "message": {
+                      "example": "ok",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "code",
+                    "message",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "401": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "404": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "409": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "429": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "500": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "Legacy Migration"
+        ]
+      }
+    },
+    "/api/v1/legacy-migrations/conflicts/{id}": {
+      "patch": {
+        "operationId": "LegacyMigration_resolveConflict",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResolveMigrationConflictDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "code": {
+                      "example": 0,
+                      "type": "integer"
+                    },
+                    "data": {
+                      "type": "object"
+                    },
+                    "message": {
+                      "example": "ok",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "code",
+                    "message",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "401": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "404": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "409": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "429": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "500": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "Legacy Migration"
+        ]
+      }
+    },
+    "/api/v1/legacy-migrations/preflight": {
+      "post": {
+        "operationId": "LegacyMigration_preflight",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LegacyProfileSnapshotDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "code": {
+                      "example": 0,
+                      "type": "integer"
+                    },
+                    "data": {
+                      "type": "object"
+                    },
+                    "message": {
+                      "example": "ok",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "code",
+                    "message",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "401": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "404": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "409": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "429": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "500": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "Legacy Migration"
         ]
       }
     },
@@ -21124,6 +22457,7 @@
             "required": false,
             "schema": {
               "enum": [
+                "PENDING_ACTIVATION",
                 "ACTIVE",
                 "DISABLED",
                 "LOCKED",

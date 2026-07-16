@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { AnswerRecordStatus, AttemptStatus, ExamStatus, PaperStatus, Prisma, QuestionType, ScoringEvaluationSource, UserStatus, UserType } from '@prisma/client';
+import { AnswerRecordStatus, AttemptStatus, ClassMemberStatus, ExamStatus, PaperStatus, Prisma, QuestionType, ScoringEvaluationSource, UserStatus, UserType } from '@prisma/client';
 import { toPagination } from '../../common/dto/pagination-query.dto';
 import { normalizeExamStatus, toApiEnum } from '../../common/utils/enum-normalizer';
 import { AuditService } from '../audit/audit.service';
@@ -290,6 +290,7 @@ export async function studentsInClass(ctx: ExamsContext, classId: string) {
     const relations = await ctx.prisma.classStudent.findMany({
       where: {
         classId,
+        status: ClassMemberStatus.ACTIVE,
         student: {
           userType: UserType.STUDENT,
           status: UserStatus.ACTIVE,

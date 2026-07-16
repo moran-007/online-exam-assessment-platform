@@ -6,7 +6,7 @@ import { RequestUser } from '../../common/interfaces/request-user.interface';
 import { ClassesService } from './classes.service';
 import { QueryClassDto } from './dto/query-class.dto';
 import { SaveClassDto, UpdateClassDto } from './dto/save-class.dto';
-import { UpdateClassMembersDto } from './dto/update-class-members.dto';
+import { UpdateClassMembersDto, UpdateClassTeachersDto } from './dto/update-class-members.dto';
 
 @ApiTags('Classes')
 @ApiBearerAuth()
@@ -58,8 +58,8 @@ export class ClassesController {
 
   @Post(':id/teachers')
   @Permissions('class:update')
-  addTeachers(@Param('id') id: string, @Body() dto: UpdateClassMembersDto, @CurrentUser() user: RequestUser) {
-    return this.classesService.addTeachers(id, dto.userIds, user);
+  addTeachers(@Param('id') id: string, @Body() dto: UpdateClassTeachersDto, @CurrentUser() user: RequestUser) {
+    return this.classesService.addTeachers(id, dto.userIds, user, dto.role);
   }
 
   @Delete(':id/teachers/:teacherId')
