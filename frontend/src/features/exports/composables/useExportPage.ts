@@ -3,6 +3,7 @@ import { ElMessage } from 'element-plus';
 import { Delete, Download, Refresh, Search } from '@element-plus/icons-vue';
 import { getCurrentUser } from '../../../api';
 import { useResponsiveColumns } from '../../../composables/useResponsiveColumns';
+import { downloadBlob } from '../../../utils/download';
 import { useExportTaskPolling } from '../composables/useExportTaskPolling';
 import {
   cancelExportTask,
@@ -270,12 +271,7 @@ async function cleanupExpired() {
 async function downloadTask(row: unknown) {
   const task = taskFrom(row);
   const data = await downloadExportTask(task.id);
-  const objectUrl = URL.createObjectURL(data.blob);
-  const link = document.createElement('a');
-  link.href = objectUrl;
-  link.download = downloadFilename(data.contentDisposition) || `export-${task.id}`;
-  link.click();
-  window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+  downloadBlob(data.blob, downloadFilename(data.contentDisposition) || `export-${task.id}`);
 }
 
 function downloadFilename(contentDisposition: string) {

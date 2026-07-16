@@ -231,6 +231,51 @@ test('public visitors and teachers load their lazy feature routes', async ({ bro
   await teacherContext.close();
 });
 
+test('question and paper exports download files that match their declared formats', async ({ page }) => {
+  await login(page, 'e2e_admin');
+  await page.goto('/questions');
+  await expect(page.getByRole('heading', { name: '题库管理' })).toBeVisible();
+
+  await page.locator('.question-toolbar .el-switch').click();
+  const questionRow = page.getByRole('row', { name: /E2E autosave question/ });
+  await expect(page.locator('.question-table-panel')).toContainText(/E2E autosave question|No Data/);
+  if (await questionRow.count() === 0) {
+    await page.getByRole('tab', { name: '考试中' }).click();
+    await expect(questionRow).toBeVisible();
+  }
+  await questionRow.getByRole('button', { name: '操作' }).click();
+  await page.getByRole('menuitem', { name: '下载' }).click();
+  const questionExportDialog = page.getByRole('dialog', { name: '题目导出设置' });
+  await questionExportDialog.getByText('JSON', { exact: true }).click();
+  await questionExportDialog.getByRole('button', { name: '生成导出' }).click();
+  await expect(page.getByText('题目导出任务已加入队列，可到导出中心下载')).toBeVisible();
+
+  await page.goto('/exports');
+  await expect(page.getByRole('heading', { name: '导出中心' })).toBeVisible();
+  const questionTaskRow = page.locator('.export-record-panel tbody tr').filter({ hasText: '题库' }).first();
+  await expect(questionTaskRow).toContainText('成功', { timeout: 20_000 });
+  const downloadedQuestion = await captureExportDownload(page, () =>
+    questionTaskRow.getByRole('button', { name: '下载' }).click(),
+  );
+  expect(downloadedQuestion.headers['content-disposition']).toMatch(/\.json/i);
+  const questionBuffer = downloadedQuestion.body;
+  expect(() => JSON.parse(questionBuffer.toString('utf8'))).not.toThrow();
+
+  const paperRow = page.locator('.export-target-panel tbody tr').filter({ hasText: paperName }).first();
+  await paperRow.getByRole('button', { name: '导出' }).click();
+  await page.getByRole('menuitem', { name: 'PDF 学生版' }).click();
+  await expect(page.getByText('导出任务已加入队列，可在导出记录查看进度')).toBeVisible();
+  const paperTaskRow = page.locator('.export-record-panel tbody tr').filter({ hasText: '试卷文档' }).first();
+  await expect(paperTaskRow).toContainText('成功', { timeout: 20_000 });
+  const downloadedPaper = await captureExportDownload(page, () =>
+    paperTaskRow.getByRole('button', { name: '下载' }).click(),
+  );
+  expect(downloadedPaper.headers['content-disposition']).toMatch(/\.pdf/i);
+  const paperBuffer = downloadedPaper.body;
+  expect(paperBuffer.subarray(0, 5).toString('ascii')).toBe('%PDF-');
+  expect(paperBuffer.includes(Buffer.from('%%EOF'))).toBe(true);
+});
+
 test('privileged users can open AI settings while students are denied', async ({ browser }) => {
   const adminContext = await browser.newContext();
   const studentContext = await browser.newContext();
@@ -438,6 +483,21 @@ function formInput(container: Locator, label: string) {
 
 function formSelect(container: Locator, label: string) {
   return container.locator('.el-form-item').filter({ hasText: label }).first().locator('.el-select');
+}
+
+async function captureExportDownload(page: Page, clickDownload: () => Promise<void>) {
+  let resolveCapture!: (value: { headers: Record<string, string>; body: Buffer }) => void;
+  const capture = new Promise<{ headers: Record<string, string>; body: Buffer }>((resolve) => {
+    resolveCapture = resolve;
+  });
+  await page.route('**/api/v1/exports/*/download', async (route) => {
+    const response = await route.fetch();
+    const body = await response.body();
+    resolveCapture({ headers: response.headers(), body });
+    await route.fulfill({ response, body });
+  }, { times: 1 });
+  await clickDownload();
+  return capture;
 }
 
 async function api(

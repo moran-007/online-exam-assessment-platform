@@ -24,6 +24,30 @@ const binaryParser = (
   response.on('error', (error: Error) => callback(error));
 };
 
+type ExportFileFormat = 'csv' | 'xlsx' | 'docx' | 'pdf' | 'zip' | 'json';
+
+function expectValidExportBuffer(format: ExportFileFormat, buffer: Buffer) {
+  expect(buffer.length).toBeGreaterThan(20);
+
+  if (format === 'json') {
+    expect(() => JSON.parse(buffer.toString('utf8'))).not.toThrow();
+    return;
+  }
+  if (format === 'csv') {
+    const content = buffer.toString('utf8').replace(/^\uFEFF/, '');
+    expect(content).toContain(',');
+    return;
+  }
+  if (format === 'pdf') {
+    expect(buffer.subarray(0, 5).toString('ascii')).toBe('%PDF-');
+    expect(buffer.includes(Buffer.from('%%EOF'))).toBe(true);
+    return;
+  }
+
+  expect(buffer.subarray(0, 4).equals(Buffer.from([0x50, 0x4b, 0x03, 0x04]))).toBe(true);
+  expect(buffer.lastIndexOf(Buffer.from([0x50, 0x4b, 0x05, 0x06]))).toBeGreaterThan(0);
+}
+
 describe('core API flows', () => {
   let app: INestApplication;
   let prisma: PrismaClient;
@@ -585,11 +609,9 @@ describe('core API flows', () => {
     expect(status).toBe('success');
     expect(completedTask?.downloadReady).toBe(true);
     expect(completedTask?.fileUrl).toBeUndefined();
-    const download = await request(app.getHttpServer())
-      .get(`/api/v1/exports/${task.id}/download`)
-      .auth(adminToken, { type: 'bearer' })
-      .expect(200);
-    expect(download.headers['content-disposition']).toContain('attachment');
+    const download = await downloadExportFile(task.id);
+    expect(download.headers['content-disposition']).toContain('.json');
+    expectValidExportBuffer('json', download.body);
     await request(app.getHttpServer()).get(`/api/v1/exports/${task.id}/download`).expect(401);
 
     const formats = ['csv', 'xlsx', 'docx', 'pdf', 'zip'] as const;
@@ -599,29 +621,31 @@ describe('core API flows', () => {
       includeAnswers: true,
       includeAnalysis: true,
     })));
-    const pendingIds = new Set(formatTasks.map((item) => item.id));
-    const completedById = new Map<string, any>();
-    for (let index = 0; index < 100 && pendingIds.size; index += 1) {
-      await new Promise((resolve) => setTimeout(resolve, 100));
-      const list = await api('get', '/api/v1/exports?pageSize=100', adminToken);
-      for (const item of list.items) {
-        if (!pendingIds.has(item.id) || item.status !== 'success') continue;
-        completedById.set(item.id, item);
-        pendingIds.delete(item.id);
-      }
-    }
-    expect([...pendingIds]).toEqual([]);
+    const completedById = await waitForExportTasks(formatTasks.map((item) => item.id));
 
     for (const [index, formatTask] of formatTasks.entries()) {
       expect(completedById.get(formatTask.id)?.downloadReady).toBe(true);
-      const response = await request(app.getHttpServer())
-        .get(`/api/v1/exports/${formatTask.id}/download`)
-        .auth(adminToken, { type: 'bearer' })
-        .buffer(true)
-        .parse(binaryParser as unknown as Parameters<typeof templateRequest.parse>[0])
-        .expect(200);
+      const response = await downloadExportFile(formatTask.id);
       expect(response.headers['content-disposition']).toContain(`.${formats[index]}`);
-      expect((response.body as Buffer).length).toBeGreaterThan(20);
+      expectValidExportBuffer(formats[index], response.body);
+    }
+
+    const paper = await prisma.paper.findFirstOrThrow({ where: { name: 'Integration Paper' } });
+    const paperFormats = ['json', 'csv', 'xlsx', 'docx', 'pdf', 'zip'] as const;
+    const paperTasks = await Promise.all(paperFormats.map((format) => api('post', '/api/v1/exports', adminToken, {
+      type: 'paper_document',
+      paperId: paper.id,
+      format,
+      template: 'teacher',
+      includeAnswers: true,
+      includeAnalysis: true,
+    })));
+    const completedPaperTasks = await waitForExportTasks(paperTasks.map((item) => item.id));
+    for (const [index, paperTask] of paperTasks.entries()) {
+      expect(completedPaperTasks.get(paperTask.id)?.downloadReady).toBe(true);
+      const response = await downloadExportFile(paperTask.id);
+      expect(response.headers['content-disposition']).toContain(`.${paperFormats[index]}`);
+      expectValidExportBuffer(paperFormats[index], response.body);
     }
   });
 
@@ -743,6 +767,32 @@ describe('core API flows', () => {
   async function login(username: string) {
     const response = await request(app.getHttpServer()).post('/api/v1/auth/login').send({ username, password: '123456' }).expect(201);
     return response.body.data;
+  }
+
+  async function waitForExportTasks(ids: string[]) {
+    const pendingIds = new Set(ids);
+    const completedById = new Map<string, any>();
+    for (let index = 0; index < 150 && pendingIds.size; index += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      const list = await api('get', '/api/v1/exports?pageSize=100', adminToken);
+      for (const item of list.items) {
+        if (!pendingIds.has(item.id) || item.status !== 'success') continue;
+        completedById.set(item.id, item);
+        pendingIds.delete(item.id);
+      }
+    }
+    expect([...pendingIds]).toEqual([]);
+    return completedById;
+  }
+
+  async function downloadExportFile(id: string) {
+    const response = await request(app.getHttpServer())
+      .get(`/api/v1/exports/${id}/download`)
+      .auth(adminToken, { type: 'bearer' })
+      .buffer(true)
+      .parse(binaryParser as any)
+      .expect(200);
+    return { headers: response.headers, body: response.body as Buffer };
   }
 
   async function api(method: 'get' | 'post' | 'patch' | 'delete', path: string, token: string, body?: any) {
