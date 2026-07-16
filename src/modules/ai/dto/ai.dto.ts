@@ -109,6 +109,7 @@ export class AiTokenQuotaDto {
   @ApiProperty({ type: String, format: 'date-time' }) periodEnd: Date;
   @ApiProperty({ nullable: true }) budgetTokens: number | null;
   @ApiProperty() usedTokens: number;
+  @ApiProperty({ description: '供应商未报告用量时，按请求输出上限保守预留的 Token' }) reservedTokens: number;
   @ApiProperty({ nullable: true }) remainingTokens: number | null;
   @ApiProperty() unreportedCalls: number;
   @ApiProperty() usageComplete: boolean;

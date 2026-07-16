@@ -11,6 +11,7 @@ import { CreateExamSummaryTaskDto } from './dto/ai-summary.dto';
 import { ExamSummaryTaskRunner } from './exam-summary-task.runner';
 import { EXAM_SUMMARY_OUTPUT_SCHEMA_VERSION } from './schemas/summary-output.schema';
 import { createSummaryDatasetInputHash } from './summary-input-hash';
+import { DEFAULT_EXAM_SUMMARY_OUTPUT_TOKENS, MAX_EXAM_SUMMARY_OUTPUT_TOKENS } from './ai-summary-limits';
 
 @Injectable()
 export class ExamSummaryTaskUseCases {
@@ -56,7 +57,11 @@ export class ExamSummaryTaskUseCases {
             },
             inputSnapshotJson: dataset as unknown as Prisma.InputJsonValue,
             promptTemplateId: template.id,
-            requestedOutputTokens: Math.min(dto.maxTokens ?? 1000, config.maxTokens, 1200),
+            requestedOutputTokens: Math.min(
+              dto.maxTokens ?? DEFAULT_EXAM_SUMMARY_OUTPUT_TOKENS,
+              config.maxTokens,
+              MAX_EXAM_SUMMARY_OUTPUT_TOKENS,
+            ),
             correlationId: randomUUID(),
             createdBy: user.id,
           },
@@ -105,14 +110,30 @@ export class ExamSummaryTaskUseCases {
   }
 
   private async present(task: NonNullable<Awaited<ReturnType<ExamSummaryTaskUseCases['reusable']>>>, cacheHit: boolean) {
-    const quota = await this.tokenUsage.quota(task.providerConfig);
+    const [quota, usageEvent] = await Promise.all([
+      this.tokenUsage.quota(task.providerConfig),
+      this.prisma.aiUsageEvent.findFirst({
+        where: { correlationId: { startsWith: `${task.correlationId}:` } },
+        orderBy: { createdAt: 'desc' },
+      }),
+    ]);
+    const reservedTokens = usageEvent && !usageEvent.usageReported
+      ? Math.max(usageEvent.requestedOutputTokens, usageEvent.totalTokens)
+      : 0;
     return {
       id: task.id,
       status: task.status.toLowerCase(),
       attemptCount: task.attemptCount,
       inputHash: task.inputHash,
       model: { configId: task.providerConfigId, name: task.providerConfig.name, model: task.modelSnapshot },
-      usage: { inputTokens: task.inputTokens, outputTokens: task.outputTokens, tokenQuota: quota },
+      usage: {
+        inputTokens: task.inputTokens,
+        outputTokens: task.outputTokens,
+        requestedOutputTokens: task.requestedOutputTokens,
+        reported: usageEvent?.usageReported ?? null,
+        reservedTokens,
+        tokenQuota: quota,
+      },
       cacheHit,
       sanitizedError: task.sanitizedError,
       summary: task.summary ? {

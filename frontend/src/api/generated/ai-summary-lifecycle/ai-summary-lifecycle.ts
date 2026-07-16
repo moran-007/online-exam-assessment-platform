@@ -89,6 +89,8 @@ export const aiSummaryLifecycleDetail = async (id: string, options?: RequestInit
 
   }
 );}
+
+
 export type aiSummaryLifecycleUpdateResponse200 = {
   data: AiSummaryLifecycleUpdate200
   status: 200
@@ -641,3 +643,5 @@ export const aiSummaryLifecyclePublishedFor = async ( options?: RequestInit): Pr
 
   }
 );}
+
+

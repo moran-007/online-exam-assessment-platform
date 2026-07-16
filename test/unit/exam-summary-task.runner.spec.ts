@@ -70,6 +70,24 @@ describe('ExamSummaryTaskRunner', () => {
     }));
   });
 
+  it('records reported usage carried by an empty-content provider error', async () => {
+    const fixture = dependencies();
+    fixture.gateway.complete.mockRejectedValue(new AiProviderCallException(
+      'AI 服务未返回文本内容',
+      false,
+      { promptTokens: 80, completionTokens: 1000, totalTokens: 1080, reported: true },
+    ));
+
+    await fixture.runner.run(fixture.task.id);
+
+    expect(fixture.tokenUsage.record).toHaveBeenCalledWith(expect.objectContaining({
+      usage: { promptTokens: 80, completionTokens: 1000, totalTokens: 1080, reported: true },
+    }));
+    expect(fixture.prisma.aiSummaryTask.update).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ inputTokens: 80, outputTokens: 1000 }),
+    }));
+  });
+
   function dependencies() {
     const task = taskFixture();
     const prisma = {

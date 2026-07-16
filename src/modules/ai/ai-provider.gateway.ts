@@ -13,14 +13,21 @@ type AiCompletionRequest = {
   timeoutMs: number;
   allowEmptyContent?: boolean;
   responseFormat?: AiResponseFormat;
+  thinking?: AiThinkingMode;
 };
+
+export type AiThinkingMode = 'enabled' | 'disabled';
 
 export type AiResponseFormat =
   | { type: 'json_object' }
   | { type: 'json_schema'; json_schema: { name: string; strict: true; schema: unknown } };
 
 export class AiProviderCallException extends BadGatewayException {
-  constructor(message: string, readonly usageMayBeUnreported: boolean) {
+  constructor(
+    message: string,
+    readonly usageMayBeUnreported: boolean,
+    readonly usage?: AiCompletionResult['usage'],
+  ) {
     super(message);
   }
 }
@@ -78,6 +85,7 @@ export class AiProviderGateway {
           ],
           max_tokens: request.maxTokens,
           stream: false,
+          ...(request.thinking ? { thinking: { type: request.thinking } } : {}),
           ...(request.responseFormat ? { response_format: request.responseFormat } : {}),
         }),
         redirect: 'error',
@@ -90,8 +98,10 @@ export class AiProviderGateway {
       const first = this.record(choices[0]);
       const message = this.record(first.message);
       const content = typeof message.content === 'string' ? message.content.trim() : '';
-      if (!content && !request.allowEmptyContent) throw new BadGatewayException('AI 服务未返回文本内容');
       const usage = this.usage(this.record(body.usage));
+      if (!content && !request.allowEmptyContent) {
+        throw new AiProviderCallException('AI 服务未返回文本内容', !usage.reported, usage);
+      }
       return {
         content,
         usage,

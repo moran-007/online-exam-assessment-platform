@@ -7,6 +7,7 @@ import { AuditService } from '../audit/audit.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { AiProviderGateway } from './ai-provider.gateway';
 import { AiProviderConfigAccessService } from './ai-provider-config-access.service';
+import { thinkingModeFor } from './ai-provider-request.policy';
 import { AI_PROVIDER_PRESETS } from './ai-provider.presets';
 import { AiTokenQuota, AiTokenUsageService } from './ai-token-usage.service';
 import { CreateAiProviderConfigDto, UpdateAiProviderConfigDto } from './dto/ai.dto';
@@ -120,6 +121,7 @@ export class AiConfigUseCases {
         maxTokens: requestedOutputTokens,
         timeoutMs: config.timeoutMs,
         allowEmptyContent: true,
+        thinking: thinkingModeFor(config.provider),
       });
       const tokenQuota = await this.tokenUsage.record({
         config, operation: 'connection_test', requestedOutputTokens, usage: result.usage, userId: user.id,

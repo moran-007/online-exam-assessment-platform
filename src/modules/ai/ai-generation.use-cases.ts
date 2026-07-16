@@ -5,6 +5,7 @@ import { MetricsService } from '../../observability/metrics.service';
 import { CredentialCipherService } from '../../security/credential-cipher.service';
 import { AuditService } from '../audit/audit.service';
 import { AiProviderConfigAccessService } from './ai-provider-config-access.service';
+import { thinkingModeFor } from './ai-provider-request.policy';
 import { AiProviderGateway } from './ai-provider.gateway';
 import { AiTokenUsageService } from './ai-token-usage.service';
 import { GenerateAiSummaryDto } from './dto/ai.dto';
@@ -35,6 +36,7 @@ export class AiGenerationUseCases {
         userPrompt: `${dto.instruction?.trim() || '请提炼关键事实、风险和下一步建议。'}\n\n待总结内容：\n${dto.content}`,
         maxTokens: requestedOutputTokens,
         timeoutMs: config.timeoutMs,
+        thinking: thinkingModeFor(config.provider),
       });
     } catch (error) {
       this.recordMetric(config, 'failed', Date.now() - startedAt);

@@ -35,6 +35,7 @@ export function useExamAiSummaryDialog() {
   const examId = ref('');
   const examName = ref('');
   const selectedConfigId = ref('');
+  const requestedMaxTokens = ref(1200);
   const preview = ref<ExamSummaryDatasetPreview | null>(null);
   const configs = ref<AiProviderConfig[]>([]);
   const history = ref<AiSummaryLifecycleRecord[]>([]);
@@ -78,11 +79,15 @@ export function useExamAiSummaryDialog() {
   }
 
   async function generate() {
+    if (lastTask.value?.status === 'failed' && !await confirm(
+      '上一次调用失败。再次尝试会产生新的模型请求和 Token 用量，是否继续？',
+      '确认再次调用模型',
+    )) return;
     await execute('生成考试总结', async () => {
       lastTask.value = await createExamSummary({
         examId: examId.value,
         configId: selectedConfigId.value || undefined,
-        maxTokens: 1000,
+        maxTokens: requestedMaxTokens.value,
       });
       if (lastTask.value.summary) await refresh(lastTask.value.summary.id);
       if (lastTask.value.status === 'failed') throw new Error(lastTask.value.sanitizedError || '模型生成失败');
@@ -137,7 +142,7 @@ export function useExamAiSummaryDialog() {
     await execute('重新生成', async () => {
       lastTask.value = await regenerateExamSummary(active.value!.id, {
         configId: selectedConfigId.value || undefined,
-        maxTokens: 1000,
+        maxTokens: requestedMaxTokens.value,
       });
       if (lastTask.value.summary) await refresh(lastTask.value.summary.id);
       if (lastTask.value.status === 'failed') throw new Error(lastTask.value.sanitizedError || '重新生成失败');
@@ -171,7 +176,7 @@ export function useExamAiSummaryDialog() {
   return {
     active, canEdit, canPublish, canReview, canRevoke, editor, enabledConfigs, examName,
     generate, history, lastTask, loading, open, preview, publish, regenerate, review, revoke,
-    save, selectSummary, selectedConfigId, visible, working,
+    requestedMaxTokens, save, selectSummary, selectedConfigId, visible, working,
   };
 }
 

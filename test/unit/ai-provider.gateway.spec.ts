@@ -44,12 +44,13 @@ describe('AiProviderGateway', () => {
 
     const result = await gateway.complete({
       baseUrl: 'https://api.example.com/v1/', apiKey: 'secret-key', model: 'model-a',
-      systemPrompt: 'system', userPrompt: 'content', maxTokens: 8, timeoutMs: 3000,
+      systemPrompt: 'system', userPrompt: 'content', maxTokens: 8, timeoutMs: 3000, thinking: 'disabled',
     });
     expect(result.content).toBe('简短总结');
     expect(result.usage).toMatchObject({ totalTokens: 13, reported: true });
     const [, options] = (global.fetch as jest.Mock).mock.calls[0];
     expect(options.body).toContain('"max_tokens":8');
+    expect(options.body).toContain('"thinking":{"type":"disabled"}');
     expect(options.headers.Authorization).toBe('Bearer secret-key');
   });
 
@@ -98,5 +99,21 @@ describe('AiProviderGateway', () => {
     };
     await expect(gateway.complete(request)).rejects.toThrow('未返回文本内容');
     await expect(gateway.complete({ ...request, allowEmptyContent: true })).resolves.toMatchObject({ content: '' });
+  });
+
+  it('preserves reported usage when a successful provider response has empty content', async () => {
+    global.fetch = jest.fn().mockResolvedValue(new Response(JSON.stringify({
+      choices: [{ message: { content: '', reasoning_content: 'thinking only' } }],
+      usage: { prompt_tokens: 80, completion_tokens: 1000, total_tokens: 1080 },
+    }), { status: 200 }));
+    const request = {
+      baseUrl: 'https://api.example.com/v1', apiKey: 'secret-key', model: 'model-a',
+      systemPrompt: 'system', userPrompt: 'content', maxTokens: 1000, timeoutMs: 3000,
+    };
+    await expect(gateway.complete(request)).rejects.toMatchObject({
+      message: 'AI 服务未返回文本内容',
+      usageMayBeUnreported: false,
+      usage: { promptTokens: 80, completionTokens: 1000, totalTokens: 1080, reported: true },
+    });
   });
 });

@@ -83,6 +83,7 @@
       "AddWrongQuestionDto": {
         "properties": {
           "answer": {
+            "additionalProperties": true,
             "type": "object"
           },
           "questionId": {
@@ -721,6 +722,18 @@
           "outputTokens": {
             "type": "number"
           },
+          "reported": {
+            "description": "null 表示本次未形成用量记录",
+            "nullable": true,
+            "type": "boolean"
+          },
+          "requestedOutputTokens": {
+            "type": "number"
+          },
+          "reservedTokens": {
+            "description": "未报告用量时按请求上限保守预留的 Token",
+            "type": "number"
+          },
           "tokenQuota": {
             "$ref": "#/components/schemas/AiTokenQuotaDto"
           }
@@ -728,6 +741,9 @@
         "required": [
           "inputTokens",
           "outputTokens",
+          "requestedOutputTokens",
+          "reported",
+          "reservedTokens",
           "tokenQuota"
         ],
         "type": "object"
@@ -788,6 +804,10 @@
             "nullable": true,
             "type": "number"
           },
+          "reservedTokens": {
+            "description": "供应商未报告用量时，按请求输出上限保守预留的 Token",
+            "type": "number"
+          },
           "unreportedCalls": {
             "type": "number"
           },
@@ -803,6 +823,7 @@
           "periodEnd",
           "budgetTokens",
           "usedTokens",
+          "reservedTokens",
           "remainingTokens",
           "unreportedCalls",
           "usageComplete",
@@ -1123,6 +1144,7 @@
             "type": "string"
           },
           "judgeConfig": {
+            "additionalProperties": true,
             "type": "object"
           },
           "judgeProvider": {
@@ -1254,6 +1276,7 @@
             "type": "array"
           },
           "extra": {
+            "additionalProperties": true,
             "type": "object"
           },
           "selectedOptionIds": {
@@ -1440,6 +1463,7 @@
             "type": "string"
           },
           "antiCheatConfig": {
+            "additionalProperties": true,
             "type": "object"
           },
           "attemptLimit": {
@@ -1500,8 +1524,8 @@
             "type": "string"
           },
           "maxTokens": {
-            "default": 1000,
-            "maximum": 1200,
+            "default": 1200,
+            "maximum": 2000,
             "minimum": 100,
             "type": "number"
           }
@@ -1735,6 +1759,7 @@
             "type": "string"
           },
           "answer": {
+            "additionalProperties": true,
             "type": "object"
           },
           "children": {
@@ -1744,6 +1769,7 @@
             "type": "array"
           },
           "comparable": {
+            "additionalProperties": true,
             "type": "object"
           },
           "content": {
@@ -1802,6 +1828,7 @@
             "type": "object"
           },
           "scoringRule": {
+            "additionalProperties": true,
             "type": "object"
           },
           "tagIds": {
@@ -2427,6 +2454,7 @@
             "type": "string"
           },
           "answer": {
+            "additionalProperties": true,
             "type": "object"
           },
           "content": {
@@ -2457,6 +2485,7 @@
             "type": "number"
           },
           "scoringRule": {
+            "additionalProperties": true,
             "type": "object"
           },
           "sortOrder": {
@@ -2694,6 +2723,7 @@
             "type": "string"
           },
           "judgeConfig": {
+            "additionalProperties": true,
             "type": "object"
           },
           "judgeProvider": {
@@ -2871,6 +2901,7 @@
       "RecordWrongQuestionPracticeDto": {
         "properties": {
           "answer": {
+            "additionalProperties": true,
             "type": "object"
           },
           "isCorrect": {
@@ -2907,8 +2938,8 @@
             "type": "string"
           },
           "maxTokens": {
-            "default": 1000,
-            "maximum": 1200,
+            "default": 1200,
+            "maximum": 2000,
             "minimum": 100,
             "type": "number"
           }
@@ -2962,6 +2993,7 @@
             "type": "string"
           },
           "masteryRule": {
+            "additionalProperties": true,
             "type": "object"
           }
         },
@@ -2992,6 +3024,7 @@
       "SaveAnswerDto": {
         "properties": {
           "answer": {
+            "additionalProperties": true,
             "type": "object"
           },
           "questionId": {
@@ -3551,6 +3584,7 @@
             "type": "string"
           },
           "antiCheatConfig": {
+            "additionalProperties": true,
             "type": "object"
           },
           "attemptLimit": {
@@ -3826,6 +3860,7 @@
             "type": "string"
           },
           "answer": {
+            "additionalProperties": true,
             "type": "object"
           },
           "children": {
@@ -3835,6 +3870,7 @@
             "type": "array"
           },
           "comparable": {
+            "additionalProperties": true,
             "type": "object"
           },
           "content": {
@@ -3893,6 +3929,7 @@
             "type": "object"
           },
           "scoringRule": {
+            "additionalProperties": true,
             "type": "object"
           },
           "status": {
@@ -3950,6 +3987,7 @@
             "type": "string"
           },
           "masteryRule": {
+            "additionalProperties": true,
             "type": "object"
           }
         },
@@ -4034,6 +4072,7 @@
             "type": "number"
           },
           "result": {
+            "additionalProperties": true,
             "type": "object"
           },
           "score": {

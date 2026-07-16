@@ -1,6 +1,11 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { IsInt, IsOptional, IsUUID, Max, Min } from 'class-validator';
 import { AiTokenQuotaDto } from './ai.dto';
+import {
+  DEFAULT_EXAM_SUMMARY_OUTPUT_TOKENS,
+  MAX_EXAM_SUMMARY_OUTPUT_TOKENS,
+  MIN_EXAM_SUMMARY_OUTPUT_TOKENS,
+} from '../ai-summary-limits';
 
 export class CreateExamSummaryTaskDto {
   @ApiProperty({ format: 'uuid' })
@@ -11,8 +16,12 @@ export class CreateExamSummaryTaskDto {
   @IsOptional() @IsUUID()
   configId?: string;
 
-  @ApiPropertyOptional({ default: 1000, minimum: 100, maximum: 1200 })
-  @IsOptional() @IsInt() @Min(100) @Max(1200)
+  @ApiPropertyOptional({
+    default: DEFAULT_EXAM_SUMMARY_OUTPUT_TOKENS,
+    minimum: MIN_EXAM_SUMMARY_OUTPUT_TOKENS,
+    maximum: MAX_EXAM_SUMMARY_OUTPUT_TOKENS,
+  })
+  @IsOptional() @IsInt() @Min(MIN_EXAM_SUMMARY_OUTPUT_TOKENS) @Max(MAX_EXAM_SUMMARY_OUTPUT_TOKENS)
   maxTokens?: number;
 }
 
@@ -109,6 +118,9 @@ export class AiSummaryTaskModelDto {
 export class AiSummaryTaskUsageDto {
   @ApiProperty() inputTokens: number;
   @ApiProperty() outputTokens: number;
+  @ApiProperty() requestedOutputTokens: number;
+  @ApiProperty({ nullable: true, description: 'null 表示本次未形成用量记录' }) reported: boolean | null;
+  @ApiProperty({ description: '未报告用量时按请求上限保守预留的 Token' }) reservedTokens: number;
   @ApiProperty({ type: () => AiTokenQuotaDto }) tokenQuota: AiTokenQuotaDto;
 }
 

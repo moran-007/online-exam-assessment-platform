@@ -11,7 +11,7 @@ export interface RegenerateAiSummaryDto {
   configId?: string;
   /**
      * @minimum 100
-     * @maximum 1200
+     * @maximum 2000
      */
   maxTokens?: number;
 }

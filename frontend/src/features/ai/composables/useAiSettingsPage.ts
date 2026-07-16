@@ -168,8 +168,9 @@ export function useAiSettingsPage() {
 
 export function formatTokenQuota(quota: AiTokenQuotaDto) {
   const gap = quota.usageComplete ? '' : `，${quota.unreportedCalls} 次用量未报告`;
-  if (quota.remainingTokens === null) return `已用 ${quota.usedTokens}，余额未配置${gap}`;
-  return `已用 ${quota.usedTokens}，剩余 ${quota.remainingTokens}${gap}`;
+  const reserved = quota.reservedTokens ? `，保守预留 ${quota.reservedTokens}` : '';
+  if (quota.remainingTokens === null) return `已用 ${quota.usedTokens}${reserved}，余额未配置${gap}`;
+  return `已用 ${quota.usedTokens}${reserved}，剩余 ${quota.remainingTokens}${gap}`;
 }
 
 function message(error: unknown, fallback: string) { return error instanceof Error ? error.message : fallback; }

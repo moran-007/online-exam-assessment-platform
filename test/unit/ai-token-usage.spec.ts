@@ -17,6 +17,7 @@ describe('AiTokenUsageService', () => {
     await expect(service.quota(config)).resolves.toMatchObject({
       budgetTokens: 1000,
       usedTokens: 320,
+      reservedTokens: 0,
       remainingTokens: 680,
       unreportedCalls: 0,
       usageComplete: true,
@@ -75,16 +76,17 @@ describe('AiTokenUsageService', () => {
     expect(metrics.recordAiBudgetDecision).toHaveBeenCalledWith(config.id, 'rejected');
   });
 
-  it('marks quota incomplete when a provider omitted usage', async () => {
+  it('reserves the requested ceiling when a provider omitted usage and keeps safe capacity usable', async () => {
     const service = new AiTokenUsageService({
       aiUsageEvent: { groupBy: jest.fn().mockResolvedValue([{
         providerConfigId: config.id, usageReported: false,
-        _sum: { totalTokens: 0 }, _count: { _all: 2 },
+        _sum: { totalTokens: 0, requestedOutputTokens: 400 }, _count: { _all: 2 },
       }]) },
     } as never, metrics as never);
     await expect(service.quota(config)).resolves.toMatchObject({
-      usedTokens: 0, remainingTokens: 1000, unreportedCalls: 2, usageComplete: false,
+      usedTokens: 0, reservedTokens: 400, remainingTokens: 600, unreportedCalls: 2, usageComplete: false,
     });
-    await expect(service.authorize(config, 1)).rejects.toThrow('无法可靠执行');
+    await expect(service.authorize(config, 600)).resolves.toMatchObject({ remainingTokens: 600 });
+    await expect(service.authorize(config, 601)).rejects.toThrow('预算不足');
   });
 });

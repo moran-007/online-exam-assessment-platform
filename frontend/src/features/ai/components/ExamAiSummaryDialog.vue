@@ -26,13 +26,26 @@
             :value="config.id"
           />
         </el-select>
-        <el-button type="primary" :loading="working" @click="generate">生成/复用草稿</el-button>
+        <span class="muted">输出上限</span>
+        <el-input-number v-model="requestedMaxTokens" :min="400" :max="2000" :step="100" style="width: 140px" />
+        <span class="muted">Token（还受模型配置上限约束）</span>
+        <el-button type="primary" :loading="working" @click="generate">
+          {{ lastTask?.status === 'failed' ? '再次生成（会调用模型）' : '生成/复用草稿' }}
+        </el-button>
         <el-button :disabled="!active" :loading="working" @click="regenerate">重新生成</el-button>
         <span v-if="lastTask" class="muted">
-          {{ lastTask.cacheHit ? '缓存命中' : '模型调用' }} · 输入 {{ lastTask.usage.inputTokens }} / 输出 {{ lastTask.usage.outputTokens }} Token
+          {{ lastTask.cacheHit ? '缓存命中' : '模型调用' }} · {{ usageLabel(lastTask) }}
           · 剩余 {{ quota(lastTask) }}
         </span>
       </div>
+      <el-alert
+        v-if="lastTask?.status === 'failed'"
+        :title="`最近一次模型调用失败：${lastTask.sanitizedError || '未知错误'}`"
+        :description="usageDescription(lastTask)"
+        type="error"
+        show-icon
+        :closable="false"
+      />
 
       <div class="exam-ai-workspace">
         <aside class="exam-ai-history">
@@ -104,7 +117,7 @@ const state = useExamAiSummaryDialog();
 const {
   active, canEdit, canPublish, canReview, canRevoke, editor, enabledConfigs, examName,
   generate, history, lastTask, loading, open, preview, publish, regenerate, review, revoke,
-  save, selectSummary, selectedConfigId, visible, working,
+  requestedMaxTokens, save, selectSummary, selectedConfigId, visible, working,
 } = state;
 
 defineExpose({ open });
@@ -128,6 +141,19 @@ function evidenceValue(value: unknown, unit?: string | null) {
 function quota(task: ExamSummaryTask) {
   const value = task.usage.tokenQuota.remainingTokens;
   return value === null ? '未配置' : `${value} Token`;
+}
+
+function usageLabel(task: ExamSummaryTask) {
+  if (task.usage.reported === false) return `用量未报告 / 已预留 ${task.usage.reservedTokens} Token`;
+  if (task.usage.reported === null) return '未发起或未记录模型用量';
+  return `输入 ${task.usage.inputTokens} / 输出 ${task.usage.outputTokens} Token`;
+}
+
+function usageDescription(task: ExamSummaryTask) {
+  if (task.usage.reported === false) {
+    return `供应商未返回准确 Token 用量，系统已按本次请求上限保守预留 ${task.usage.reservedTokens} Token。`;
+  }
+  return task.usage.reported === null ? '本次失败发生在模型用量形成之前，没有新增 Token 记录。' : '';
 }
 </script>
 

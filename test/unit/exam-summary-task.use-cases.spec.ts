@@ -17,10 +17,7 @@ describe('ExamSummaryTaskUseCases', () => {
 
   it('returns a successful idempotent task without calling the model again', async () => {
     const existing = task(AiSummaryTaskStatus.SUCCEEDED);
-    const prisma = {
-      aiSummaryPromptTemplate: { findFirst: jest.fn().mockResolvedValue(template) },
-      aiSummaryTask: { findFirst: jest.fn().mockResolvedValue(existing), create: jest.fn() },
-    };
+    const prisma = database(existing);
     const runner = { run: jest.fn() };
     const service = new ExamSummaryTaskUseCases(
       prisma as never,
@@ -42,10 +39,7 @@ describe('ExamSummaryTaskUseCases', () => {
   it('retries the same failed task instead of creating a duplicate', async () => {
     const failed = task(AiSummaryTaskStatus.FAILED);
     const succeeded = task(AiSummaryTaskStatus.SUCCEEDED);
-    const prisma = {
-      aiSummaryPromptTemplate: { findFirst: jest.fn().mockResolvedValue(template) },
-      aiSummaryTask: { findFirst: jest.fn().mockResolvedValue(failed), create: jest.fn() },
-    };
+    const prisma = database(failed);
     const runner = { run: jest.fn().mockResolvedValue(succeeded) };
     const service = new ExamSummaryTaskUseCases(
       prisma as never,
@@ -71,10 +65,23 @@ describe('ExamSummaryTaskUseCases', () => {
       inputHash: 'hash', datasetVersion: 'exam-summary/v1', promptVersion: 1,
       schemaVersion: 'exam-summary-output/v1', providerConfigId: config.id,
       modelSnapshot: config.model, status, attemptCount: 1, inputTokens: 10, outputTokens: 10,
+      requestedOutputTokens: 1000, correlationId: '00000000-0000-0000-0000-000000000007',
       sanitizedError: null, providerConfig: config, promptTemplate: template,
       summary: {
         id: '00000000-0000-0000-0000-000000000006', reviewStatus: 'DRAFT',
         draftVersion: 1, summaryJson: { schemaVersion: 'exam-summary-output/v1' },
+      },
+    };
+  }
+
+  function database(existing: ReturnType<typeof task>) {
+    return {
+      aiSummaryPromptTemplate: { findFirst: jest.fn().mockResolvedValue(template) },
+      aiSummaryTask: { findFirst: jest.fn().mockResolvedValue(existing), create: jest.fn() },
+      aiUsageEvent: {
+        findFirst: jest.fn().mockResolvedValue({
+          requestedOutputTokens: 1000, totalTokens: 20, usageReported: true,
+        }),
       },
     };
   }

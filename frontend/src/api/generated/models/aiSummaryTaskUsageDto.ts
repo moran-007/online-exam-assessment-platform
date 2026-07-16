@@ -10,5 +10,13 @@ import type { AiTokenQuotaDto } from './aiTokenQuotaDto';
 export interface AiSummaryTaskUsageDto {
   inputTokens: number;
   outputTokens: number;
+  /**
+     * null 表示本次未形成用量记录
+     * @nullable
+     */
+  reported: boolean | null;
+  requestedOutputTokens: number;
+  /** 未报告用量时按请求上限保守预留的 Token */
+  reservedTokens: number;
   tokenQuota: AiTokenQuotaDto;
 }

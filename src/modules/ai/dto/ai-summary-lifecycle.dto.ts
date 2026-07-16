@@ -1,6 +1,11 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { IsInt, IsObject, IsOptional, IsUUID, Max, Min } from 'class-validator';
 import { AiEvidenceRefDto } from './ai-summary.dto';
+import {
+  DEFAULT_EXAM_SUMMARY_OUTPUT_TOKENS,
+  MAX_EXAM_SUMMARY_OUTPUT_TOKENS,
+  MIN_EXAM_SUMMARY_OUTPUT_TOKENS,
+} from '../ai-summary-limits';
 
 export class UpdateAiSummaryDraftDto {
   @ApiProperty({ type: 'object', additionalProperties: true })
@@ -13,8 +18,13 @@ export class RegenerateAiSummaryDto {
   @IsOptional() @IsUUID()
   configId?: string;
 
-  @ApiProperty({ required: false, default: 1000, minimum: 100, maximum: 1200 })
-  @IsOptional() @IsInt() @Min(100) @Max(1200)
+  @ApiProperty({
+    required: false,
+    default: DEFAULT_EXAM_SUMMARY_OUTPUT_TOKENS,
+    minimum: MIN_EXAM_SUMMARY_OUTPUT_TOKENS,
+    maximum: MAX_EXAM_SUMMARY_OUTPUT_TOKENS,
+  })
+  @IsOptional() @IsInt() @Min(MIN_EXAM_SUMMARY_OUTPUT_TOKENS) @Max(MAX_EXAM_SUMMARY_OUTPUT_TOKENS)
   maxTokens?: number;
 }
 

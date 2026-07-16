@@ -5,6 +5,7 @@ import { CredentialCipherService } from '../../security/credential-cipher.servic
 import { PrismaService } from '../prisma/prisma.service';
 import { AiProviderCapabilityRegistry } from './ai-provider-capability.registry';
 import { AiProviderCallException, AiProviderGateway } from './ai-provider.gateway';
+import { thinkingModeFor } from './ai-provider-request.policy';
 import { AiTokenUsage, AiTokenUsageService } from './ai-token-usage.service';
 import { assertSummaryDataset } from './datasets/dataset-validator';
 import type { ExamSummaryDataset } from './datasets/summary-dataset';
@@ -15,6 +16,7 @@ import {
   responseFormatFor,
 } from './exam-summary-prompt';
 import { SummaryOutputValidationError, SummaryOutputValidator } from './schemas/summary-output.validator';
+import { MAX_EXAM_SUMMARY_OUTPUT_TOKENS } from './ai-summary-limits';
 
 const STALE_AFTER_MS = 5 * 60 * 1000;
 
@@ -63,8 +65,8 @@ export class ExamSummaryTaskRunner {
       authorizedOutputTokens = Math.min(
         task.requestedOutputTokens,
         task.providerConfig.maxTokens,
-        capability.maxOutputTokens ?? 1200,
-        1200,
+        capability.maxOutputTokens ?? MAX_EXAM_SUMMARY_OUTPUT_TOKENS,
+        MAX_EXAM_SUMMARY_OUTPUT_TOKENS,
       );
       await this.tokenUsage.authorize(task.providerConfig, authorizedOutputTokens);
       const result = await this.gateway.complete({
@@ -76,6 +78,7 @@ export class ExamSummaryTaskRunner {
         maxTokens: authorizedOutputTokens,
         timeoutMs: task.providerConfig.timeoutMs,
         responseFormat: responseFormatFor(capability, task.promptTemplate.outputSchema),
+        thinking: thinkingModeFor(task.providerConfig.provider),
       });
       usage = result.usage;
       await this.recordUsage(task, authorizedOutputTokens, usage);
@@ -105,7 +108,9 @@ export class ExamSummaryTaskRunner {
       ]);
       this.metric(task, 'succeeded', startedAt, usage);
     } catch (error) {
-      if (!usageRecorded && error instanceof AiProviderCallException && error.usageMayBeUnreported) {
+      if (error instanceof AiProviderCallException && error.usage) usage = error.usage;
+      if (!usageRecorded && error instanceof AiProviderCallException
+        && (error.usageMayBeUnreported || Boolean(error.usage))) {
         await this.recordUsage(task, authorizedOutputTokens, usage).catch(() => undefined);
       }
       await this.prisma.aiSummaryTask.update({

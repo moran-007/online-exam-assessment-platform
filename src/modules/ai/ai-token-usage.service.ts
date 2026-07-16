@@ -20,6 +20,7 @@ export type AiTokenQuota = {
   periodEnd: Date;
   budgetTokens: number | null;
   usedTokens: number;
+  reservedTokens: number;
   remainingTokens: number | null;
   unreportedCalls: number;
   usageComplete: boolean;
@@ -50,18 +51,23 @@ export class AiTokenUsageService {
         providerConfigId: { in: configs.map((config) => config.id) },
         createdAt: { gte: period.start, lt: period.end },
       },
-      _sum: { totalTokens: true },
+      _sum: { totalTokens: true, requestedOutputTokens: true },
       _count: { _all: true },
     }) : [];
-    const usageByConfig = new Map<string, { usedTokens: number; unreportedCalls: number }>();
+    const usageByConfig = new Map<string, { usedTokens: number; reservedTokens: number; unreportedCalls: number }>();
     for (const row of rows) {
-      const usage = usageByConfig.get(row.providerConfigId) ?? { usedTokens: 0, unreportedCalls: 0 };
-      usage.usedTokens += row._sum.totalTokens ?? 0;
-      if (!row.usageReported) usage.unreportedCalls += row._count._all;
+      const usage = usageByConfig.get(row.providerConfigId)
+        ?? { usedTokens: 0, reservedTokens: 0, unreportedCalls: 0 };
+      if (row.usageReported) {
+        usage.usedTokens += row._sum.totalTokens ?? 0;
+      } else {
+        usage.reservedTokens += Math.max(row._sum.requestedOutputTokens ?? 0, row._sum.totalTokens ?? 0);
+        usage.unreportedCalls += row._count._all;
+      }
       usageByConfig.set(row.providerConfigId, usage);
     }
     return new Map(configs.map((config) => {
-      const usage = usageByConfig.get(config.id) ?? { usedTokens: 0, unreportedCalls: 0 };
+      const usage = usageByConfig.get(config.id) ?? { usedTokens: 0, reservedTokens: 0, unreportedCalls: 0 };
       return [config.id, this.toQuota(config, usage, period)];
     }));
   }
@@ -73,12 +79,8 @@ export class AiTokenUsageService {
 
   async authorize(config: BudgetConfig, requestedOutputTokens: number) {
     const quota = await this.quota(config);
-    const allowed = quota.remainingTokens === null
-      || (quota.usageComplete && quota.remainingTokens >= requestedOutputTokens);
+    const allowed = quota.remainingTokens === null || quota.remainingTokens >= requestedOutputTokens;
     this.metrics.recordAiBudgetDecision(config.id, allowed ? 'accepted' : 'rejected');
-    if (!allowed && !quota.usageComplete) {
-      throw new BadRequestException('供应商存在未报告的 Token 用量，无法可靠执行本地预算限制');
-    }
     if (!allowed) throw new BadRequestException('本地月度 Token 预算不足，请调整预算或等待下个周期');
     return quota;
   }
@@ -108,16 +110,18 @@ export class AiTokenUsageService {
 
   private toQuota(
     config: BudgetConfig,
-    usage: { usedTokens: number; unreportedCalls: number },
+    usage: { usedTokens: number; reservedTokens: number; unreportedCalls: number },
     period: ReturnType<AiTokenUsageService['currentPeriod']>,
   ) {
     const budget = config.monthlyTokenBudget;
+    const accountedTokens = usage.usedTokens + usage.reservedTokens;
     return {
       periodStart: period.start,
       periodEnd: period.end,
       budgetTokens: budget,
       usedTokens: usage.usedTokens,
-      remainingTokens: budget === null ? null : Math.max(0, budget - usage.usedTokens),
+      reservedTokens: usage.reservedTokens,
+      remainingTokens: budget === null ? null : Math.max(0, budget - accountedTokens),
       unreportedCalls: usage.unreportedCalls,
       usageComplete: usage.unreportedCalls === 0,
       balanceSource: budget === null ? 'not-configured' as const : 'local-monthly-budget' as const,

@@ -15,6 +15,8 @@ export interface AiTokenQuotaDto {
   periodStart: string;
   /** @nullable */
   remainingTokens: number | null;
+  /** 供应商未报告用量时，按请求输出上限保守预留的 Token */
+  reservedTokens: number;
   unreportedCalls: number;
   usageComplete: boolean;
   usedTokens: number;
