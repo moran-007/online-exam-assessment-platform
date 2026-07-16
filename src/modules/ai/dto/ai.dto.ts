@@ -34,9 +34,13 @@ export class CreateAiProviderConfigDto {
   @IsOptional() @IsInt() @Min(3000) @Max(120000)
   timeoutMs?: number;
 
-  @ApiPropertyOptional({ default: 800, minimum: 1, maximum: 8192 })
+  @ApiPropertyOptional({ default: 1000, minimum: 1, maximum: 8192 })
   @IsOptional() @IsInt() @Min(1) @Max(8192)
   maxTokens?: number;
+
+  @ApiPropertyOptional({ description: '本地月度 Token 预算；不等同于供应商账户余额', minimum: 1000 })
+  @IsOptional() @IsInt() @Min(1000)
+  monthlyTokenBudget?: number;
 }
 
 export class UpdateAiProviderConfigDto {
@@ -58,6 +62,8 @@ export class UpdateAiProviderConfigDto {
   timeoutMs?: number;
   @ApiPropertyOptional() @IsOptional() @IsInt() @Min(1) @Max(8192)
   maxTokens?: number;
+  @ApiPropertyOptional({ nullable: true, minimum: 1000 }) @IsOptional() @IsInt() @Min(1000)
+  monthlyTokenBudget?: number | null;
 }
 
 export class GenerateAiSummaryDto {
@@ -73,7 +79,7 @@ export class GenerateAiSummaryDto {
   @IsOptional() @IsString() @MaxLength(500)
   instruction?: string;
 
-  @ApiPropertyOptional({ minimum: 1, maximum: 1200 })
+  @ApiPropertyOptional({ default: 1000, minimum: 1, maximum: 1200 })
   @IsOptional() @IsInt() @Min(1) @Max(1200)
   maxTokens?: number;
 }
@@ -87,6 +93,25 @@ export class AiProviderPresetDto {
   @ApiProperty() note: string;
 }
 
+export class AiUsageDto {
+  @ApiProperty() promptTokens: number;
+  @ApiProperty() completionTokens: number;
+  @ApiProperty() totalTokens: number;
+  @ApiProperty() reported: boolean;
+}
+
+export class AiTokenQuotaDto {
+  @ApiProperty({ type: String, format: 'date-time' }) periodStart: Date;
+  @ApiProperty({ type: String, format: 'date-time' }) periodEnd: Date;
+  @ApiProperty({ nullable: true }) budgetTokens: number | null;
+  @ApiProperty() usedTokens: number;
+  @ApiProperty({ nullable: true }) remainingTokens: number | null;
+  @ApiProperty() unreportedCalls: number;
+  @ApiProperty() usageComplete: boolean;
+  @ApiProperty({ enum: ['local-monthly-budget', 'not-configured'] })
+  balanceSource: 'local-monthly-budget' | 'not-configured';
+}
+
 export class AiProviderConfigResponseDto {
   @ApiProperty({ format: 'uuid' }) id: string;
   @ApiProperty() name: string;
@@ -97,6 +122,8 @@ export class AiProviderConfigResponseDto {
   @ApiProperty() isDefault: boolean;
   @ApiProperty() timeoutMs: number;
   @ApiProperty() maxTokens: number;
+  @ApiProperty({ nullable: true }) monthlyTokenBudget: number | null;
+  @ApiProperty({ type: () => AiTokenQuotaDto }) tokenQuota: AiTokenQuotaDto;
   @ApiProperty() hasApiKey: boolean;
   @ApiProperty() apiKeyMasked: string;
   @ApiProperty({ nullable: true }) lastTestStatus: string | null;
@@ -116,12 +143,8 @@ export class AiTestResultDto {
   @ApiProperty() message: string;
   @ApiProperty() reply: string;
   @ApiProperty() durationMs: number;
-}
-
-export class AiUsageDto {
-  @ApiProperty() promptTokens: number;
-  @ApiProperty() completionTokens: number;
-  @ApiProperty() totalTokens: number;
+  @ApiProperty({ type: () => AiUsageDto }) usage: AiUsageDto;
+  @ApiProperty({ type: () => AiTokenQuotaDto }) tokenQuota: AiTokenQuotaDto;
 }
 
 export class AiSummaryResultDto {
@@ -129,5 +152,6 @@ export class AiSummaryResultDto {
   @ApiProperty() provider: string;
   @ApiProperty() model: string;
   @ApiProperty({ type: () => AiUsageDto }) usage: AiUsageDto;
+  @ApiProperty({ type: () => AiTokenQuotaDto }) tokenQuota: AiTokenQuotaDto;
   @ApiProperty() durationMs: number;
 }

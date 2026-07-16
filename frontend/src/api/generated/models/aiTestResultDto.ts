@@ -5,10 +5,14 @@
  * Online exam and intelligent assessment platform API
  * OpenAPI spec version: 1.0
  */
+import type { AiTokenQuotaDto } from './aiTokenQuotaDto';
+import type { AiUsageDto } from './aiUsageDto';
 
 export interface AiTestResultDto {
   durationMs: number;
   message: string;
   reply: string;
   success: boolean;
+  tokenQuota: AiTokenQuotaDto;
+  usage: AiUsageDto;
 }

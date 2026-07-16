@@ -21,6 +21,8 @@ export * from './aiSummarize201';
 export * from './aiSummaryResultDto';
 export * from './aiTest201';
 export * from './aiTestResultDto';
+export * from './aiTokenQuotaDto';
+export * from './aiTokenQuotaDtoBalanceSource';
 export * from './aiUpdate200';
 export * from './aiUsageDto';
 export * from './apiError';

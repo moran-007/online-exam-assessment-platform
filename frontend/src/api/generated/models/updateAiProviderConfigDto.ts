@@ -20,6 +20,11 @@ export interface UpdateAiProviderConfigDto {
   maxTokens?: number;
   /** @maxLength 160 */
   model?: string;
+  /**
+     * @minimum 1000
+     * @nullable
+     */
+  monthlyTokenBudget?: number | null;
   /** @maxLength 100 */
   name?: string;
   /** @maxLength 50 */

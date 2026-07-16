@@ -16,7 +16,7 @@ type AiCompletionRequest = {
 
 type AiCompletionResult = {
   content: string;
-  usage: { promptTokens: number; completionTokens: number; totalTokens: number };
+  usage: { promptTokens: number; completionTokens: number; totalTokens: number; reported: boolean };
   durationMs: number;
 };
 
@@ -77,14 +77,10 @@ export class AiProviderGateway {
       const message = this.record(first.message);
       const content = typeof message.content === 'string' ? message.content.trim() : '';
       if (!content && !request.allowEmptyContent) throw new BadGatewayException('AI 服务未返回文本内容');
-      const usage = this.record(body.usage);
+      const usage = this.usage(this.record(body.usage));
       return {
         content,
-        usage: {
-          promptTokens: Number(usage.prompt_tokens ?? 0),
-          completionTokens: Number(usage.completion_tokens ?? 0),
-          totalTokens: Number(usage.total_tokens ?? 0),
-        },
+        usage,
         durationMs: Date.now() - startedAt,
       };
     } catch (error) {
@@ -132,6 +128,25 @@ export class AiProviderGateway {
 
   private record(value: unknown): Record<string, unknown> {
     return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
+  }
+
+  private usage(value: Record<string, unknown>) {
+    const promptTokens = this.tokenCount(value.prompt_tokens);
+    const completionTokens = this.tokenCount(value.completion_tokens);
+    const totalTokens = Math.max(this.tokenCount(value.total_tokens), promptTokens + completionTokens);
+    const reported = this.validTokenCount(value.total_tokens)
+      || (this.validTokenCount(value.prompt_tokens) && this.validTokenCount(value.completion_tokens));
+    return { promptTokens, completionTokens, totalTokens, reported };
+  }
+
+  private tokenCount(value: unknown) {
+    const parsed = Number(value);
+    return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : 0;
+  }
+
+  private validTokenCount(value: unknown) {
+    const parsed = Number(value);
+    return value !== undefined && value !== null && Number.isSafeInteger(parsed) && parsed >= 0;
   }
 
   private isBlockedHostname(hostname: string) {

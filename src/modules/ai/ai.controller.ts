@@ -4,6 +4,7 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { RequestUser } from '../../common/interfaces/request-user.interface';
 import { AiConfigUseCases } from './ai-config.use-cases';
+import { AiGenerationUseCases } from './ai-generation.use-cases';
 import {
   AiDeleteResultDto,
   AiProviderConfigResponseDto,
@@ -20,7 +21,10 @@ import {
 @Roles('SUPER_ADMIN')
 @Controller('ai')
 export class AiController {
-  constructor(private readonly useCases: AiConfigUseCases) {}
+  constructor(
+    private readonly useCases: AiConfigUseCases,
+    private readonly generation: AiGenerationUseCases,
+  ) {}
 
   @Get('presets')
   @ApiOkResponse({ type: [AiProviderPresetDto] })
@@ -50,5 +54,7 @@ export class AiController {
 
   @Post('summary')
   @ApiCreatedResponse({ type: AiSummaryResultDto })
-  summarize(@Body() dto: GenerateAiSummaryDto, @CurrentUser() user: RequestUser) { return this.useCases.summarize(dto, user); }
+  summarize(@Body() dto: GenerateAiSummaryDto, @CurrentUser() user: RequestUser) {
+    return this.generation.summarize(dto, user);
+  }
 }

@@ -20,6 +20,11 @@ export interface CreateAiProviderConfigDto {
   maxTokens?: number;
   /** @maxLength 160 */
   model: string;
+  /**
+     * 本地月度 Token 预算；不等同于供应商账户余额
+     * @minimum 1000
+     */
+  monthlyTokenBudget?: number;
   /** @maxLength 100 */
   name: string;
   /** @maxLength 50 */

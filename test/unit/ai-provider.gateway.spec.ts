@@ -47,10 +47,33 @@ describe('AiProviderGateway', () => {
       systemPrompt: 'system', userPrompt: 'content', maxTokens: 8, timeoutMs: 3000,
     });
     expect(result.content).toBe('简短总结');
-    expect(result.usage.totalTokens).toBe(13);
+    expect(result.usage).toMatchObject({ totalTokens: 13, reported: true });
     const [, options] = (global.fetch as jest.Mock).mock.calls[0];
     expect(options.body).toContain('"max_tokens":8');
     expect(options.headers.Authorization).toBe('Bearer secret-key');
+  });
+
+  it('normalizes missing or undersized provider total token counts', async () => {
+    global.fetch = jest.fn().mockResolvedValue(new Response(JSON.stringify({
+      choices: [{ message: { content: 'OK' } }],
+      usage: { prompt_tokens: 10, completion_tokens: 3, total_tokens: 2 },
+    }), { status: 200 }));
+    await expect(gateway.complete({
+      baseUrl: 'https://api.example.com/v1', apiKey: 'secret-key', model: 'model-a',
+      systemPrompt: 'system', userPrompt: 'content', maxTokens: 8, timeoutMs: 3000,
+    })).resolves.toMatchObject({ usage: { promptTokens: 10, completionTokens: 3, totalTokens: 13 } });
+  });
+
+  it('marks token usage unreported when the provider omits it', async () => {
+    global.fetch = jest.fn().mockResolvedValue(new Response(JSON.stringify({
+      choices: [{ message: { content: 'OK' } }],
+    }), { status: 200 }));
+    await expect(gateway.complete({
+      baseUrl: 'https://api.example.com/v1', apiKey: 'secret-key', model: 'model-a',
+      systemPrompt: 'system', userPrompt: 'content', maxTokens: 8, timeoutMs: 3000,
+    })).resolves.toMatchObject({
+      usage: { promptTokens: 0, completionTokens: 0, totalTokens: 0, reported: false },
+    });
   });
 
   it('does not expose a raw provider response when parsing fails', async () => {

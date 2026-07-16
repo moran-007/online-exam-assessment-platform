@@ -9,5 +9,6 @@
 export interface AiUsageDto {
   completionTokens: number;
   promptTokens: number;
+  reported: boolean;
   totalTokens: number;
 }

@@ -12,6 +12,17 @@ type HistogramSample = MetricSample & {
   count: number;
 };
 
+export type AiSummaryMetric = {
+  summaryType: string;
+  provider: string;
+  outcome: string;
+  durationSeconds: number;
+  inputTokens?: number;
+  outputTokens?: number;
+  estimatedCost?: number;
+  cacheHit?: boolean;
+};
+
 const HTTP_BUCKETS = [0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10];
 const DATABASE_BUCKETS = [0.001, 0.003, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5];
 
@@ -50,6 +61,35 @@ export class MetricsService {
 
   recordExamOperation(operation: 'autosave' | 'submit' | 'forced_finalize' | 'conflict', outcome: string) {
     this.increment('online_exam_student_attempt_operations_total', { operation, outcome });
+  }
+
+  recordAiSummary(metric: AiSummaryMetric) {
+    const labels = {
+      summary_type: metric.summaryType,
+      provider: metric.provider,
+      outcome: metric.outcome,
+    };
+    this.increment('online_exam_ai_summary_tasks_total', labels);
+    this.observe('online_exam_ai_summary_duration_seconds', labels, metric.durationSeconds, HTTP_BUCKETS);
+    if (metric.inputTokens) {
+      this.increment('online_exam_ai_tokens_total', { ...labels, direction: 'input' }, metric.inputTokens);
+    }
+    if (metric.outputTokens) {
+      this.increment('online_exam_ai_tokens_total', { ...labels, direction: 'output' }, metric.outputTokens);
+    }
+    if (metric.estimatedCost) {
+      this.increment('online_exam_ai_estimated_cost_total', labels, metric.estimatedCost);
+    }
+    if (metric.cacheHit !== undefined) {
+      this.increment('online_exam_ai_cache_lookups_total', {
+        summary_type: metric.summaryType,
+        outcome: metric.cacheHit ? 'hit' : 'miss',
+      });
+    }
+  }
+
+  recordAiBudgetDecision(scope: string, outcome: 'accepted' | 'rejected') {
+    this.increment('online_exam_ai_budget_decisions_total', { scope, outcome });
   }
 
   renderPrometheus() {
@@ -126,7 +166,7 @@ export class MetricsService {
   }
 
   private formatLabels(labels: MetricLabels) {
-    const entries = Object.entries(labels);
+    const entries = Object.entries(labels).sort(([left], [right]) => left.localeCompare(right));
     if (!entries.length) return '';
     return `{${entries.map(([key, value]) => `${key}="${this.escapeLabel(value)}"`).join(',')}}`;
   }

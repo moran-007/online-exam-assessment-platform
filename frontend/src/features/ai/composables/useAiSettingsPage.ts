@@ -9,13 +9,13 @@ import {
   testAiConfiguration,
   updateAiConfiguration,
 } from '../api';
-import type { AiProviderConfig, AiProviderPreset, CreateAiProviderConfig } from '../models';
+import type { AiProviderConfig, AiProviderPreset, AiTokenQuotaDto, CreateAiProviderConfig } from '../models';
 
 type AiConfigForm = CreateAiProviderConfig & { id: string };
 
 const emptyForm = (): AiConfigForm => ({
   id: '', name: '', provider: 'custom', baseUrl: '', model: '', apiKey: '',
-  enabled: true, isDefault: false, timeoutMs: 30_000, maxTokens: 800,
+  enabled: true, isDefault: false, timeoutMs: 30_000, maxTokens: 1000, monthlyTokenBudget: undefined,
 });
 
 export function useAiSettingsPage() {
@@ -27,7 +27,7 @@ export function useAiSettingsPage() {
   const presets = ref<AiProviderPreset[]>([]);
   const selectedPresetProvider = ref('');
   const form = reactive<AiConfigForm>(emptyForm());
-  const summaryForm = reactive({ configId: '', content: '', instruction: '', maxTokens: 400 });
+  const summaryForm = reactive({ configId: '', content: '', instruction: '', maxTokens: 1000 });
   const summaryResult = ref('');
   const summaryMeta = ref('');
   const summaryLoading = ref(false);
@@ -68,6 +68,7 @@ export function useAiSettingsPage() {
     Object.assign(form, {
       id: row.id, name: row.name, provider: row.provider, baseUrl: row.baseUrl, model: row.model,
       apiKey: '', enabled: row.enabled, isDefault: row.isDefault, timeoutMs: row.timeoutMs, maxTokens: row.maxTokens,
+      monthlyTokenBudget: row.monthlyTokenBudget ?? undefined,
     });
     selectedPresetProvider.value = presets.value.some((item) => item.provider === row.provider) ? row.provider : '';
     dialogVisible.value = true;
@@ -85,6 +86,8 @@ export function useAiSettingsPage() {
         ...(form.apiKey.trim() ? { apiKey: form.apiKey.trim() } : {}),
         enabled: form.enabled, isDefault: form.isDefault,
         timeoutMs: Number(form.timeoutMs), maxTokens: Number(form.maxTokens),
+        ...(form.monthlyTokenBudget ? { monthlyTokenBudget: Number(form.monthlyTokenBudget) } : {}),
+        ...(form.id && !form.monthlyTokenBudget ? { monthlyTokenBudget: null } : {}),
       };
       if (form.id) await updateAiConfiguration(form.id, body);
       else await createAiConfiguration(body as CreateAiProviderConfig);
@@ -104,7 +107,7 @@ export function useAiSettingsPage() {
     testingId.value = row.id;
     try {
       const result = await testAiConfiguration(row.id);
-      ElMessage.success(`${result.message}（${result.durationMs}ms）`);
+      ElMessage.success(`${result.message}（${result.durationMs}ms，${result.usage.totalTokens} tokens，${formatTokenQuota(result.tokenQuota)}）`);
       await load();
     } catch (error: unknown) {
       ElMessage.error(message(error, 'AI 连接测试失败'));
@@ -142,7 +145,7 @@ export function useAiSettingsPage() {
         maxTokens: Number(summaryForm.maxTokens),
       });
       summaryResult.value = result.summary;
-      summaryMeta.value = `${result.provider} / ${result.model} · ${result.durationMs}ms · ${result.usage.totalTokens} tokens`;
+      summaryMeta.value = `${result.provider} / ${result.model} · ${result.durationMs}ms · 输入 ${result.usage.promptTokens} / 输出 ${result.usage.completionTokens} / 合计 ${result.usage.totalTokens} tokens · ${formatTokenQuota(result.tokenQuota)}`;
     } catch (error: unknown) {
       ElMessage.error(message(error, 'AI 总结生成失败'));
     } finally {
@@ -152,10 +155,16 @@ export function useAiSettingsPage() {
 
   onMounted(load);
   return {
-    activeConfigurations, applyPreset, configurations, dialogVisible, form, load, loading,
+    activeConfigurations, applyPreset, configurations, dialogVisible, form, formatTokenQuota, load, loading,
     openCreate, openEdit, presets, remove, save, saving, selectedPresetProvider, summarize,
     summaryForm, summaryLoading, summaryMeta, summaryResult, testConnection, testingId,
   };
+}
+
+export function formatTokenQuota(quota: AiTokenQuotaDto) {
+  const gap = quota.usageComplete ? '' : `，${quota.unreportedCalls} 次用量未报告`;
+  if (quota.remainingTokens === null) return `已用 ${quota.usedTokens}，余额未配置${gap}`;
+  return `已用 ${quota.usedTokens}，剩余 ${quota.remainingTokens}${gap}`;
 }
 
 function message(error: unknown, fallback: string) { return error instanceof Error ? error.message : fallback; }

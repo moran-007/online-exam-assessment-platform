@@ -38,6 +38,9 @@
             <span :class="row.lastTestStatus === 'failed' ? 'danger-text' : ''">{{ row.lastTestMessage || '未测试' }}</span>
           </template>
         </el-table-column>
+        <el-table-column label="本月 Token" min-width="170">
+          <template #default="{ row }">{{ formatTokenQuota(row.tokenQuota) }}</template>
+        </el-table-column>
         <el-table-column label="操作" width="220" fixed="right">
           <template #default="{ row }">
             <el-button size="small" @click="openEdit(row)">编辑</el-button>
@@ -89,6 +92,12 @@
             <el-input-number v-model="form.maxTokens" :min="1" :max="8192" /> tokens
           </div>
         </el-form-item>
+        <el-form-item label="月度预算">
+          <div class="toolbar">
+            <el-input-number v-model="form.monthlyTokenBudget" :min="1000" :step="1000" clearable /> tokens
+            <span class="muted">本地预算，留空表示不限制</span>
+          </div>
+        </el-form-item>
         <el-form-item label="状态"><el-switch v-model="form.enabled" active-text="启用" /><el-switch v-model="form.isDefault" active-text="设为默认" class="ai-default-switch" /></el-form-item>
       </el-form>
       <template #footer><el-button @click="dialogVisible = false">取消</el-button><el-button type="primary" :loading="saving" @click="save">保存</el-button></template>
@@ -99,7 +108,7 @@
 <script setup lang="ts">
 import { useAiSettingsPage } from '../composables/useAiSettingsPage';
 const {
-  activeConfigurations, applyPreset, configurations, dialogVisible, form, load, loading,
+  activeConfigurations, applyPreset, configurations, dialogVisible, form, formatTokenQuota, load, loading,
   openCreate, openEdit, presets, remove, save, saving, selectedPresetProvider, summarize,
   summaryForm, summaryLoading, summaryMeta, summaryResult, testConnection, testingId,
 } = useAiSettingsPage();

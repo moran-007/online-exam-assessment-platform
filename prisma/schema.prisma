@@ -194,6 +194,30 @@ enum FileVisibility {
   TEMPORARY @map("temporary")
 }
 
+enum AiSummaryType {
+  EXAM          @map("exam")
+  STUDENT       @map("student")
+  CLASS         @map("class")
+  PARENT_REPORT @map("parent_report")
+  LESSON        @map("lesson")
+}
+
+enum AiSummaryTaskStatus {
+  PENDING    @map("pending")
+  PROCESSING @map("processing")
+  SUCCEEDED  @map("succeeded")
+  FAILED     @map("failed")
+  CANCELLED  @map("cancelled")
+}
+
+enum AiSummaryReviewStatus {
+  DRAFT     @map("draft")
+  IN_REVIEW @map("in_review")
+  APPROVED  @map("approved")
+  PUBLISHED @map("published")
+  REVOKED   @map("revoked")
+}
+
 model User {
   id           String     @id @default(uuid()) @db.Uuid
   username     String     @unique @db.VarChar(64)
@@ -1011,25 +1035,25 @@ model ProgrammingProblemRef {
 }
 
 model HydroAccount {
-  id               String    @id @default(uuid()) @db.Uuid
-  studentId        String    @map("student_id") @db.Uuid
-  platformUserId   String?   @map("platform_user_id") @db.Uuid
-  platformCode     String    @default("hydro") @map("platform_code") @db.VarChar(32)
-  platformName     String?   @map("platform_name") @db.VarChar(64)
-  platformBaseUrl  String    @default("https://oj.example.com") @map("platform_base_url") @db.Text
-  hydroUserId      String    @map("hydro_user_id") @db.VarChar(128)
-  hydroUsername    String    @map("hydro_username") @db.VarChar(128)
-  loginUsername    String?   @map("login_username") @db.VarChar(128)
-  loginPasswordCiphertext   String? @map("login_password_ciphertext") @db.Text
-  loginPasswordIv           String? @map("login_password_iv") @db.VarChar(64)
-  loginPasswordAuthTag      String? @map("login_password_auth_tag") @db.VarChar(64)
-  loginPasswordKeyVersion   Int?    @map("login_password_key_version")
-  lastLoginStatus  String?   @map("last_login_status") @db.VarChar(32)
-  lastLoginMessage String?   @map("last_login_message") @db.Text
-  lastLoginAt      DateTime? @map("last_login_at")
-  bindStatus       String    @default("bound") @map("bind_status") @db.VarChar(32)
-  createdAt        DateTime  @default(now()) @map("created_at")
-  updatedAt        DateTime  @updatedAt @map("updated_at")
+  id                      String    @id @default(uuid()) @db.Uuid
+  studentId               String    @map("student_id") @db.Uuid
+  platformUserId          String?   @map("platform_user_id") @db.Uuid
+  platformCode            String    @default("hydro") @map("platform_code") @db.VarChar(32)
+  platformName            String?   @map("platform_name") @db.VarChar(64)
+  platformBaseUrl         String    @default("https://oj.example.com") @map("platform_base_url") @db.Text
+  hydroUserId             String    @map("hydro_user_id") @db.VarChar(128)
+  hydroUsername           String    @map("hydro_username") @db.VarChar(128)
+  loginUsername           String?   @map("login_username") @db.VarChar(128)
+  loginPasswordCiphertext String?   @map("login_password_ciphertext") @db.Text
+  loginPasswordIv         String?   @map("login_password_iv") @db.VarChar(64)
+  loginPasswordAuthTag    String?   @map("login_password_auth_tag") @db.VarChar(64)
+  loginPasswordKeyVersion Int?      @map("login_password_key_version")
+  lastLoginStatus         String?   @map("last_login_status") @db.VarChar(32)
+  lastLoginMessage        String?   @map("last_login_message") @db.Text
+  lastLoginAt             DateTime? @map("last_login_at")
+  bindStatus              String    @default("bound") @map("bind_status") @db.VarChar(32)
+  createdAt               DateTime  @default(now()) @map("created_at")
+  updatedAt               DateTime  @updatedAt @map("updated_at")
 
   @@index([studentId])
   @@index([studentId, platformCode])
@@ -1165,23 +1189,23 @@ model AiPromptTemplate {
 }
 
 model ExportTask {
-  id           String       @id @default(uuid()) @db.Uuid
-  type         String       @db.VarChar(64)
-  paramsJson   Json         @map("params_json")
-  status       ExportStatus @default(PENDING)
-  progress     Int          @default(0)
-  retryCount   Int          @default(0) @map("retry_count")
-  maxRetries   Int          @default(2) @map("max_retries")
-  fileUrl      String?      @map("file_url") @db.Text
-  errorMessage String?      @map("error_message") @db.Text
-  leaseOwner   String?      @map("lease_owner") @db.VarChar(128)
-  leaseExpiresAt DateTime?  @map("lease_expires_at")
-  heartbeatAt  DateTime?    @map("heartbeat_at")
-  createdBy    String?      @map("created_by") @db.Uuid
-  createdAt    DateTime     @default(now()) @map("created_at")
-  updatedAt    DateTime     @updatedAt @map("updated_at")
-  finishedAt   DateTime?    @map("finished_at")
-  expiresAt    DateTime?    @map("expires_at")
+  id             String       @id @default(uuid()) @db.Uuid
+  type           String       @db.VarChar(64)
+  paramsJson     Json         @map("params_json")
+  status         ExportStatus @default(PENDING)
+  progress       Int          @default(0)
+  retryCount     Int          @default(0) @map("retry_count")
+  maxRetries     Int          @default(2) @map("max_retries")
+  fileUrl        String?      @map("file_url") @db.Text
+  errorMessage   String?      @map("error_message") @db.Text
+  leaseOwner     String?      @map("lease_owner") @db.VarChar(128)
+  leaseExpiresAt DateTime?    @map("lease_expires_at")
+  heartbeatAt    DateTime?    @map("heartbeat_at")
+  createdBy      String?      @map("created_by") @db.Uuid
+  createdAt      DateTime     @default(now()) @map("created_at")
+  updatedAt      DateTime     @updatedAt @map("updated_at")
+  finishedAt     DateTime?    @map("finished_at")
+  expiresAt      DateTime?    @map("expires_at")
 
   @@index([type])
   @@index([status])
@@ -1249,28 +1273,152 @@ model Notification {
 }
 
 model AiProviderConfig {
-  id                       String   @id @default(uuid()) @db.Uuid
-  name                     String   @db.VarChar(100)
-  provider                 String   @db.VarChar(50)
-  baseUrl                  String   @map("base_url") @db.Text
-  model                    String   @db.VarChar(160)
-  apiKeyCiphertext         String   @map("api_key_ciphertext") @db.Text
-  apiKeyIv                 String   @map("api_key_iv") @db.VarChar(64)
-  apiKeyAuthTag            String   @map("api_key_auth_tag") @db.VarChar(64)
-  apiKeyKeyVersion         Int      @map("api_key_key_version")
-  enabled                  Boolean  @default(true)
-  isDefault                Boolean  @default(false) @map("is_default")
-  timeoutMs                Int      @default(30000) @map("timeout_ms")
-  maxTokens                Int      @default(800) @map("max_tokens")
-  lastTestStatus           String?  @map("last_test_status") @db.VarChar(32)
-  lastTestMessage          String?  @map("last_test_message") @db.VarChar(300)
-  lastTestAt               DateTime? @map("last_test_at")
-  createdBy                String?  @map("created_by") @db.Uuid
-  updatedBy                String?  @map("updated_by") @db.Uuid
-  createdAt                DateTime @default(now()) @map("created_at")
-  updatedAt                DateTime @updatedAt @map("updated_at")
+  id                 String    @id @default(uuid()) @db.Uuid
+  name               String    @db.VarChar(100)
+  provider           String    @db.VarChar(50)
+  baseUrl            String    @map("base_url") @db.Text
+  model              String    @db.VarChar(160)
+  apiKeyCiphertext   String    @map("api_key_ciphertext") @db.Text
+  apiKeyIv           String    @map("api_key_iv") @db.VarChar(64)
+  apiKeyAuthTag      String    @map("api_key_auth_tag") @db.VarChar(64)
+  apiKeyKeyVersion   Int       @map("api_key_key_version")
+  enabled            Boolean   @default(true)
+  isDefault          Boolean   @default(false) @map("is_default")
+  timeoutMs          Int       @default(30000) @map("timeout_ms")
+  maxTokens          Int       @default(800) @map("max_tokens")
+  monthlyTokenBudget Int?      @map("monthly_token_budget")
+  lastTestStatus     String?   @map("last_test_status") @db.VarChar(32)
+  lastTestMessage    String?   @map("last_test_message") @db.VarChar(300)
+  lastTestAt         DateTime? @map("last_test_at")
+  createdBy          String?   @map("created_by") @db.Uuid
+  updatedBy          String?   @map("updated_by") @db.Uuid
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+
+  summaryTasks AiSummaryTask[]
+  usageEvents  AiUsageEvent[]
 
   @@index([enabled, isDefault])
   @@index([provider])
   @@map("ai_provider_configs")
+}
+
+model AiUsageEvent {
+  id                    String   @id @default(uuid()) @db.Uuid
+  providerConfigId      String   @map("provider_config_id") @db.Uuid
+  operation             String   @db.VarChar(64)
+  correlationId         String   @unique @map("correlation_id") @db.VarChar(64)
+  requestedOutputTokens Int      @map("requested_output_tokens")
+  inputTokens           Int      @map("input_tokens")
+  outputTokens          Int      @map("output_tokens")
+  totalTokens           Int      @map("total_tokens")
+  usageReported         Boolean  @default(false) @map("usage_reported")
+  createdBy             String   @map("created_by") @db.Uuid
+  createdAt             DateTime @default(now()) @map("created_at")
+
+  providerConfig AiProviderConfig @relation(fields: [providerConfigId], references: [id], onDelete: Restrict)
+
+  @@index([providerConfigId, createdAt])
+  @@index([operation, createdAt])
+  @@map("ai_usage_events")
+}
+
+model AiProviderCapability {
+  id                 String   @id @default(uuid()) @db.Uuid
+  provider           String   @db.VarChar(50)
+  modelPattern       String   @map("model_pattern") @db.VarChar(160)
+  supportsJsonObject Boolean  @default(false) @map("supports_json_object")
+  supportsJsonSchema Boolean  @default(false) @map("supports_json_schema")
+  supportsStreaming  Boolean  @default(false) @map("supports_streaming")
+  supportsThinking   Boolean  @default(false) @map("supports_thinking")
+  maxContextTokens   Int?     @map("max_context_tokens")
+  maxOutputTokens    Int?     @map("max_output_tokens")
+  enabled            Boolean  @default(true)
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+
+  @@unique([provider, modelPattern])
+  @@index([provider, enabled])
+  @@map("ai_provider_capabilities")
+}
+
+model AiSummaryPromptTemplate {
+  id           String        @id @default(uuid()) @db.Uuid
+  code         String        @db.VarChar(80)
+  summaryType  AiSummaryType @map("summary_type")
+  version      Int
+  systemPrompt String        @map("system_prompt") @db.Text
+  outputSchema Json          @map("output_schema")
+  enabled      Boolean       @default(false)
+  reviewedBy   String?       @map("reviewed_by") @db.Uuid
+  changeReason String?       @map("change_reason") @db.VarChar(300)
+  createdBy    String?       @map("created_by") @db.Uuid
+  createdAt    DateTime      @default(now()) @map("created_at")
+  updatedAt    DateTime      @updatedAt @map("updated_at")
+
+  tasks AiSummaryTask[]
+
+  @@unique([code, version])
+  @@index([summaryType, enabled])
+  @@map("ai_summary_prompt_templates")
+}
+
+model AiSummaryTask {
+  id               String              @id @default(uuid()) @db.Uuid
+  type             AiSummaryType
+  subjectId        String              @map("subject_id") @db.Uuid
+  scopeJson        Json                @map("scope_json")
+  inputHash        String              @map("input_hash") @db.VarChar(64)
+  datasetVersion   String              @map("dataset_version") @db.VarChar(32)
+  promptTemplateId String              @map("prompt_template_id") @db.Uuid
+  promptVersion    Int                 @map("prompt_version")
+  schemaVersion    String              @map("schema_version") @db.VarChar(32)
+  providerConfigId String              @map("provider_config_id") @db.Uuid
+  modelSnapshot    String              @map("model_snapshot") @db.VarChar(160)
+  status           AiSummaryTaskStatus @default(PENDING)
+  attemptCount     Int                 @default(0) @map("attempt_count")
+  correlationId    String              @unique @map("correlation_id") @db.VarChar(64)
+  inputTokens      Int                 @default(0) @map("input_tokens")
+  outputTokens     Int                 @default(0) @map("output_tokens")
+  estimatedCost    Decimal             @default(0) @map("estimated_cost") @db.Decimal(18, 6)
+  createdBy        String              @map("created_by") @db.Uuid
+  startedAt        DateTime?           @map("started_at")
+  finishedAt       DateTime?           @map("finished_at")
+  sanitizedError   String?             @map("sanitized_error") @db.VarChar(500)
+  createdAt        DateTime            @default(now()) @map("created_at")
+  updatedAt        DateTime            @updatedAt @map("updated_at")
+
+  providerConfig AiProviderConfig        @relation(fields: [providerConfigId], references: [id], onDelete: Restrict)
+  promptTemplate AiSummaryPromptTemplate @relation(fields: [promptTemplateId], references: [id], onDelete: Restrict)
+  summary        AiSummary?
+
+  @@unique([type, subjectId, inputHash, datasetVersion, promptVersion, schemaVersion, providerConfigId, modelSnapshot], map: "ai_summary_tasks_idempotency_key")
+  @@index([status, createdAt])
+  @@index([type, subjectId, createdAt])
+  @@index([createdBy, createdAt])
+  @@map("ai_summary_tasks")
+}
+
+model AiSummary {
+  id                 String                @id @default(uuid()) @db.Uuid
+  taskId             String                @unique @map("task_id") @db.Uuid
+  type               AiSummaryType
+  subjectId          String                @map("subject_id") @db.Uuid
+  summaryJson        Json                  @map("summary_json")
+  sourceSnapshotJson Json                  @map("source_snapshot_json")
+  evidenceIndexJson  Json                  @map("evidence_index_json")
+  reviewStatus       AiSummaryReviewStatus @default(DRAFT) @map("review_status")
+  draftVersion       Int                   @default(1) @map("draft_version")
+  editedBy           String?               @map("edited_by") @db.Uuid
+  reviewedBy         String?               @map("reviewed_by") @db.Uuid
+  publishedAt        DateTime?             @map("published_at")
+  revokedAt          DateTime?             @map("revoked_at")
+  createdAt          DateTime              @default(now()) @map("created_at")
+  updatedAt          DateTime              @updatedAt @map("updated_at")
+
+  task AiSummaryTask @relation(fields: [taskId], references: [id], onDelete: Restrict)
+
+  @@index([type, subjectId, createdAt])
+  @@index([reviewStatus, publishedAt])
+  @@map("ai_summaries")
 }

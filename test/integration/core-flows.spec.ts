@@ -103,13 +103,16 @@ describe('core API flows', () => {
       enabled: false,
       isDefault: false,
       maxTokens: 4,
+      monthlyTokenBudget: 5000,
     });
     expect(created).not.toHaveProperty('apiKey');
     expect(created.apiKeyMasked).toBe('••••••••');
+    expect(created.tokenQuota).toMatchObject({ usedTokens: 0, remainingTokens: 5000 });
     const stored = await prisma.aiProviderConfig.findUniqueOrThrow({ where: { id: created.id } });
     expect(stored.apiKeyCiphertext).not.toContain(plainKey);
     expect(stored.apiKeyIv).toBeTruthy();
     expect(stored.apiKeyAuthTag).toBeTruthy();
+    expect(stored.monthlyTokenBudget).toBe(5000);
 
     await api('delete', `/api/v1/ai/configurations/${created.id}`, adminToken);
     expect(await prisma.aiProviderConfig.count({ where: { id: created.id } })).toBe(0);

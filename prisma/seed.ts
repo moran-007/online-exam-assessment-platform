@@ -32,6 +32,12 @@ const permissions = [
   ['attachment:preview', '预览附件'], ['attachment:download', '下载附件'],
   ['hydro:platform:manage', '管理 Hydro 平台'], ['hydro:problem:bind', '绑定 Hydro 题目'],
   ['hydro:account:read', '查看 Hydro 账号'], ['hydro:account:update', '修改 Hydro 账号'], ['hydro:result:write', '写入 Hydro 结果'],
+  ['ai.summary.exam.generate', '生成考试总结'], ['ai.summary.student.generate', '生成学生总结'],
+  ['ai.summary.class.generate', '生成班级总结'], ['ai.summary.parent-report.generate', '生成家长报告'],
+  ['ai.summary.review', '审核 AI 总结'], ['ai.summary.publish', '发布 AI 总结'],
+  ['ai.summary.revoke', '撤回 AI 总结'], ['ai.summary.view-own', '查看本人已发布 AI 总结'],
+  ['ai.summary.view-class', '查看班级 AI 总结'], ['ai.prompt.manage', '管理 AI 提示模板'],
+  ['ai.provider.manage', '管理 AI 模型配置'],
   ['statistics:read', '查看统计'], ['audit-log:read', '查看审计日志'],
 ] as const;
 
@@ -105,12 +111,20 @@ async function main() {
         'hydro:account:update',
         'hydro:result:write',
         'statistics:read',
+        'ai.summary.exam.generate',
+        'ai.summary.student.generate',
+        'ai.summary.class.generate',
+        'ai.summary.parent-report.generate',
+        'ai.summary.review',
+        'ai.summary.publish',
+        'ai.summary.revoke',
+        'ai.summary.view-class',
       ],
     },
     {
       code: 'student',
       name: '学生',
-      permissions: ['course:read', 'knowledge-point:read', 'tag:read'],
+      permissions: ['course:read', 'knowledge-point:read', 'tag:read', 'ai.summary.view-own'],
     },
   ];
 

@@ -5,6 +5,7 @@
  * Online exam and intelligent assessment platform API
  * OpenAPI spec version: 1.0
  */
+import type { AiTokenQuotaDto } from './aiTokenQuotaDto';
 import type { AiUsageDto } from './aiUsageDto';
 
 export interface AiSummaryResultDto {
@@ -12,5 +13,6 @@ export interface AiSummaryResultDto {
   model: string;
   provider: string;
   summary: string;
+  tokenQuota: AiTokenQuotaDto;
   usage: AiUsageDto;
 }
