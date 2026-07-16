@@ -207,6 +207,9 @@ test('privileged users can open AI settings while students are denied', async ({
   await adminPage.goto('/users');
   await expect(adminPage.getByRole('heading', { name: '用户权限' })).toBeVisible();
   await expect(adminPage.getByRole('button', { name: '新增用户' })).toBeVisible();
+  await adminPage.goto('/knowledge');
+  await expect(adminPage.getByRole('heading', { name: '课程知识点管理' })).toBeVisible();
+  await expect(adminPage.getByRole('button', { name: '批量导入知识点' })).toBeVisible();
 
   await login(studentPage, 'e2e_student');
   await studentPage.goto('/ai-settings');
