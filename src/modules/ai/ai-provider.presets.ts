@@ -40,4 +40,8 @@ export const AI_PROVIDER_PRESETS: readonly AiProviderPreset[] = [
     provider: 'hunyuan', name: '腾讯混元', baseUrl: 'https://api.hunyuan.cloud.tencent.com/v1', model: 'hunyuan-turbos-latest',
     documentationUrl: 'https://cloud.tencent.com/document/product/1729/111007', note: '腾讯混元 OpenAI 兼容端点',
   },
+  {
+    provider: 'openrouter-hunyuan', name: 'OpenRouter / 腾讯混元 Hy3', baseUrl: 'https://openrouter.ai/api/v1', model: 'tencent/hy3',
+    documentationUrl: 'https://openrouter.ai/tencent/hy3', note: '适用于 OpenRouter 路由 Key，与腾讯云官方 Key 不通用',
+  },
 ] as const;

@@ -13,6 +13,7 @@ import {
   SummaryOutputValidationError,
   SummaryOutputValidator,
 } from '../../src/modules/ai/schemas/summary-output.validator';
+import { AI_PROVIDER_PRESETS } from '../../src/modules/ai/ai-provider.presets';
 
 const evidence: EvidenceIndex = {
   'exam:one:average': {
@@ -41,6 +42,14 @@ function output(refId = 'exam:one:average'): StructuredSummaryOutput {
 }
 
 describe('AI summary foundation', () => {
+  it('keeps Tencent official and OpenRouter Hunyuan credentials on distinct endpoints', () => {
+    const official = AI_PROVIDER_PRESETS.find((item) => item.provider === 'hunyuan');
+    const routed = AI_PROVIDER_PRESETS.find((item) => item.provider === 'openrouter-hunyuan');
+
+    expect(official).toMatchObject({ baseUrl: 'https://api.hunyuan.cloud.tencent.com/v1' });
+    expect(routed).toMatchObject({ baseUrl: 'https://openrouter.ai/api/v1', model: 'tencent/hy3' });
+  });
+
   it('matches provider model globs without treating model text as a regular expression', () => {
     expect(matchesModelPattern('qwen3.*', 'qwen3.6-plus')).toBe(true);
     expect(matchesModelPattern('deepseek-?-flash', 'deepseek-v-flash')).toBe(true);
