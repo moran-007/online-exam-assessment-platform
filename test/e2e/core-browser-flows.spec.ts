@@ -197,10 +197,13 @@ test('privileged users can open AI settings while students are denied', async ({
   await login(adminPage, 'e2e_admin');
   await adminPage.goto('/ai-settings');
   await expect(adminPage.getByRole('heading', { name: 'AI 模型配置' })).toBeVisible();
-  await expect(adminPage.locator('.ai-preset-card')).toHaveCount(8);
+  await expect(adminPage.locator('.ai-preset-card')).toHaveCount(9);
   await adminPage.getByRole('button', { name: /^DeepSeek / }).click();
   await expect(adminPage.getByRole('dialog', { name: '新增 AI 配置' })).toBeVisible();
   await expect(adminPage.getByLabel('Base URL')).toHaveValue('https://api.deepseek.com');
+  await adminPage.goto('/classes');
+  await expect(adminPage.getByRole('heading', { name: '班级管理' })).toBeVisible();
+  await expect(adminPage.getByRole('button', { name: '新增班级' })).toBeVisible();
 
   await login(studentPage, 'e2e_student');
   await studentPage.goto('/ai-settings');
