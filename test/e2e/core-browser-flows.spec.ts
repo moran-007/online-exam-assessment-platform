@@ -146,6 +146,9 @@ test('student autosave survives refresh and forced end finalizes the latest answ
 
   await studentPage.goto('/student/papers');
   await expect(studentPage.getByText(paperName, { exact: true })).toBeVisible();
+  await studentPage.goto('/student/wrong-questions');
+  await expect(studentPage.getByRole('heading', { name: '错题本', exact: true })).toBeVisible();
+  await expect(studentPage.getByPlaceholder('搜索公开题目后加入错题本')).toBeVisible();
   await adminSession.close();
   await studentSession.close();
 });
