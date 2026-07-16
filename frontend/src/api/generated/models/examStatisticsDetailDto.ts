@@ -13,7 +13,9 @@ export interface ExamStatisticsDetailDto {
   examId: string;
   examName: string;
   fullScore: number;
+  gradedCount: number;
   maxScore: number;
+  medianScore: number;
   minScore: number;
   questionStats: ExamQuestionStatisticDto[];
   submitCount: number;

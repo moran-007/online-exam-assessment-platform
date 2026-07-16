@@ -3,7 +3,7 @@
     <div class="page-head">
       <div>
         <h1 class="page-title">AI 模型配置</h1>
-        <p class="muted">仅超级管理员可见。API Key 加密保存，页面和接口不会回显。</p>
+        <p class="muted">个人 API Key 仅本人可管理；系统共享 Key 由超级管理员维护。Key 加密保存且不会回显。</p>
       </div>
       <div class="toolbar">
         <el-button @click="load">刷新</el-button>
@@ -26,6 +26,9 @@
         <el-table-column prop="name" label="名称" min-width="150" />
         <el-table-column prop="provider" label="提供商" width="110" />
         <el-table-column prop="model" label="模型" min-width="180" show-overflow-tooltip />
+        <el-table-column label="范围" width="100">
+          <template #default="{ row }"><el-tag effect="plain">{{ row.scope === 'personal' ? '个人' : '系统共享' }}</el-tag></template>
+        </el-table-column>
         <el-table-column prop="baseUrl" label="Base URL" min-width="250" show-overflow-tooltip />
         <el-table-column label="状态" width="130">
           <template #default="{ row }">
@@ -43,9 +46,12 @@
         </el-table-column>
         <el-table-column label="操作" width="220" fixed="right">
           <template #default="{ row }">
-            <el-button size="small" @click="openEdit(row)">编辑</el-button>
-            <el-button size="small" :loading="testingId === row.id" @click="testConnection(row)">测试</el-button>
-            <el-button size="small" type="danger" plain @click="remove(row)">删除</el-button>
+            <template v-if="row.canManage">
+              <el-button size="small" @click="openEdit(row)">编辑</el-button>
+              <el-button size="small" :loading="testingId === row.id" @click="testConnection(row)">测试</el-button>
+              <el-button size="small" type="danger" plain @click="remove(row)">删除</el-button>
+            </template>
+            <span v-else class="muted">可用于生成</span>
           </template>
         </el-table-column>
       </el-table>
@@ -74,6 +80,9 @@
 
     <el-dialog v-model="dialogVisible" :title="form.id ? '编辑 AI 配置' : '新增 AI 配置'" width="680px" destroy-on-close>
       <el-form label-width="110px">
+        <el-form-item v-if="!form.id && canCreateSystem" label="配置范围">
+          <el-radio-group v-model="form.scope"><el-radio value="system">系统共享</el-radio><el-radio value="personal">仅自己</el-radio></el-radio-group>
+        </el-form-item>
         <el-form-item label="使用预设">
           <el-select v-model="selectedPresetProvider" clearable placeholder="自定义" style="width: 100%" @change="applyPreset">
             <el-option v-for="preset in presets" :key="preset.provider" :label="preset.name" :value="preset.provider" />
@@ -108,7 +117,7 @@
 <script setup lang="ts">
 import { useAiSettingsPage } from '../composables/useAiSettingsPage';
 const {
-  activeConfigurations, applyPreset, configurations, dialogVisible, form, formatTokenQuota, load, loading,
+  activeConfigurations, applyPreset, canCreateSystem, configurations, dialogVisible, form, formatTokenQuota, load, loading,
   openCreate, openEdit, presets, remove, save, saving, selectedPresetProvider, summarize,
   summaryForm, summaryLoading, summaryMeta, summaryResult, testConnection, testingId,
 } = useAiSettingsPage();

@@ -1,7 +1,11 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsBoolean, IsInt, IsNotEmpty, IsOptional, IsString, IsUUID, Max, MaxLength, Min } from 'class-validator';
+import { IsBoolean, IsIn, IsInt, IsNotEmpty, IsOptional, IsString, IsUUID, Max, MaxLength, Min } from 'class-validator';
 
 export class CreateAiProviderConfigDto {
+  @ApiPropertyOptional({ enum: ['system', 'personal'], description: '系统共享配置仅超级管理员可创建' })
+  @IsOptional() @IsIn(['system', 'personal'])
+  scope?: 'system' | 'personal';
+
   @ApiProperty({ example: 'DeepSeek 默认配置' })
   @IsString() @IsNotEmpty() @MaxLength(100)
   name: string;
@@ -118,6 +122,8 @@ export class AiProviderConfigResponseDto {
   @ApiProperty() provider: string;
   @ApiProperty() baseUrl: string;
   @ApiProperty() model: string;
+  @ApiProperty({ enum: ['system', 'personal'] }) scope: 'system' | 'personal';
+  @ApiProperty() canManage: boolean;
   @ApiProperty() enabled: boolean;
   @ApiProperty() isDefault: boolean;
   @ApiProperty() timeoutMs: number;

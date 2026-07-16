@@ -4,9 +4,19 @@ export function average(values: number[]) {
     : 0;
 }
 
+export function median(values: number[]) {
+  if (!values.length) return 0;
+  const sorted = [...values].sort((left, right) => left - right);
+  const middle = Math.floor(sorted.length / 2);
+  return sorted.length % 2
+    ? sorted[middle]
+    : Number(((sorted[middle - 1] + sorted[middle]) / 2).toFixed(2));
+}
+
 export function scoreSummary(scores: number[]) {
   return {
     averageScore: average(scores),
+    medianScore: median(scores),
     maxScore: scores.length ? Math.max(...scores) : 0,
     minScore: scores.length ? Math.min(...scores) : 0,
   };

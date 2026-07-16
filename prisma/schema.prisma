@@ -218,6 +218,11 @@ enum AiSummaryReviewStatus {
   REVOKED   @map("revoked")
 }
 
+enum AiProviderConfigScope {
+  SYSTEM   @map("system")
+  PERSONAL @map("personal")
+}
+
 model User {
   id           String     @id @default(uuid()) @db.Uuid
   username     String     @unique @db.VarChar(64)
@@ -242,6 +247,7 @@ model User {
   examAnnouncements     ExamAnnouncement[]     @relation("ExamAnnouncementCreator")
   examAnnouncementReads ExamAnnouncementRead[]
   wrongQuestionEvents   WrongQuestionEvent[]
+  personalAiConfigs     AiProviderConfig[]     @relation("PersonalAiProviderConfigOwner")
 
   @@index([userType])
   @@index([status])
@@ -1273,33 +1279,37 @@ model Notification {
 }
 
 model AiProviderConfig {
-  id                 String    @id @default(uuid()) @db.Uuid
-  name               String    @db.VarChar(100)
-  provider           String    @db.VarChar(50)
-  baseUrl            String    @map("base_url") @db.Text
-  model              String    @db.VarChar(160)
-  apiKeyCiphertext   String    @map("api_key_ciphertext") @db.Text
-  apiKeyIv           String    @map("api_key_iv") @db.VarChar(64)
-  apiKeyAuthTag      String    @map("api_key_auth_tag") @db.VarChar(64)
-  apiKeyKeyVersion   Int       @map("api_key_key_version")
-  enabled            Boolean   @default(true)
-  isDefault          Boolean   @default(false) @map("is_default")
-  timeoutMs          Int       @default(30000) @map("timeout_ms")
-  maxTokens          Int       @default(800) @map("max_tokens")
-  monthlyTokenBudget Int?      @map("monthly_token_budget")
-  lastTestStatus     String?   @map("last_test_status") @db.VarChar(32)
-  lastTestMessage    String?   @map("last_test_message") @db.VarChar(300)
-  lastTestAt         DateTime? @map("last_test_at")
-  createdBy          String?   @map("created_by") @db.Uuid
-  updatedBy          String?   @map("updated_by") @db.Uuid
-  createdAt          DateTime  @default(now()) @map("created_at")
-  updatedAt          DateTime  @updatedAt @map("updated_at")
+  id                 String                @id @default(uuid()) @db.Uuid
+  name               String                @db.VarChar(100)
+  provider           String                @db.VarChar(50)
+  baseUrl            String                @map("base_url") @db.Text
+  model              String                @db.VarChar(160)
+  scope              AiProviderConfigScope @default(SYSTEM)
+  ownerUserId        String?               @map("owner_user_id") @db.Uuid
+  apiKeyCiphertext   String                @map("api_key_ciphertext") @db.Text
+  apiKeyIv           String                @map("api_key_iv") @db.VarChar(64)
+  apiKeyAuthTag      String                @map("api_key_auth_tag") @db.VarChar(64)
+  apiKeyKeyVersion   Int                   @map("api_key_key_version")
+  enabled            Boolean               @default(true)
+  isDefault          Boolean               @default(false) @map("is_default")
+  timeoutMs          Int                   @default(30000) @map("timeout_ms")
+  maxTokens          Int                   @default(800) @map("max_tokens")
+  monthlyTokenBudget Int?                  @map("monthly_token_budget")
+  lastTestStatus     String?               @map("last_test_status") @db.VarChar(32)
+  lastTestMessage    String?               @map("last_test_message") @db.VarChar(300)
+  lastTestAt         DateTime?             @map("last_test_at")
+  createdBy          String?               @map("created_by") @db.Uuid
+  updatedBy          String?               @map("updated_by") @db.Uuid
+  createdAt          DateTime              @default(now()) @map("created_at")
+  updatedAt          DateTime              @updatedAt @map("updated_at")
 
   summaryTasks AiSummaryTask[]
   usageEvents  AiUsageEvent[]
+  owner        User?           @relation("PersonalAiProviderConfigOwner", fields: [ownerUserId], references: [id], onDelete: Restrict)
 
   @@index([enabled, isDefault])
   @@index([provider])
+  @@index([scope, ownerUserId, enabled])
   @@map("ai_provider_configs")
 }
 

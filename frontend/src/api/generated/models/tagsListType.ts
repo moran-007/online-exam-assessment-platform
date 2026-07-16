@@ -10,8 +10,8 @@ export type TagsListType = typeof TagsListType[keyof typeof TagsListType];
 
 
 export const TagsListType = {
-  EXAM: 'EXAM',
   QUESTION: 'QUESTION',
   PAPER: 'PAPER',
+  EXAM: 'EXAM',
   CUSTOM: 'CUSTOM',
 } as const;

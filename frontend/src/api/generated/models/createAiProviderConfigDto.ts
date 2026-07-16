@@ -5,6 +5,7 @@
  * Online exam and intelligent assessment platform API
  * OpenAPI spec version: 1.0
  */
+import type { CreateAiProviderConfigDtoScope } from './createAiProviderConfigDtoScope';
 
 export interface CreateAiProviderConfigDto {
   /** @maxLength 500 */
@@ -29,6 +30,8 @@ export interface CreateAiProviderConfigDto {
   name: string;
   /** @maxLength 50 */
   provider: string;
+  /** 系统共享配置仅超级管理员可创建 */
+  scope?: CreateAiProviderConfigDtoScope;
   /**
      * @minimum 3000
      * @maximum 120000

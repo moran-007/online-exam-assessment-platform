@@ -5,6 +5,7 @@ import request = require('supertest');
 import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { createTestApp } from '../helpers/test-app';
+import { TokenService } from '../../src/modules/auth/token.service';
 
 jest.setTimeout(60_000);
 
@@ -23,6 +24,7 @@ describe('core API flows', () => {
   let prisma: PrismaClient;
   let adminToken = '';
   let studentToken = '';
+  let teacherToken = '';
   const assetFile = 'integration-secure-asset.png';
   const testUploadsRoot = process.env.UPLOADS_DIR || join(process.cwd(), 'runtime', 'test-uploads');
   const assetPath = join(testUploadsRoot, 'question-assets', assetFile);
@@ -38,11 +40,22 @@ describe('core API flows', () => {
     await prisma.user.create({
       data: { username: 'test_student', passwordHash, realName: 'Test Student', userType: UserType.STUDENT },
     });
+    const teacher = await prisma.user.create({
+      data: { username: 'test_teacher', passwordHash, realName: 'Test Teacher', userType: UserType.TEACHER },
+    });
     await prisma.user.create({
       data: { username: 'test_disabled', passwordHash, realName: 'Disabled', userType: UserType.STUDENT, status: UserStatus.DISABLED },
     });
     expect(admin.id).toBeTruthy();
     app = await createTestApp();
+    teacherToken = (await app.get(TokenService).issueTokens({
+      id: teacher.id,
+      username: teacher.username,
+      realName: teacher.realName,
+      userType: teacher.userType,
+      roles: [],
+      permissions: [],
+    }, { ip: '127.0.0.1', userAgent: 'integration-test' })).accessToken;
   });
 
   afterAll(async () => {
@@ -85,7 +98,7 @@ describe('core API flows', () => {
     adminToken = relogin.accessToken;
   });
 
-  it('keeps AI configuration super-admin-only and encrypts API keys at rest', async () => {
+  it('isolates system and personal AI configurations and encrypts API keys at rest', async () => {
     await request(app.getHttpServer())
       .get('/api/v1/ai/presets')
       .auth(studentToken, { type: 'bearer' })
@@ -106,6 +119,7 @@ describe('core API flows', () => {
       monthlyTokenBudget: 5000,
     });
     expect(created).not.toHaveProperty('apiKey');
+    expect(created).toMatchObject({ scope: 'system', canManage: true });
     expect(created.apiKeyMasked).toBe('••••••••');
     expect(created.tokenQuota).toMatchObject({ usedTokens: 0, remainingTokens: 5000 });
     const stored = await prisma.aiProviderConfig.findUniqueOrThrow({ where: { id: created.id } });
@@ -113,6 +127,32 @@ describe('core API flows', () => {
     expect(stored.apiKeyIv).toBeTruthy();
     expect(stored.apiKeyAuthTag).toBeTruthy();
     expect(stored.monthlyTokenBudget).toBe(5000);
+
+    const personal = await api('post', '/api/v1/ai/configurations', teacherToken, {
+      scope: 'personal',
+      name: 'Teacher Personal Model',
+      provider: 'custom',
+      baseUrl: 'https://teacher-ai.example.com/v1',
+      model: 'teacher-model',
+      apiKey: 'teacher-personal-key',
+      enabled: true,
+      isDefault: true,
+      maxTokens: 1000,
+    });
+    expect(personal).toMatchObject({ scope: 'personal', canManage: true, isDefault: true });
+    const teacherConfigs = await api('get', '/api/v1/ai/configurations', teacherToken);
+    expect(teacherConfigs.map((item: { id: string }) => item.id)).toEqual(expect.arrayContaining([created.id, personal.id]));
+    expect(teacherConfigs.find((item: { id: string }) => item.id === created.id)).toMatchObject({
+      scope: 'system', canManage: false,
+    });
+    const adminConfigs = await api('get', '/api/v1/ai/configurations', adminToken);
+    expect(adminConfigs.some((item: { id: string }) => item.id === personal.id)).toBe(false);
+    await request(app.getHttpServer())
+      .patch(`/api/v1/ai/configurations/${created.id}`)
+      .auth(teacherToken, { type: 'bearer' })
+      .send({ name: 'Forbidden edit' })
+      .expect(404);
+    await api('delete', `/api/v1/ai/configurations/${personal.id}`, teacherToken);
 
     await api('delete', `/api/v1/ai/configurations/${created.id}`, adminToken);
     expect(await prisma.aiProviderConfig.count({ where: { id: created.id } })).toBe(0);
@@ -182,6 +222,7 @@ describe('core API flows', () => {
       exams: 1,
       submittedAttempts: 1,
       averageScore: 5,
+      medianScore: 5,
       maxScore: 5,
       minScore: 5,
       gradedCount: 1,
@@ -195,6 +236,7 @@ describe('core API flows', () => {
       fullScore: 5,
       submitCount: 1,
       averageScore: 5,
+      medianScore: 5,
     });
 
     const distribution = await api('get', `/api/v1/statistics/score-distribution?${query}`, adminToken);
@@ -203,13 +245,34 @@ describe('core API flows', () => {
       .toMatchObject({ count: 1, percent: 1 });
 
     const detail = await api('get', `/api/v1/statistics/exams/${exam.id}`, adminToken);
-    expect(detail).toMatchObject({ examId: exam.id, fullScore: 5, submitCount: 1, averageScore: 5 });
+    expect(detail).toMatchObject({
+      examId: exam.id, fullScore: 5, submitCount: 1, gradedCount: 1,
+      averageScore: 5, medianScore: 5,
+    });
     expect(detail.questionStats).toHaveLength(1);
     expect(detail.questionStats[0]).toMatchObject({ answerCount: 1, correctRate: 1, averageScore: 5 });
 
     const diagnostics = await api('get', `/api/v1/statistics/question-diagnostics?${query}`, adminToken);
     expect(diagnostics).toHaveLength(1);
     expect(diagnostics[0]).toMatchObject({ answerCount: 1, correctRate: 1, anomalyCount: 0 });
+
+    const preview = await api('get', `/api/v1/ai/summaries/exams/${exam.id}/preview`, adminToken);
+    expect(preview).toMatchObject({
+      datasetVersion: 'exam-summary/v1',
+      exam: { id: exam.id, classId: null },
+      participation: {
+        eligible: { value: null }, submitted: { value: 1 }, graded: { value: 1 },
+        submissionRate: { value: null },
+      },
+      scores: { average: { value: 5 }, median: { value: 5 } },
+    });
+    expect(preview.inputHash).toMatch(/^[0-9a-f]{64}$/);
+    expect(preview.evidence.length).toBeGreaterThan(10);
+    expect(preview.evidence.every((item: { refId: string }) => item.refId)).toBe(true);
+    await request(app.getHttpServer())
+      .get(`/api/v1/ai/summaries/exams/${exam.id}/preview`)
+      .auth(studentToken, { type: 'bearer' })
+      .expect(403);
 
     await request(app.getHttpServer())
       .get(`/api/v1/statistics/overview?${query}`)

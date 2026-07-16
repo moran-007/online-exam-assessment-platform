@@ -208,6 +208,7 @@ export type ProgrammingSubmissionFeedback = {
 export type StatisticsOverview = {
   submittedAttempts: number;
   averageScore: number;
+  medianScore?: number;
   maxScore: number;
   pendingManual: number;
   activeWrongQuestions: number;
@@ -227,6 +228,7 @@ export type ExamPerformance = {
   className: string;
   submitCount: number;
   averageScore: number;
+  medianScore?: number;
   maxScore: number;
   minScore?: number;
   fullScore?: number;
@@ -249,6 +251,7 @@ export type ClassPerformance = {
   studentCount: number;
   submitCount: number;
   averageScore: number;
+  medianScore?: number;
   maxScore?: number;
   minScore?: number;
   passRate: number;

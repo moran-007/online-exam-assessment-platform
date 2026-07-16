@@ -20,15 +20,20 @@ export type ExamSummaryDataset = SummaryDatasetBase & {
     id: string;
     name: string;
     courseId: string;
+    courseName: string;
     classId: string | null;
+    className: string | null;
   };
   participation: {
+    eligible: EvidencedValue<number | null>;
     submitted: EvidencedValue<number>;
     graded: EvidencedValue<number>;
+    submissionRate: EvidencedValue<number | null>;
   };
   scores: {
     fullScore: EvidencedValue<number>;
     average: EvidencedValue<number>;
+    median: EvidencedValue<number>;
     minimum: EvidencedValue<number>;
     maximum: EvidencedValue<number>;
   };

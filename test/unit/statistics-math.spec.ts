@@ -3,14 +3,16 @@ import {
   diagnosticSuggestion,
   ratio,
   scoreSummary,
+  median,
 } from '../../src/modules/statistics/statistics-math';
 
 describe('statistics math', () => {
   it('uses stable rounding and zero-safe score summaries', () => {
     expect(average([])).toBe(0);
     expect(average([1, 2, 2])).toBe(1.67);
-    expect(scoreSummary([])).toEqual({ averageScore: 0, maxScore: 0, minScore: 0 });
-    expect(scoreSummary([5, 7, 9])).toEqual({ averageScore: 7, maxScore: 9, minScore: 5 });
+    expect(median([9, 1, 5, 7])).toBe(6);
+    expect(scoreSummary([])).toEqual({ averageScore: 0, medianScore: 0, maxScore: 0, minScore: 0 });
+    expect(scoreSummary([5, 7, 9])).toEqual({ averageScore: 7, medianScore: 7, maxScore: 9, minScore: 5 });
     expect(ratio(1, 3)).toBe(0.3333);
     expect(ratio(1, 0)).toBe(0);
   });

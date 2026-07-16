@@ -15,7 +15,7 @@ export const adminMenuItems = [
   { path: '/courses', label: '课程', icon: 'Collection', permissions: ['course:read'] },
   { path: '/classes', label: '班级', icon: 'UserFilled', permissions: ['class:read'] },
   { path: '/users', label: '用户权限', icon: 'Setting', userTypes: ['SUPER_ADMIN'] },
-  { path: '/ai-settings', label: 'AI 配置', icon: 'Setting', userTypes: ['SUPER_ADMIN'] },
+  { path: '/ai-settings', label: 'AI 配置', icon: 'Setting', userTypes: ['SUPER_ADMIN', 'ADMIN', 'TEACHER', 'ASSISTANT'] },
   { path: '/knowledge', label: '课程知识点', icon: 'Share', permissions: ['knowledge-point:read'] },
   { path: '/tags', label: '标签', icon: 'PriceTag', permissions: ['tag:read'] },
   { path: '/questions', label: '题库', icon: 'EditPen', permissions: ['question:read'] },

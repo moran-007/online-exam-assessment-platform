@@ -101,6 +101,37 @@
         ],
         "type": "object"
       },
+      "AiDataCoverageDto": {
+        "properties": {
+          "excludes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "from": {
+            "nullable": true,
+            "type": "string"
+          },
+          "includes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "to": {
+            "nullable": true,
+            "type": "string"
+          }
+        },
+        "required": [
+          "from",
+          "to",
+          "includes",
+          "excludes"
+        ],
+        "type": "object"
+      },
       "AiDeleteResultDto": {
         "properties": {
           "deleted": {
@@ -117,6 +148,230 @@
         ],
         "type": "object"
       },
+      "AiEvidencedNumberDto": {
+        "properties": {
+          "evidenceRef": {
+            "type": "string"
+          },
+          "value": {
+            "nullable": true,
+            "type": "number"
+          }
+        },
+        "required": [
+          "value",
+          "evidenceRef"
+        ],
+        "type": "object"
+      },
+      "AiEvidenceRefDto": {
+        "properties": {
+          "capturedAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "metric": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "refId": {
+            "type": "string"
+          },
+          "sourceId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "sourceType": {
+            "type": "string"
+          },
+          "unit": {
+            "nullable": true,
+            "type": "string"
+          },
+          "value": {
+            "nullable": true,
+            "type": "object"
+          }
+        },
+        "required": [
+          "refId",
+          "sourceType",
+          "sourceId",
+          "metric",
+          "path",
+          "value",
+          "unit",
+          "capturedAt"
+        ],
+        "type": "object"
+      },
+      "AiExamContextDto": {
+        "properties": {
+          "classId": {
+            "format": "uuid",
+            "nullable": true,
+            "type": "string"
+          },
+          "className": {
+            "nullable": true,
+            "type": "string"
+          },
+          "courseId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "courseName": {
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "courseId",
+          "courseName",
+          "classId",
+          "className"
+        ],
+        "type": "object"
+      },
+      "AiExamDistributionDto": {
+        "properties": {
+          "count": {
+            "$ref": "#/components/schemas/AiEvidencedNumberDto"
+          },
+          "label": {
+            "type": "string"
+          },
+          "rate": {
+            "$ref": "#/components/schemas/AiEvidencedNumberDto"
+          }
+        },
+        "required": [
+          "label",
+          "count",
+          "rate"
+        ],
+        "type": "object"
+      },
+      "AiExamParticipationDto": {
+        "properties": {
+          "eligible": {
+            "$ref": "#/components/schemas/AiEvidencedNumberDto"
+          },
+          "graded": {
+            "$ref": "#/components/schemas/AiEvidencedNumberDto"
+          },
+          "submissionRate": {
+            "$ref": "#/components/schemas/AiEvidencedNumberDto"
+          },
+          "submitted": {
+            "$ref": "#/components/schemas/AiEvidencedNumberDto"
+          }
+        },
+        "required": [
+          "eligible",
+          "submitted",
+          "graded",
+          "submissionRate"
+        ],
+        "type": "object"
+      },
+      "AiExamQuestionFactDto": {
+        "properties": {
+          "anomalyCount": {
+            "$ref": "#/components/schemas/AiEvidencedNumberDto"
+          },
+          "answerCount": {
+            "$ref": "#/components/schemas/AiEvidencedNumberDto"
+          },
+          "averageScore": {
+            "$ref": "#/components/schemas/AiEvidencedNumberDto"
+          },
+          "correctRate": {
+            "$ref": "#/components/schemas/AiEvidencedNumberDto"
+          },
+          "discrimination": {
+            "$ref": "#/components/schemas/AiEvidencedNumberDto"
+          },
+          "questionId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "questionId",
+          "title",
+          "answerCount",
+          "correctRate",
+          "averageScore",
+          "discrimination",
+          "anomalyCount"
+        ],
+        "type": "object"
+      },
+      "AiExamScoresDto": {
+        "properties": {
+          "average": {
+            "$ref": "#/components/schemas/AiEvidencedNumberDto"
+          },
+          "fullScore": {
+            "$ref": "#/components/schemas/AiEvidencedNumberDto"
+          },
+          "maximum": {
+            "$ref": "#/components/schemas/AiEvidencedNumberDto"
+          },
+          "median": {
+            "$ref": "#/components/schemas/AiEvidencedNumberDto"
+          },
+          "minimum": {
+            "$ref": "#/components/schemas/AiEvidencedNumberDto"
+          }
+        },
+        "required": [
+          "fullScore",
+          "average",
+          "median",
+          "minimum",
+          "maximum"
+        ],
+        "type": "object"
+      },
+      "AiKnowledgePointFactDto": {
+        "properties": {
+          "answerCount": {
+            "$ref": "#/components/schemas/AiEvidencedNumberDto"
+          },
+          "correctRate": {
+            "$ref": "#/components/schemas/AiEvidencedNumberDto"
+          },
+          "knowledgePointId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "knowledgePointId",
+          "name",
+          "answerCount",
+          "correctRate"
+        ],
+        "type": "object"
+      },
       "AiProviderConfigResponseDto": {
         "properties": {
           "apiKeyMasked": {
@@ -124,6 +379,9 @@
           },
           "baseUrl": {
             "type": "string"
+          },
+          "canManage": {
+            "type": "boolean"
           },
           "createdAt": {
             "format": "date-time",
@@ -171,6 +429,13 @@
           "provider": {
             "type": "string"
           },
+          "scope": {
+            "enum": [
+              "system",
+              "personal"
+            ],
+            "type": "string"
+          },
           "timeoutMs": {
             "type": "number"
           },
@@ -188,6 +453,8 @@
           "provider",
           "baseUrl",
           "model",
+          "scope",
+          "canManage",
           "enabled",
           "isDefault",
           "timeoutMs",
@@ -837,6 +1104,9 @@
           "maxScore": {
             "type": "number"
           },
+          "medianScore": {
+            "type": "number"
+          },
           "minScore": {
             "type": "number"
           },
@@ -857,6 +1127,7 @@
           "studentCount",
           "submitCount",
           "averageScore",
+          "medianScore",
           "maxScore",
           "minScore",
           "passRate",
@@ -909,6 +1180,14 @@
           "provider": {
             "example": "deepseek",
             "maxLength": 50,
+            "type": "string"
+          },
+          "scope": {
+            "description": "系统共享配置仅超级管理员可创建",
+            "enum": [
+              "system",
+              "personal"
+            ],
             "type": "string"
           },
           "timeoutMs": {
@@ -1369,9 +1648,9 @@
           "type": {
             "default": "QUESTION",
             "enum": [
-              "EXAM",
               "QUESTION",
               "PAPER",
+              "EXAM",
               "CUSTOM"
             ],
             "type": "string"
@@ -1411,6 +1690,9 @@
           "maxScore": {
             "type": "number"
           },
+          "medianScore": {
+            "type": "number"
+          },
           "minScore": {
             "type": "number"
           },
@@ -1431,6 +1713,7 @@
           "submitCount",
           "gradedCount",
           "averageScore",
+          "medianScore",
           "maxScore",
           "minScore"
         ],
@@ -1519,7 +1802,13 @@
           "fullScore": {
             "type": "number"
           },
+          "gradedCount": {
+            "type": "number"
+          },
           "maxScore": {
+            "type": "number"
+          },
+          "medianScore": {
             "type": "number"
           },
           "minScore": {
@@ -1541,10 +1830,76 @@
           "courseName",
           "fullScore",
           "submitCount",
+          "gradedCount",
           "averageScore",
+          "medianScore",
           "maxScore",
           "minScore",
           "questionStats"
+        ],
+        "type": "object"
+      },
+      "ExamSummaryDatasetPreviewDto": {
+        "properties": {
+          "dataCoverage": {
+            "$ref": "#/components/schemas/AiDataCoverageDto"
+          },
+          "datasetVersion": {
+            "type": "string"
+          },
+          "distribution": {
+            "items": {
+              "$ref": "#/components/schemas/AiExamDistributionDto"
+            },
+            "type": "array"
+          },
+          "evidence": {
+            "items": {
+              "$ref": "#/components/schemas/AiEvidenceRefDto"
+            },
+            "type": "array"
+          },
+          "exam": {
+            "$ref": "#/components/schemas/AiExamContextDto"
+          },
+          "generatedAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "inputHash": {
+            "type": "string"
+          },
+          "knowledgePoints": {
+            "items": {
+              "$ref": "#/components/schemas/AiKnowledgePointFactDto"
+            },
+            "type": "array"
+          },
+          "participation": {
+            "$ref": "#/components/schemas/AiExamParticipationDto"
+          },
+          "questions": {
+            "items": {
+              "$ref": "#/components/schemas/AiExamQuestionFactDto"
+            },
+            "type": "array"
+          },
+          "scores": {
+            "$ref": "#/components/schemas/AiExamScoresDto"
+          }
+        },
+        "required": [
+          "inputHash",
+          "datasetVersion",
+          "generatedAt",
+          "dataCoverage",
+          "exam",
+          "participation",
+          "scores",
+          "distribution",
+          "questions",
+          "knowledgePoints",
+          "evidence"
         ],
         "type": "object"
       },
@@ -2646,6 +3001,9 @@
           "maxScore": {
             "type": "number"
           },
+          "medianScore": {
+            "type": "number"
+          },
           "minScore": {
             "type": "number"
           },
@@ -2672,6 +3030,7 @@
           "pendingManual",
           "activeWrongQuestions",
           "averageScore",
+          "medianScore",
           "maxScore",
           "minScore",
           "gradedCount"
@@ -3289,9 +3648,9 @@
           },
           "type": {
             "enum": [
-              "EXAM",
               "QUESTION",
               "PAPER",
+              "EXAM",
               "CUSTOM"
             ],
             "type": "string"
@@ -3875,6 +4234,80 @@
         ],
         "tags": [
           "AI"
+        ]
+      }
+    },
+    "/api/v1/ai/summaries/exams/{examId}/preview": {
+      "get": {
+        "operationId": "AiSummary_preview",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "examId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "code": {
+                      "example": 0,
+                      "type": "integer"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/ExamSummaryDatasetPreviewDto"
+                    },
+                    "message": {
+                      "example": "ok",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "code",
+                    "message",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "401": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "404": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "409": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "429": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "500": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "AI Summary"
         ]
       }
     },
@@ -18003,9 +18436,9 @@
             "required": false,
             "schema": {
               "enum": [
-                "EXAM",
                 "QUESTION",
                 "PAPER",
+                "EXAM",
                 "CUSTOM"
               ],
               "type": "string"

@@ -13,6 +13,7 @@ export interface ClassPerformanceDto {
   completionRate: number;
   courseName: string;
   maxScore: number;
+  medianScore: number;
   minScore: number;
   passRate: number;
   studentCount: number;

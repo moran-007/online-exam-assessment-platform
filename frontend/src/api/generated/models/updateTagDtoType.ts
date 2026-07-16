@@ -10,8 +10,8 @@ export type UpdateTagDtoType = typeof UpdateTagDtoType[keyof typeof UpdateTagDto
 
 
 export const UpdateTagDtoType = {
-  EXAM: 'EXAM',
   QUESTION: 'QUESTION',
   PAPER: 'PAPER',
+  EXAM: 'EXAM',
   CUSTOM: 'CUSTOM',
 } as const;

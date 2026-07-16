@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import type { AiProviderConfig, Prisma } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
 import { RequestUser } from '../../common/interfaces/request-user.interface';
@@ -6,6 +6,7 @@ import { CredentialCipherService } from '../../security/credential-cipher.servic
 import { AuditService } from '../audit/audit.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { AiProviderGateway } from './ai-provider.gateway';
+import { AiProviderConfigAccessService } from './ai-provider-config-access.service';
 import { AI_PROVIDER_PRESETS } from './ai-provider.presets';
 import { AiTokenQuota, AiTokenUsageService } from './ai-token-usage.service';
 import { CreateAiProviderConfigDto, UpdateAiProviderConfigDto } from './dto/ai.dto';
@@ -18,21 +19,23 @@ export class AiConfigUseCases {
     private readonly gateway: AiProviderGateway,
     private readonly audit: AuditService,
     private readonly tokenUsage: AiTokenUsageService,
+    private readonly access: AiProviderConfigAccessService,
   ) {}
 
   presets() {
     return [...AI_PROVIDER_PRESETS];
   }
 
-  async list() {
-    const rows = await this.prisma.aiProviderConfig.findMany({ orderBy: [{ isDefault: 'desc' }, { createdAt: 'asc' }] });
+  async list(user: RequestUser) {
+    const rows = await this.access.list(user);
     const quotas = await this.tokenUsage.quotas(rows);
-    return rows.map((row) => this.format(row, quotas.get(row.id)));
+    return rows.map((row) => this.format(row, user, quotas.get(row.id)));
   }
 
   async create(dto: CreateAiProviderConfigDto, user: RequestUser) {
     const id = randomUUID();
     const encrypted = this.cipher.encrypt(dto.apiKey.trim(), this.purpose(id));
+    const ownership = this.access.createOwnership(dto.scope, user);
     const data: Prisma.AiProviderConfigUncheckedCreateInput = {
       id,
       name: dto.name.trim(),
@@ -48,19 +51,22 @@ export class AiConfigUseCases {
       timeoutMs: dto.timeoutMs ?? 30_000,
       maxTokens: dto.maxTokens ?? 1000,
       monthlyTokenBudget: dto.monthlyTokenBudget,
+      ...ownership,
       createdBy: user.id,
       updatedBy: user.id,
     };
     const row = await this.prisma.$transaction(async (tx) => {
-      if (data.isDefault) await tx.aiProviderConfig.updateMany({ data: { isDefault: false } });
+      if (data.isDefault) {
+        await tx.aiProviderConfig.updateMany({ where: this.access.defaultPeers(ownership), data: { isDefault: false } });
+      }
       return tx.aiProviderConfig.create({ data });
     });
     await this.audit.log({ userId: user.id, action: 'ai:config-create', module: 'ai', targetType: 'ai_provider_config', targetId: id, afterData: this.auditData(row) });
-    return this.format(row, await this.tokenUsage.quota(row));
+    return this.format(row, user, await this.tokenUsage.quota(row));
   }
 
   async update(id: string, dto: UpdateAiProviderConfigDto, user: RequestUser) {
-    const existing = await this.requireConfig(id);
+    const existing = await this.access.requireManageable(id, user);
     const encrypted = dto.apiKey?.trim() ? this.cipher.encrypt(dto.apiKey.trim(), this.purpose(id)) : null;
     const data: Prisma.AiProviderConfigUncheckedUpdateInput = {
       name: dto.name?.trim(),
@@ -81,22 +87,26 @@ export class AiConfigUseCases {
       } : {}),
     };
     const row = await this.prisma.$transaction(async (tx) => {
-      if (dto.isDefault) await tx.aiProviderConfig.updateMany({ where: { id: { not: id } }, data: { isDefault: false } });
+      if (dto.isDefault) {
+        await tx.aiProviderConfig.updateMany({
+          where: { id: { not: id }, ...this.access.defaultPeers(existing) }, data: { isDefault: false },
+        });
+      }
       return tx.aiProviderConfig.update({ where: { id }, data });
     });
     await this.audit.log({ userId: user.id, action: 'ai:config-update', module: 'ai', targetType: 'ai_provider_config', targetId: id, beforeData: this.auditData(existing), afterData: this.auditData(row) });
-    return this.format(row, await this.tokenUsage.quota(row));
+    return this.format(row, user, await this.tokenUsage.quota(row));
   }
 
   async remove(id: string, user: RequestUser) {
-    const existing = await this.requireConfig(id);
+    const existing = await this.access.requireManageable(id, user);
     await this.prisma.aiProviderConfig.delete({ where: { id } });
     await this.audit.log({ userId: user.id, action: 'ai:config-delete', module: 'ai', targetType: 'ai_provider_config', targetId: id, beforeData: this.auditData(existing) });
     return { id, deleted: true };
   }
 
   async test(id: string, user: RequestUser) {
-    const config = await this.requireConfig(id);
+    const config = await this.access.requireManageable(id, user);
     const requestedOutputTokens = 4;
     await this.tokenUsage.authorize(config, requestedOutputTokens);
     const startedAt = Date.now();
@@ -132,12 +142,6 @@ export class AiConfigUseCases {
     }
   }
 
-  private async requireConfig(id: string) {
-    const row = await this.prisma.aiProviderConfig.findUnique({ where: { id } });
-    if (!row) throw new NotFoundException('AI 配置不存在');
-    return row;
-  }
-
   private decrypt(row: AiProviderConfig) {
     return this.cipher.decrypt({
       ciphertext: row.apiKeyCiphertext, iv: row.apiKeyIv, authTag: row.apiKeyAuthTag, keyVersion: row.apiKeyKeyVersion,
@@ -146,9 +150,10 @@ export class AiConfigUseCases {
 
   private purpose(id: string) { return `ai-provider:${id}`; }
 
-  private format(row: AiProviderConfig, tokenQuota?: AiTokenQuota) {
+  private format(row: AiProviderConfig, user: RequestUser, tokenQuota?: AiTokenQuota) {
     return {
       id: row.id, name: row.name, provider: row.provider, baseUrl: row.baseUrl, model: row.model,
+      scope: row.scope.toLowerCase(), canManage: this.access.canManage(row, user),
       enabled: row.enabled, isDefault: row.isDefault, timeoutMs: row.timeoutMs, maxTokens: row.maxTokens,
       monthlyTokenBudget: row.monthlyTokenBudget, tokenQuota,
       hasApiKey: Boolean(row.apiKeyCiphertext), apiKeyMasked: '••••••••',
@@ -158,6 +163,9 @@ export class AiConfigUseCases {
   }
 
   private auditData(row: AiProviderConfig) {
-    return { id: row.id, name: row.name, provider: row.provider, baseUrl: row.baseUrl, model: row.model, enabled: row.enabled, isDefault: row.isDefault };
+    return {
+      id: row.id, name: row.name, provider: row.provider, baseUrl: row.baseUrl, model: row.model,
+      scope: row.scope.toLowerCase(), enabled: row.enabled, isDefault: row.isDefault,
+    };
   }
 }

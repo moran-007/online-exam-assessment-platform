@@ -38,6 +38,7 @@ const permissions = [
   ['ai.summary.revoke', '撤回 AI 总结'], ['ai.summary.view-own', '查看本人已发布 AI 总结'],
   ['ai.summary.view-class', '查看班级 AI 总结'], ['ai.prompt.manage', '管理 AI 提示模板'],
   ['ai.provider.manage', '管理 AI 模型配置'],
+  ['ai.provider.manage-own', '管理个人 AI 模型配置'],
   ['statistics:read', '查看统计'], ['audit-log:read', '查看审计日志'],
 ] as const;
 
@@ -119,6 +120,7 @@ async function main() {
         'ai.summary.publish',
         'ai.summary.revoke',
         'ai.summary.view-class',
+        'ai.provider.manage-own',
       ],
     },
     {

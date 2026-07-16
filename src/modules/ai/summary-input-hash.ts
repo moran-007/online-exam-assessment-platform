@@ -1,7 +1,16 @@
 import { createHash } from 'node:crypto';
+import type { SummaryDatasetBase } from './datasets/summary-dataset';
 
 export function createSummaryInputHash(input: unknown) {
   return createHash('sha256').update(canonicalJson(input)).digest('hex');
+}
+
+export function createSummaryDatasetInputHash(dataset: SummaryDatasetBase) {
+  const evidenceIndex = Object.fromEntries(Object.entries(dataset.evidenceIndex).map(([key, evidence]) => [
+    key,
+    { ...evidence, capturedAt: undefined },
+  ]));
+  return createSummaryInputHash({ ...dataset, generatedAt: undefined, evidenceIndex });
 }
 
 export function canonicalJson(input: unknown): string {

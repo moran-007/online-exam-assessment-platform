@@ -1,5 +1,6 @@
 import { computed, onMounted, reactive, ref } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
+import { getCurrentUser } from '../../../api';
 import {
   createAiConfiguration,
   generateAiSummary,
@@ -13,12 +14,14 @@ import type { AiProviderConfig, AiProviderPreset, AiTokenQuotaDto, CreateAiProvi
 
 type AiConfigForm = CreateAiProviderConfig & { id: string };
 
-const emptyForm = (): AiConfigForm => ({
+const emptyForm = (scope: 'system' | 'personal'): AiConfigForm => ({
   id: '', name: '', provider: 'custom', baseUrl: '', model: '', apiKey: '',
-  enabled: true, isDefault: false, timeoutMs: 30_000, maxTokens: 1000, monthlyTokenBudget: undefined,
+  scope, enabled: true, isDefault: false, timeoutMs: 30_000, maxTokens: 1000, monthlyTokenBudget: undefined,
 });
 
 export function useAiSettingsPage() {
+  const canCreateSystem = getCurrentUser()?.userType === 'SUPER_ADMIN';
+  const defaultScope = canCreateSystem ? 'system' : 'personal';
   const loading = ref(false);
   const saving = ref(false);
   const testingId = ref('');
@@ -26,7 +29,7 @@ export function useAiSettingsPage() {
   const configurations = ref<AiProviderConfig[]>([]);
   const presets = ref<AiProviderPreset[]>([]);
   const selectedPresetProvider = ref('');
-  const form = reactive<AiConfigForm>(emptyForm());
+  const form = reactive<AiConfigForm>(emptyForm(defaultScope));
   const summaryForm = reactive({ configId: '', content: '', instruction: '', maxTokens: 1000 });
   const summaryResult = ref('');
   const summaryMeta = ref('');
@@ -57,7 +60,7 @@ export function useAiSettingsPage() {
   }
 
   function openCreate(preset?: AiProviderPreset) {
-    Object.assign(form, emptyForm());
+    Object.assign(form, emptyForm(defaultScope));
     selectedPresetProvider.value = preset?.provider || '';
     if (preset) applyPreset(preset.provider);
     dialogVisible.value = true;
@@ -67,6 +70,7 @@ export function useAiSettingsPage() {
     const row = configFrom(value);
     Object.assign(form, {
       id: row.id, name: row.name, provider: row.provider, baseUrl: row.baseUrl, model: row.model,
+      scope: row.scope,
       apiKey: '', enabled: row.enabled, isDefault: row.isDefault, timeoutMs: row.timeoutMs, maxTokens: row.maxTokens,
       monthlyTokenBudget: row.monthlyTokenBudget ?? undefined,
     });
@@ -83,6 +87,7 @@ export function useAiSettingsPage() {
     try {
       const body = {
         name: form.name.trim(), provider: form.provider.trim(), baseUrl: form.baseUrl.trim(), model: form.model.trim(),
+        ...(!form.id ? { scope: form.scope } : {}),
         ...(form.apiKey.trim() ? { apiKey: form.apiKey.trim() } : {}),
         enabled: form.enabled, isDefault: form.isDefault,
         timeoutMs: Number(form.timeoutMs), maxTokens: Number(form.maxTokens),
@@ -155,7 +160,7 @@ export function useAiSettingsPage() {
 
   onMounted(load);
   return {
-    activeConfigurations, applyPreset, configurations, dialogVisible, form, formatTokenQuota, load, loading,
+    activeConfigurations, applyPreset, canCreateSystem, configurations, dialogVisible, form, formatTokenQuota, load, loading,
     openCreate, openEdit, presets, remove, save, saving, selectedPresetProvider, summarize,
     summaryForm, summaryLoading, summaryMeta, summaryResult, testConnection, testingId,
   };

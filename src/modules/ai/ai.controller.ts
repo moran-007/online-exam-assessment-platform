@@ -1,6 +1,7 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post } from '@nestjs/common';
 import { ApiBearerAuth, ApiCreatedResponse, ApiOkResponse, ApiTags } from '@nestjs/swagger';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import { Permissions } from '../../common/decorators/permissions.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { RequestUser } from '../../common/interfaces/request-user.interface';
 import { AiConfigUseCases } from './ai-config.use-cases';
@@ -18,7 +19,7 @@ import {
 
 @ApiTags('AI')
 @ApiBearerAuth()
-@Roles('SUPER_ADMIN')
+@Roles('SUPER_ADMIN', 'ADMIN', 'TEACHER', 'ASSISTANT')
 @Controller('ai')
 export class AiController {
   constructor(
@@ -32,7 +33,7 @@ export class AiController {
 
   @Get('configurations')
   @ApiOkResponse({ type: [AiProviderConfigResponseDto] })
-  configurations() { return this.useCases.list(); }
+  configurations(@CurrentUser() user: RequestUser) { return this.useCases.list(user); }
 
   @Post('configurations')
   @ApiCreatedResponse({ type: AiProviderConfigResponseDto })
@@ -53,6 +54,7 @@ export class AiController {
   test(@Param('id') id: string, @CurrentUser() user: RequestUser) { return this.useCases.test(id, user); }
 
   @Post('summary')
+  @Permissions('ai.summary.exam.generate')
   @ApiCreatedResponse({ type: AiSummaryResultDto })
   summarize(@Body() dto: GenerateAiSummaryDto, @CurrentUser() user: RequestUser) {
     return this.generation.summarize(dto, user);

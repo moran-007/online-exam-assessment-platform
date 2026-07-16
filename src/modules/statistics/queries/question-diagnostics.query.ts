@@ -48,7 +48,7 @@ export class QuestionDiagnosticsQuery {
         },
       },
       orderBy: { updatedAt: 'desc' },
-      take: 5000,
+      take: query.examId ? undefined : 5000,
     });
     const scores = new Map<string, number>();
     for (const record of records) scores.set(record.attempt.id, Number(record.attempt.totalScore));

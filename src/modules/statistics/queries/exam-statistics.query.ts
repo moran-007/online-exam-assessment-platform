@@ -179,6 +179,7 @@ export class ExamStatisticsQuery {
       courseName: exam.course.name,
       fullScore: Number(exam.paper.totalScore),
       submitCount: exam.attempts.length,
+      gradedCount: exam.attempts.filter((attempt) => toApiEnum(attempt.status) === 'graded').length,
       ...scoreSummary(scores),
       questionStats: [...questionStats.entries()].map(([questionId, item]) => {
         const question = questionMap.get(questionId);

@@ -14,6 +14,7 @@ export interface StatisticsOverviewDto {
   exams: number;
   gradedCount: number;
   maxScore: number;
+  medianScore: number;
   minScore: number;
   papers: number;
   pendingManual: number;

@@ -11,6 +11,7 @@ export class StatisticsOverviewDto {
   @ApiProperty() pendingManual: number;
   @ApiProperty() activeWrongQuestions: number;
   @ApiProperty() averageScore: number;
+  @ApiProperty() medianScore: number;
   @ApiProperty() maxScore: number;
   @ApiProperty() minScore: number;
   @ApiProperty() gradedCount: number;
@@ -26,6 +27,7 @@ export class ExamPerformanceDto {
   @ApiProperty() submitCount: number;
   @ApiProperty() gradedCount: number;
   @ApiProperty() averageScore: number;
+  @ApiProperty() medianScore: number;
   @ApiProperty() maxScore: number;
   @ApiProperty() minScore: number;
 }
@@ -67,7 +69,9 @@ export class ExamStatisticsDetailDto {
   @ApiProperty() courseName: string;
   @ApiProperty() fullScore: number;
   @ApiProperty() submitCount: number;
+  @ApiProperty() gradedCount: number;
   @ApiProperty() averageScore: number;
+  @ApiProperty() medianScore: number;
   @ApiProperty() maxScore: number;
   @ApiProperty() minScore: number;
   @ApiProperty({ type: () => [ExamQuestionStatisticDto] })
@@ -93,6 +97,7 @@ export class ClassPerformanceDto {
   @ApiProperty() studentCount: number;
   @ApiProperty() submitCount: number;
   @ApiProperty() averageScore: number;
+  @ApiProperty() medianScore: number;
   @ApiProperty() maxScore: number;
   @ApiProperty() minScore: number;
   @ApiProperty() passRate: number;

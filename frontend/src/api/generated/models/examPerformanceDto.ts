@@ -15,6 +15,7 @@ export interface ExamPerformanceDto {
   fullScore: number;
   gradedCount: number;
   maxScore: number;
+  medianScore: number;
   minScore: number;
   status: string;
   submitCount: number;

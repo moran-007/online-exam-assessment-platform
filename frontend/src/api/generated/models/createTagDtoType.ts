@@ -10,8 +10,8 @@ export type CreateTagDtoType = typeof CreateTagDtoType[keyof typeof CreateTagDto
 
 
 export const CreateTagDtoType = {
-  EXAM: 'EXAM',
   QUESTION: 'QUESTION',
   PAPER: 'PAPER',
+  EXAM: 'EXAM',
   CUSTOM: 'CUSTOM',
 } as const;

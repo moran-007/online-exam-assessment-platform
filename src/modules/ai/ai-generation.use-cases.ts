@@ -1,10 +1,10 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import type { AiProviderConfig } from '@prisma/client';
 import { RequestUser } from '../../common/interfaces/request-user.interface';
 import { MetricsService } from '../../observability/metrics.service';
 import { CredentialCipherService } from '../../security/credential-cipher.service';
 import { AuditService } from '../audit/audit.service';
-import { PrismaService } from '../prisma/prisma.service';
+import { AiProviderConfigAccessService } from './ai-provider-config-access.service';
 import { AiProviderGateway } from './ai-provider.gateway';
 import { AiTokenUsageService } from './ai-token-usage.service';
 import { GenerateAiSummaryDto } from './dto/ai.dto';
@@ -12,7 +12,7 @@ import { GenerateAiSummaryDto } from './dto/ai.dto';
 @Injectable()
 export class AiGenerationUseCases {
   constructor(
-    private readonly prisma: PrismaService,
+    private readonly access: AiProviderConfigAccessService,
     private readonly cipher: CredentialCipherService,
     private readonly gateway: AiProviderGateway,
     private readonly tokenUsage: AiTokenUsageService,
@@ -21,7 +21,7 @@ export class AiGenerationUseCases {
   ) {}
 
   async summarize(dto: GenerateAiSummaryDto, user: RequestUser) {
-    const config = await this.config(dto.configId);
+    const config = await this.access.resolve(user, dto.configId);
     const requestedOutputTokens = Math.min(dto.maxTokens ?? 1000, config.maxTokens, 1200);
     await this.tokenUsage.authorize(config, requestedOutputTokens);
     const startedAt = Date.now();
@@ -52,17 +52,6 @@ export class AiGenerationUseCases {
       summary: result.content, provider: config.provider, model: config.model,
       usage: result.usage, tokenQuota, durationMs: result.durationMs,
     };
-  }
-
-  private async config(id?: string) {
-    const row = id
-      ? await this.prisma.aiProviderConfig.findUnique({ where: { id } })
-      : await this.prisma.aiProviderConfig.findFirst({
-        where: { enabled: true }, orderBy: [{ isDefault: 'desc' }, { createdAt: 'asc' }],
-      });
-    if (!row) throw new NotFoundException(id ? 'AI 配置不存在' : '尚未配置可用的 AI 提供商');
-    if (!row.enabled) throw new BadRequestException('所选 AI 配置已停用');
-    return row;
   }
 
   private decrypt(config: AiProviderConfig) {

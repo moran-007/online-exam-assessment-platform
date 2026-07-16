@@ -36,7 +36,7 @@ const routes = [
   { path: '/courses', component: CourseView, meta: { adminOnly: true, permissions: ['course:read'] } },
   { path: '/classes', component: ClassView, meta: { adminOnly: true, permissions: ['class:read'] } },
   { path: '/users', component: UserManagementView, meta: { adminOnly: true, userTypes: ['SUPER_ADMIN'] } },
-  { path: '/ai-settings', component: AiSettingsView, meta: { adminOnly: true, userTypes: ['SUPER_ADMIN'] } },
+  { path: '/ai-settings', component: AiSettingsView, meta: { adminOnly: true, userTypes: ['SUPER_ADMIN', 'ADMIN', 'TEACHER', 'ASSISTANT'] } },
   { path: '/knowledge', component: KnowledgeView, meta: { adminOnly: true, permissions: ['knowledge-point:read'] } },
   { path: '/tags', component: TagView, meta: { adminOnly: true, permissions: ['tag:read'] } },
   { path: '/questions', component: QuestionView, meta: { adminOnly: true, permissions: ['question:read'] } },

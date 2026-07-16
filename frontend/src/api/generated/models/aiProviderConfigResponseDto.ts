@@ -5,11 +5,13 @@
  * Online exam and intelligent assessment platform API
  * OpenAPI spec version: 1.0
  */
+import type { AiProviderConfigResponseDtoScope } from './aiProviderConfigResponseDtoScope';
 import type { AiTokenQuotaDto } from './aiTokenQuotaDto';
 
 export interface AiProviderConfigResponseDto {
   apiKeyMasked: string;
   baseUrl: string;
+  canManage: boolean;
   createdAt: string;
   enabled: boolean;
   hasApiKey: boolean;
@@ -27,6 +29,7 @@ export interface AiProviderConfigResponseDto {
   monthlyTokenBudget: number | null;
   name: string;
   provider: string;
+  scope: AiProviderConfigResponseDtoScope;
   timeoutMs: number;
   tokenQuota: AiTokenQuotaDto;
   updatedAt: string;
