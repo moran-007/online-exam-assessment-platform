@@ -168,6 +168,52 @@ describe('core API flows', () => {
       .expect(400);
   });
 
+  it('reports deterministic statistics from the completed exam lifecycle', async () => {
+    const course = await prisma.course.findFirstOrThrow({ where: { code: 'integration_course' } });
+    const exam = await prisma.exam.findFirstOrThrow({ where: { name: 'Integration Exam' } });
+    const query = `courseId=${course.id}&examId=${exam.id}`;
+
+    const overview = await api('get', `/api/v1/statistics/overview?${query}`, adminToken);
+    expect(overview).toMatchObject({
+      questions: 1,
+      exams: 1,
+      submittedAttempts: 1,
+      averageScore: 5,
+      maxScore: 5,
+      minScore: 5,
+      gradedCount: 1,
+    });
+
+    const exams = await api('get', `/api/v1/statistics/exams?${query}`, adminToken);
+    expect(exams).toMatchObject({ page: 1, pageSize: 20, total: 1 });
+    expect(exams.items[0]).toMatchObject({
+      examId: exam.id,
+      examName: 'Integration Exam',
+      fullScore: 5,
+      submitCount: 1,
+      averageScore: 5,
+    });
+
+    const distribution = await api('get', `/api/v1/statistics/score-distribution?${query}`, adminToken);
+    expect(distribution).toMatchObject({ total: 1, averageScore: 5, averagePercent: 100 });
+    expect(distribution.buckets.find((bucket: { label: string }) => bucket.label === '90-100%'))
+      .toMatchObject({ count: 1, percent: 1 });
+
+    const detail = await api('get', `/api/v1/statistics/exams/${exam.id}`, adminToken);
+    expect(detail).toMatchObject({ examId: exam.id, fullScore: 5, submitCount: 1, averageScore: 5 });
+    expect(detail.questionStats).toHaveLength(1);
+    expect(detail.questionStats[0]).toMatchObject({ answerCount: 1, correctRate: 1, averageScore: 5 });
+
+    const diagnostics = await api('get', `/api/v1/statistics/question-diagnostics?${query}`, adminToken);
+    expect(diagnostics).toHaveLength(1);
+    expect(diagnostics[0]).toMatchObject({ answerCount: 1, correctRate: 1, anomalyCount: 0 });
+
+    await request(app.getHttpServer())
+      .get(`/api/v1/statistics/overview?${query}`)
+      .auth(studentToken, { type: 'bearer' })
+      .expect(403);
+  });
+
   it('runs material children, rubric history and preview-confirm regrading without AI score writes', async () => {
     const course = await prisma.course.findFirstOrThrow({ where: { code: 'integration_course' } });
     const choice = await api('post', '/api/v1/questions', adminToken, {

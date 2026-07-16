@@ -744,6 +744,54 @@
         ],
         "type": "object"
       },
+      "ClassPerformanceDto": {
+        "properties": {
+          "averageScore": {
+            "type": "number"
+          },
+          "classId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "className": {
+            "type": "string"
+          },
+          "completionRate": {
+            "type": "number"
+          },
+          "courseName": {
+            "type": "string"
+          },
+          "maxScore": {
+            "type": "number"
+          },
+          "minScore": {
+            "type": "number"
+          },
+          "passRate": {
+            "type": "number"
+          },
+          "studentCount": {
+            "type": "number"
+          },
+          "submitCount": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "classId",
+          "className",
+          "courseName",
+          "studentCount",
+          "submitCount",
+          "averageScore",
+          "maxScore",
+          "minScore",
+          "passRate",
+          "completionRate"
+        ],
+        "type": "object"
+      },
       "CreateAiProviderConfigDto": {
         "properties": {
           "apiKey": {
@@ -1259,6 +1307,170 @@
         ],
         "type": "object"
       },
+      "ExamPerformanceDto": {
+        "properties": {
+          "averageScore": {
+            "type": "number"
+          },
+          "className": {
+            "type": "string"
+          },
+          "courseName": {
+            "type": "string"
+          },
+          "examId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "examName": {
+            "type": "string"
+          },
+          "fullScore": {
+            "type": "number"
+          },
+          "gradedCount": {
+            "type": "number"
+          },
+          "maxScore": {
+            "type": "number"
+          },
+          "minScore": {
+            "type": "number"
+          },
+          "status": {
+            "type": "string"
+          },
+          "submitCount": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "examId",
+          "examName",
+          "courseName",
+          "className",
+          "fullScore",
+          "status",
+          "submitCount",
+          "gradedCount",
+          "averageScore",
+          "maxScore",
+          "minScore"
+        ],
+        "type": "object"
+      },
+      "ExamPerformancePageDto": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ExamPerformanceDto"
+            },
+            "type": "array"
+          },
+          "page": {
+            "example": 1,
+            "type": "number"
+          },
+          "pageSize": {
+            "example": 20,
+            "type": "number"
+          },
+          "total": {
+            "example": 0,
+            "type": "number"
+          }
+        },
+        "required": [
+          "items",
+          "page",
+          "pageSize",
+          "total"
+        ],
+        "type": "object"
+      },
+      "ExamQuestionStatisticDto": {
+        "properties": {
+          "answerCount": {
+            "type": "number"
+          },
+          "averageScore": {
+            "type": "number"
+          },
+          "correctRate": {
+            "type": "number"
+          },
+          "difficulty": {
+            "type": "number"
+          },
+          "questionId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "questionId",
+          "title",
+          "type",
+          "difficulty",
+          "answerCount",
+          "correctRate",
+          "averageScore"
+        ],
+        "type": "object"
+      },
+      "ExamStatisticsDetailDto": {
+        "properties": {
+          "averageScore": {
+            "type": "number"
+          },
+          "courseName": {
+            "type": "string"
+          },
+          "examId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "examName": {
+            "type": "string"
+          },
+          "fullScore": {
+            "type": "number"
+          },
+          "maxScore": {
+            "type": "number"
+          },
+          "minScore": {
+            "type": "number"
+          },
+          "questionStats": {
+            "items": {
+              "$ref": "#/components/schemas/ExamQuestionStatisticDto"
+            },
+            "type": "array"
+          },
+          "submitCount": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "examId",
+          "examName",
+          "courseName",
+          "fullScore",
+          "submitCount",
+          "averageScore",
+          "maxScore",
+          "minScore",
+          "questionStats"
+        ],
+        "type": "object"
+      },
       "GenerateAiSummaryDto": {
         "properties": {
           "configId": {
@@ -1557,6 +1769,67 @@
         ],
         "type": "object"
       },
+      "KnowledgePerformanceDto": {
+        "properties": {
+          "answerCount": {
+            "type": "number"
+          },
+          "averageScore": {
+            "type": "number"
+          },
+          "correctRate": {
+            "type": "number"
+          },
+          "knowledgePointId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "knowledgePointId",
+          "name",
+          "answerCount",
+          "correctRate",
+          "averageScore"
+        ],
+        "type": "object"
+      },
+      "KnowledgeTrendPointDto": {
+        "properties": {
+          "answerCount": {
+            "type": "number"
+          },
+          "averageScore": {
+            "type": "number"
+          },
+          "correctRate": {
+            "type": "number"
+          },
+          "date": {
+            "example": "2026-07-16",
+            "type": "string"
+          },
+          "knowledgePointId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "knowledgePointId",
+          "name",
+          "answerCount",
+          "correctRate",
+          "averageScore",
+          "date"
+        ],
+        "type": "object"
+      },
       "LoginDto": {
         "properties": {
           "password": {
@@ -1586,6 +1859,21 @@
             "type": "string"
           }
         },
+        "type": "object"
+      },
+      "MasteryStatisticCountDto": {
+        "properties": {
+          "count": {
+            "type": "number"
+          },
+          "masteryStatus": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "count",
+          "masteryStatus"
+        ],
         "type": "object"
       },
       "MovePaperQuestionDto": {
@@ -1768,6 +2056,76 @@
           "questionId",
           "score",
           "sortOrder"
+        ],
+        "type": "object"
+      },
+      "QuestionDiagnosticDto": {
+        "properties": {
+          "actualDifficulty": {
+            "type": "number"
+          },
+          "anomalyCount": {
+            "type": "number"
+          },
+          "answerCount": {
+            "type": "number"
+          },
+          "averageScore": {
+            "type": "number"
+          },
+          "correctRate": {
+            "type": "number"
+          },
+          "difficulty": {
+            "type": "number"
+          },
+          "difficultyDelta": {
+            "type": "number"
+          },
+          "discrimination": {
+            "type": "number"
+          },
+          "knowledgePointNames": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "questionId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "suggestion": {
+            "type": "string"
+          },
+          "tagNames": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "title": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "questionId",
+          "title",
+          "type",
+          "difficulty",
+          "answerCount",
+          "correctRate",
+          "averageScore",
+          "actualDifficulty",
+          "difficultyDelta",
+          "discrimination",
+          "anomalyCount",
+          "knowledgePointNames",
+          "tagNames",
+          "suggestion"
         ],
         "type": "object"
       },
@@ -2085,6 +2443,59 @@
         ],
         "type": "object"
       },
+      "ScoreDistributionBucketDto": {
+        "properties": {
+          "count": {
+            "type": "number"
+          },
+          "label": {
+            "type": "string"
+          },
+          "max": {
+            "type": "number"
+          },
+          "min": {
+            "type": "number"
+          },
+          "percent": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "label",
+          "min",
+          "max",
+          "count",
+          "percent"
+        ],
+        "type": "object"
+      },
+      "ScoreDistributionDto": {
+        "properties": {
+          "averagePercent": {
+            "type": "number"
+          },
+          "averageScore": {
+            "type": "number"
+          },
+          "buckets": {
+            "items": {
+              "$ref": "#/components/schemas/ScoreDistributionBucketDto"
+            },
+            "type": "array"
+          },
+          "total": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "total",
+          "averageScore",
+          "averagePercent",
+          "buckets"
+        ],
+        "type": "object"
+      },
       "SimulateSaveAnswersDto": {
         "properties": {
           "answers": {
@@ -2116,6 +2527,76 @@
         },
         "required": [
           "studentId"
+        ],
+        "type": "object"
+      },
+      "SourceStatisticCountDto": {
+        "properties": {
+          "count": {
+            "type": "number"
+          },
+          "source": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "count",
+          "source"
+        ],
+        "type": "object"
+      },
+      "StatisticsOverviewDto": {
+        "properties": {
+          "activeWrongQuestions": {
+            "type": "number"
+          },
+          "averageScore": {
+            "type": "number"
+          },
+          "classes": {
+            "type": "number"
+          },
+          "courses": {
+            "type": "number"
+          },
+          "exams": {
+            "type": "number"
+          },
+          "gradedCount": {
+            "type": "number"
+          },
+          "maxScore": {
+            "type": "number"
+          },
+          "minScore": {
+            "type": "number"
+          },
+          "papers": {
+            "type": "number"
+          },
+          "pendingManual": {
+            "type": "number"
+          },
+          "questions": {
+            "type": "number"
+          },
+          "submittedAttempts": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "courses",
+          "questions",
+          "papers",
+          "exams",
+          "classes",
+          "submittedAttempts",
+          "pendingManual",
+          "activeWrongQuestions",
+          "averageScore",
+          "maxScore",
+          "minScore",
+          "gradedCount"
         ],
         "type": "object"
       },
@@ -2793,6 +3274,68 @@
         },
         "required": [
           "status"
+        ],
+        "type": "object"
+      },
+      "WrongQuestionStatisticDto": {
+        "properties": {
+          "courseName": {
+            "type": "string"
+          },
+          "difficulty": {
+            "type": "number"
+          },
+          "knowledgePointNames": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "latestAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "masterySummary": {
+            "items": {
+              "$ref": "#/components/schemas/MasteryStatisticCountDto"
+            },
+            "type": "array"
+          },
+          "questionId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "sourceSummary": {
+            "items": {
+              "$ref": "#/components/schemas/SourceStatisticCountDto"
+            },
+            "type": "array"
+          },
+          "studentCount": {
+            "type": "number"
+          },
+          "title": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          },
+          "wrongCount": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "questionId",
+          "title",
+          "type",
+          "difficulty",
+          "courseName",
+          "knowledgePointNames",
+          "wrongCount",
+          "studentCount",
+          "latestAt",
+          "sourceSummary",
+          "masterySummary"
         ],
         "type": "object"
       }
@@ -13924,6 +14467,34 @@
         ],
         "responses": {
           "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "code": {
+                      "example": 0,
+                      "type": "integer"
+                    },
+                    "data": {
+                      "items": {
+                        "$ref": "#/components/schemas/ClassPerformanceDto"
+                      },
+                      "type": "array"
+                    },
+                    "message": {
+                      "example": "ok",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "code",
+                    "message",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
             "description": ""
           },
           "400": {
@@ -14063,6 +14634,34 @@
         ],
         "responses": {
           "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "code": {
+                      "example": 0,
+                      "type": "integer"
+                    },
+                    "data": {
+                      "items": {
+                        "$ref": "#/components/schemas/ClassPerformanceDto"
+                      },
+                      "type": "array"
+                    },
+                    "message": {
+                      "example": "ok",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "code",
+                    "message",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
             "description": ""
           },
           "400": {
@@ -14202,6 +14801,31 @@
         ],
         "responses": {
           "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "code": {
+                      "example": 0,
+                      "type": "integer"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/ExamPerformancePageDto"
+                    },
+                    "message": {
+                      "example": "ok",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "code",
+                    "message",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
             "description": ""
           },
           "400": {
@@ -14251,6 +14875,31 @@
         ],
         "responses": {
           "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "code": {
+                      "example": 0,
+                      "type": "integer"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/ExamStatisticsDetailDto"
+                    },
+                    "message": {
+                      "example": "ok",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "code",
+                    "message",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
             "description": ""
           },
           "400": {
@@ -14390,6 +15039,34 @@
         ],
         "responses": {
           "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "code": {
+                      "example": 0,
+                      "type": "integer"
+                    },
+                    "data": {
+                      "items": {
+                        "$ref": "#/components/schemas/KnowledgePerformanceDto"
+                      },
+                      "type": "array"
+                    },
+                    "message": {
+                      "example": "ok",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "code",
+                    "message",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
             "description": ""
           },
           "400": {
@@ -14529,6 +15206,34 @@
         ],
         "responses": {
           "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "code": {
+                      "example": 0,
+                      "type": "integer"
+                    },
+                    "data": {
+                      "items": {
+                        "$ref": "#/components/schemas/KnowledgeTrendPointDto"
+                      },
+                      "type": "array"
+                    },
+                    "message": {
+                      "example": "ok",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "code",
+                    "message",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
             "description": ""
           },
           "400": {
@@ -14668,6 +15373,31 @@
         ],
         "responses": {
           "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "code": {
+                      "example": 0,
+                      "type": "integer"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/StatisticsOverviewDto"
+                    },
+                    "message": {
+                      "example": "ok",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "code",
+                    "message",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
             "description": ""
           },
           "400": {
@@ -14807,6 +15537,34 @@
         ],
         "responses": {
           "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "code": {
+                      "example": 0,
+                      "type": "integer"
+                    },
+                    "data": {
+                      "items": {
+                        "$ref": "#/components/schemas/QuestionDiagnosticDto"
+                      },
+                      "type": "array"
+                    },
+                    "message": {
+                      "example": "ok",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "code",
+                    "message",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
             "description": ""
           },
           "400": {
@@ -14946,6 +15704,31 @@
         ],
         "responses": {
           "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "code": {
+                      "example": 0,
+                      "type": "integer"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/ScoreDistributionDto"
+                    },
+                    "message": {
+                      "example": "ok",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "code",
+                    "message",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
             "description": ""
           },
           "400": {
@@ -15085,6 +15868,34 @@
         ],
         "responses": {
           "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "code": {
+                      "example": 0,
+                      "type": "integer"
+                    },
+                    "data": {
+                      "items": {
+                        "$ref": "#/components/schemas/WrongQuestionStatisticDto"
+                      },
+                      "type": "array"
+                    },
+                    "message": {
+                      "example": "ok",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "code",
+                    "message",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
             "description": ""
           },
           "400": {

@@ -7,21 +7,31 @@
  */
 import type {
   ApiErrorResponse,
+  StatisticsClassComparison200,
   StatisticsClassComparisonParams,
+  StatisticsClasses200,
   StatisticsClassesParams,
+  StatisticsExamDetail200,
+  StatisticsExams200,
   StatisticsExamsParams,
+  StatisticsKnowledge200,
   StatisticsKnowledgeParams,
+  StatisticsKnowledgeTrend200,
   StatisticsKnowledgeTrendParams,
+  StatisticsOverview200,
   StatisticsOverviewParams,
+  StatisticsQuestionDiagnostics200,
   StatisticsQuestionDiagnosticsParams,
+  StatisticsScoreDistribution200,
   StatisticsScoreDistributionParams,
+  StatisticsWrongQuestions200,
   StatisticsWrongQuestionsParams
 } from '../models';
 
 import { apiMutator } from '../../generated-mutator';
 
 export type statisticsClassComparisonResponse200 = {
-  data: void
+  data: StatisticsClassComparison200
   status: 200
 }
 
@@ -97,7 +107,7 @@ export const statisticsClassComparison = async (params?: StatisticsClassComparis
 
 
 export type statisticsClassesResponse200 = {
-  data: void
+  data: StatisticsClasses200
   status: 200
 }
 
@@ -173,7 +183,7 @@ export const statisticsClasses = async (params?: StatisticsClassesParams, option
 
 
 export type statisticsExamsResponse200 = {
-  data: void
+  data: StatisticsExams200
   status: 200
 }
 
@@ -249,7 +259,7 @@ export const statisticsExams = async (params?: StatisticsExamsParams, options?: 
 
 
 export type statisticsExamDetailResponse200 = {
-  data: void
+  data: StatisticsExamDetail200
   status: 200
 }
 
@@ -318,7 +328,7 @@ export const statisticsExamDetail = async (examId: string, options?: RequestInit
 
 
 export type statisticsKnowledgeResponse200 = {
-  data: void
+  data: StatisticsKnowledge200
   status: 200
 }
 
@@ -394,7 +404,7 @@ export const statisticsKnowledge = async (params?: StatisticsKnowledgeParams, op
 
 
 export type statisticsKnowledgeTrendResponse200 = {
-  data: void
+  data: StatisticsKnowledgeTrend200
   status: 200
 }
 
@@ -470,7 +480,7 @@ export const statisticsKnowledgeTrend = async (params?: StatisticsKnowledgeTrend
 
 
 export type statisticsOverviewResponse200 = {
-  data: void
+  data: StatisticsOverview200
   status: 200
 }
 
@@ -546,7 +556,7 @@ export const statisticsOverview = async (params?: StatisticsOverviewParams, opti
 
 
 export type statisticsQuestionDiagnosticsResponse200 = {
-  data: void
+  data: StatisticsQuestionDiagnostics200
   status: 200
 }
 
@@ -622,7 +632,7 @@ export const statisticsQuestionDiagnostics = async (params?: StatisticsQuestionD
 
 
 export type statisticsScoreDistributionResponse200 = {
-  data: void
+  data: StatisticsScoreDistribution200
   status: 200
 }
 
@@ -698,7 +708,7 @@ export const statisticsScoreDistribution = async (params?: StatisticsScoreDistri
 
 
 export type statisticsWrongQuestionsResponse200 = {
-  data: void
+  data: StatisticsWrongQuestions200
   status: 200
 }
 
