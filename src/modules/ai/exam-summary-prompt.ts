@@ -1,8 +1,9 @@
-import type { Prisma } from '@prisma/client';
-import type { ResolvedProviderCapability } from './ai-provider-capability.registry';
-import type { AiResponseFormat } from './ai-provider.gateway';
 import type { ExamSummaryDataset } from './datasets/summary-dataset';
 import { EXAM_SUMMARY_OUTPUT_SCHEMA_VERSION } from './schemas/summary-output.schema';
+import {
+  parseSummaryJson as parseStructuredSummaryJson,
+  SummaryParseError,
+} from './summary-prompt';
 
 const EXAM_SUMMARY_JSON_SHAPE = JSON.stringify({
   schemaVersion: EXAM_SUMMARY_OUTPUT_SCHEMA_VERSION,
@@ -28,34 +29,8 @@ export function buildExamSummaryUserPrompt(dataset: ExamSummaryDataset) {
   ].join('\n');
 }
 
-export function responseFormatFor(
-  capability: ResolvedProviderCapability,
-  schema: Prisma.JsonValue,
-): AiResponseFormat | undefined {
-  if (capability.supportsJsonSchema) {
-    return {
-      type: 'json_schema',
-      json_schema: { name: 'exam_summary', strict: true, schema },
-    };
-  }
-  return capability.supportsJsonObject ? { type: 'json_object' } : undefined;
-}
-
-export class ExamSummaryParseError extends Error {
-  constructor() {
-    super('AI 返回内容不是有效的 JSON');
-    this.name = 'ExamSummaryParseError';
-  }
-}
+export { SummaryParseError as ExamSummaryParseError };
 
 export function parseSummaryJson(content: string): unknown {
-  try {
-    const parsed = JSON.parse(content) as unknown;
-    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed) && !('schemaVersion' in parsed)) {
-      return { schemaVersion: EXAM_SUMMARY_OUTPUT_SCHEMA_VERSION, ...parsed };
-    }
-    return parsed;
-  } catch {
-    throw new ExamSummaryParseError();
-  }
+  return parseStructuredSummaryJson(content, EXAM_SUMMARY_OUTPUT_SCHEMA_VERSION);
 }

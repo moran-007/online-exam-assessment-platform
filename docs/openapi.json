@@ -814,7 +814,8 @@
           },
           "type": {
             "enum": [
-              "exam"
+              "exam",
+              "student"
             ],
             "type": "string"
           },
@@ -859,6 +860,9 @@
           "outputTokens": {
             "type": "number"
           },
+          "requestedOutputTokens": {
+            "type": "number"
+          },
           "sanitizedError": {
             "nullable": true,
             "type": "string"
@@ -873,19 +877,33 @@
             ],
             "type": "string"
           },
+          "subjectId": {
+            "format": "uuid",
+            "type": "string"
+          },
           "summaryId": {
             "format": "uuid",
             "nullable": true,
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "exam",
+              "student"
+            ],
             "type": "string"
           }
         },
         "required": [
           "id",
+          "type",
+          "subjectId",
           "status",
           "attemptCount",
           "inputHash",
           "inputTokens",
           "outputTokens",
+          "requestedOutputTokens",
           "model",
           "sanitizedError",
           "summaryId"
@@ -945,6 +963,64 @@
           "configId",
           "name",
           "model"
+        ],
+        "type": "object"
+      },
+      "AiSummaryTaskResponseDto": {
+        "properties": {
+          "attemptCount": {
+            "type": "number"
+          },
+          "cacheHit": {
+            "type": "boolean"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "inputHash": {
+            "type": "string"
+          },
+          "model": {
+            "$ref": "#/components/schemas/AiSummaryTaskModelDto"
+          },
+          "sanitizedError": {
+            "nullable": true,
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "pending",
+              "processing",
+              "succeeded",
+              "failed",
+              "cancelled"
+            ],
+            "type": "string"
+          },
+          "summary": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/AiSummaryDraftDto"
+              }
+            ],
+            "nullable": true,
+            "type": "object"
+          },
+          "usage": {
+            "$ref": "#/components/schemas/AiSummaryTaskUsageDto"
+          }
+        },
+        "required": [
+          "id",
+          "status",
+          "attemptCount",
+          "inputHash",
+          "model",
+          "usage",
+          "cacheHit",
+          "sanitizedError",
+          "summary"
         ],
         "type": "object"
       },
@@ -2118,6 +2194,51 @@
         ],
         "type": "object"
       },
+      "CreateStudentSummaryTaskDto": {
+        "properties": {
+          "configId": {
+            "description": "不传时按个人默认、系统默认顺序自动选择",
+            "format": "uuid",
+            "type": "string"
+          },
+          "courseId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "examIds": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "maxItems": 20,
+            "type": "array"
+          },
+          "from": {
+            "description": "按考试结束时间筛选",
+            "format": "date-time",
+            "type": "string"
+          },
+          "maxTokens": {
+            "description": "本次输出上限；不传时使用所选模型配置的输出上限",
+            "maximum": 8192,
+            "minimum": 100,
+            "type": "number"
+          },
+          "studentId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "to": {
+            "description": "按考试结束时间筛选",
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "studentId"
+        ],
+        "type": "object"
+      },
       "CreateTagDto": {
         "properties": {
           "code": {
@@ -2383,64 +2504,6 @@
           "questions",
           "knowledgePoints",
           "evidence"
-        ],
-        "type": "object"
-      },
-      "ExamSummaryTaskResponseDto": {
-        "properties": {
-          "attemptCount": {
-            "type": "number"
-          },
-          "cacheHit": {
-            "type": "boolean"
-          },
-          "id": {
-            "format": "uuid",
-            "type": "string"
-          },
-          "inputHash": {
-            "type": "string"
-          },
-          "model": {
-            "$ref": "#/components/schemas/AiSummaryTaskModelDto"
-          },
-          "sanitizedError": {
-            "nullable": true,
-            "type": "string"
-          },
-          "status": {
-            "enum": [
-              "pending",
-              "processing",
-              "succeeded",
-              "failed",
-              "cancelled"
-            ],
-            "type": "string"
-          },
-          "summary": {
-            "allOf": [
-              {
-                "$ref": "#/components/schemas/AiSummaryDraftDto"
-              }
-            ],
-            "nullable": true,
-            "type": "object"
-          },
-          "usage": {
-            "$ref": "#/components/schemas/AiSummaryTaskUsageDto"
-          }
-        },
-        "required": [
-          "id",
-          "status",
-          "attemptCount",
-          "inputHash",
-          "model",
-          "usage",
-          "cacheHit",
-          "sanitizedError",
-          "summary"
         ],
         "type": "object"
       },
@@ -2985,6 +3048,48 @@
         },
         "required": [
           "externalProblemId"
+        ],
+        "type": "object"
+      },
+      "PublishedAiSummaryDto": {
+        "properties": {
+          "content": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "evidence": {
+            "items": {
+              "$ref": "#/components/schemas/AiEvidenceRefDto"
+            },
+            "type": "array"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "publishedAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "subjectId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "exam",
+              "student"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "type",
+          "subjectId",
+          "content",
+          "evidence",
+          "publishedAt"
         ],
         "type": "object"
       },
@@ -3597,40 +3702,6 @@
           "maxScore",
           "minScore",
           "gradedCount"
-        ],
-        "type": "object"
-      },
-      "StudentPublishedAiSummaryDto": {
-        "properties": {
-          "content": {
-            "additionalProperties": true,
-            "type": "object"
-          },
-          "evidence": {
-            "items": {
-              "$ref": "#/components/schemas/AiEvidenceRefDto"
-            },
-            "type": "array"
-          },
-          "examId": {
-            "format": "uuid",
-            "type": "string"
-          },
-          "id": {
-            "format": "uuid",
-            "type": "string"
-          },
-          "publishedAt": {
-            "format": "date-time",
-            "type": "string"
-          }
-        },
-        "required": [
-          "id",
-          "examId",
-          "content",
-          "evidence",
-          "publishedAt"
         ],
         "type": "object"
       },
@@ -4752,7 +4823,7 @@
                       "type": "integer"
                     },
                     "data": {
-                      "$ref": "#/components/schemas/ExamSummaryTaskResponseDto"
+                      "$ref": "#/components/schemas/AiSummaryTaskResponseDto"
                     },
                     "message": {
                       "example": "ok",
@@ -4975,7 +5046,7 @@
                       "type": "integer"
                     },
                     "data": {
-                      "$ref": "#/components/schemas/ExamSummaryTaskResponseDto"
+                      "$ref": "#/components/schemas/AiSummaryTaskResponseDto"
                     },
                     "message": {
                       "example": "ok",
@@ -5050,6 +5121,81 @@
                     },
                     "data": {
                       "$ref": "#/components/schemas/ExamSummaryDatasetPreviewDto"
+                    },
+                    "message": {
+                      "example": "ok",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "code",
+                    "message",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "401": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "404": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "409": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "429": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "500": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "AI Summary"
+        ]
+      }
+    },
+    "/api/v1/ai-summaries/students": {
+      "post": {
+        "operationId": "AiSummary_createStudent",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateStudentSummaryTaskDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "code": {
+                      "example": 0,
+                      "type": "integer"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/AiSummaryTaskResponseDto"
                     },
                     "message": {
                       "example": "ok",
@@ -13523,7 +13669,7 @@
                     },
                     "data": {
                       "items": {
-                        "$ref": "#/components/schemas/StudentPublishedAiSummaryDto"
+                        "$ref": "#/components/schemas/PublishedAiSummaryDto"
                       },
                       "type": "array"
                     },
@@ -19944,6 +20090,83 @@
         ],
         "tags": [
           "Student"
+        ]
+      }
+    },
+    "/api/v1/students/{studentId}/ai-summaries": {
+      "get": {
+        "operationId": "AiSummaryLifecycle_studentHistory",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "studentId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "code": {
+                      "example": 0,
+                      "type": "integer"
+                    },
+                    "data": {
+                      "items": {
+                        "$ref": "#/components/schemas/AiSummaryLifecycleRecordDto"
+                      },
+                      "type": "array"
+                    },
+                    "message": {
+                      "example": "ok",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "code",
+                    "message",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "401": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "404": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "409": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "429": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "500": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "AI Summary Lifecycle"
         ]
       }
     },

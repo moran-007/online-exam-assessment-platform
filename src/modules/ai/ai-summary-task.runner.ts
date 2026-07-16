@@ -6,24 +6,24 @@ import { PrismaService } from '../prisma/prisma.service';
 import { AiProviderCapabilityRegistry } from './ai-provider-capability.registry';
 import { AiProviderCallException, AiProviderGateway } from './ai-provider.gateway';
 import { thinkingModeFor } from './ai-provider-request.policy';
+import { MAX_AI_OUTPUT_TOKENS } from './ai-summary-limits';
+import type { SummaryTaskWithRelations } from './ai-summary-task.coordinator';
 import { AiTokenUsage, AiTokenUsageService } from './ai-token-usage.service';
 import { assertSummaryDataset } from './datasets/dataset-validator';
-import type { ExamSummaryDataset } from './datasets/summary-dataset';
-import {
-  buildExamSummaryUserPrompt,
-  ExamSummaryParseError,
-  parseSummaryJson,
-  responseFormatFor,
-} from './exam-summary-prompt';
+import type { ExamSummaryDataset, StudentSummaryDataset } from './datasets/summary-dataset';
+import { buildExamSummaryUserPrompt } from './exam-summary-prompt';
 import { SummaryOutputValidationError, SummaryOutputValidator } from './schemas/summary-output.validator';
-import { MAX_EXAM_SUMMARY_OUTPUT_TOKENS } from './ai-summary-limits';
+import { parseSummaryJson, responseFormatFor, SummaryParseError } from './summary-prompt';
+import { buildStudentSummaryUserPrompt } from './student-summary-prompt';
 
 const STALE_AFTER_MS = 5 * 60 * 1000;
 
-class ExamSummaryTaskError extends Error {}
+class AiSummaryTaskError extends Error {}
+
+type SupportedSummaryDataset = ExamSummaryDataset | StudentSummaryDataset;
 
 @Injectable()
-export class ExamSummaryTaskRunner {
+export class AiSummaryTaskRunner {
   constructor(
     private readonly prisma: PrismaService,
     private readonly cipher: CredentialCipherService,
@@ -59,14 +59,15 @@ export class ExamSummaryTaskRunner {
     let usageRecorded = false;
     let authorizedOutputTokens = task.requestedOutputTokens;
     try {
-      if (!task.providerConfig.enabled) throw new ExamSummaryTaskError('所选 AI 配置已停用');
-      const dataset = this.dataset(task.inputSnapshotJson);
+      if (!task.providerConfig.enabled) throw new AiSummaryTaskError('所选 AI 配置已停用');
+      const dataset = this.dataset(task.inputSnapshotJson, task.type);
+      const prompt = this.prompt(dataset);
       const capability = await this.capabilities.resolve(task.providerConfig.provider, task.modelSnapshot);
       authorizedOutputTokens = Math.min(
         task.requestedOutputTokens,
         task.providerConfig.maxTokens,
-        capability.maxOutputTokens ?? MAX_EXAM_SUMMARY_OUTPUT_TOKENS,
-        MAX_EXAM_SUMMARY_OUTPUT_TOKENS,
+        capability.maxOutputTokens ?? MAX_AI_OUTPUT_TOKENS,
+        MAX_AI_OUTPUT_TOKENS,
       );
       await this.tokenUsage.authorize(task.providerConfig, authorizedOutputTokens);
       const result = await this.gateway.complete({
@@ -74,22 +75,25 @@ export class ExamSummaryTaskRunner {
         apiKey: this.decrypt(task.providerConfig),
         model: task.modelSnapshot,
         systemPrompt: task.promptTemplate.systemPrompt,
-        userPrompt: buildExamSummaryUserPrompt(dataset),
+        userPrompt: prompt.userPrompt,
         maxTokens: authorizedOutputTokens,
         timeoutMs: task.providerConfig.timeoutMs,
-        responseFormat: responseFormatFor(capability, task.promptTemplate.outputSchema),
+        responseFormat: responseFormatFor(capability, task.promptTemplate.outputSchema, prompt.schemaName),
         thinking: thinkingModeFor(task.providerConfig.provider),
       });
       usage = result.usage;
-      await this.recordUsage(task, authorizedOutputTokens, usage);
+      await this.recordUsage(task, authorizedOutputTokens, usage, dataset.type);
       usageRecorded = true;
-      const output = this.validator.validate(parseSummaryJson(result.content), dataset.evidenceIndex);
+      const output = this.validator.validate(
+        parseSummaryJson(result.content, task.schemaVersion),
+        dataset.evidenceIndex,
+      );
       const { evidenceIndex, ...sourceSnapshot } = dataset;
       await this.prisma.$transaction([
         this.prisma.aiSummary.create({
           data: {
             taskId: task.id,
-            type: AiSummaryType.EXAM,
+            type: task.type,
             subjectId: task.subjectId,
             summaryJson: output as unknown as Prisma.InputJsonValue,
             sourceSnapshotJson: sourceSnapshot as unknown as Prisma.InputJsonValue,
@@ -106,12 +110,12 @@ export class ExamSummaryTaskRunner {
           },
         }),
       ]);
-      this.metric(task, 'succeeded', startedAt, usage);
+      this.metric(task, dataset.type, 'succeeded', startedAt, usage);
     } catch (error) {
       if (error instanceof AiProviderCallException && error.usage) usage = error.usage;
       if (!usageRecorded && error instanceof AiProviderCallException
         && (error.usageMayBeUnreported || Boolean(error.usage))) {
-        await this.recordUsage(task, authorizedOutputTokens, usage).catch(() => undefined);
+        await this.recordUsage(task, authorizedOutputTokens, usage, task.type.toLowerCase()).catch(() => undefined);
       }
       await this.prisma.aiSummaryTask.update({
         where: { id: task.id },
@@ -123,7 +127,7 @@ export class ExamSummaryTaskRunner {
           sanitizedError: this.sanitizedError(error),
         },
       });
-      this.metric(task, 'failed', startedAt, usage);
+      this.metric(task, task.type.toLowerCase(), 'failed', startedAt, usage);
     }
     return this.task(taskId);
   }
@@ -135,11 +139,20 @@ export class ExamSummaryTaskRunner {
     });
   }
 
-  private dataset(value: Prisma.JsonValue) {
-    const dataset = value as unknown as ExamSummaryDataset;
-    if (dataset.type !== 'exam') throw new Error('考试总结任务的数据集类型无效');
+  private dataset(value: Prisma.JsonValue, type: AiSummaryType): SupportedSummaryDataset {
+    const dataset = value as unknown as SupportedSummaryDataset;
+    if (dataset.type !== type.toLowerCase() || !['exam', 'student'].includes(dataset.type)) {
+      throw new AiSummaryTaskError('AI 总结任务的数据集类型无效');
+    }
     assertSummaryDataset(dataset);
     return dataset;
+  }
+
+  private prompt(dataset: SupportedSummaryDataset) {
+    if (dataset.type === 'exam') {
+      return { userPrompt: buildExamSummaryUserPrompt(dataset), schemaName: 'exam_summary' };
+    }
+    return { userPrompt: buildStudentSummaryUserPrompt(dataset), schemaName: 'student_summary' };
   }
 
   private decrypt(config: { id: string; apiKeyCiphertext: string; apiKeyIv: string; apiKeyAuthTag: string; apiKeyKeyVersion: number }) {
@@ -152,13 +165,14 @@ export class ExamSummaryTaskRunner {
   }
 
   private recordUsage(
-    task: Awaited<ReturnType<ExamSummaryTaskRunner['task']>>,
+    task: SummaryTaskWithRelations,
     requestedOutputTokens: number,
     usage: AiTokenUsage,
+    summaryType: string,
   ) {
     return this.tokenUsage.record({
       config: task.providerConfig,
-      operation: 'exam-summary',
+      operation: `${summaryType}-summary`,
       correlationId: `${task.correlationId}:${task.attemptCount}`,
       requestedOutputTokens,
       usage,
@@ -169,22 +183,23 @@ export class ExamSummaryTaskRunner {
   private sanitizedError(error: unknown) {
     const safe = error instanceof AiProviderCallException
       || error instanceof SummaryOutputValidationError
-      || error instanceof ExamSummaryParseError
+      || error instanceof SummaryParseError
       || error instanceof BadRequestException
-      || error instanceof ExamSummaryTaskError
+      || error instanceof AiSummaryTaskError
       ? error.message
       : 'AI 总结任务执行失败';
     return safe.replace(/[\r\n\t]+/g, ' ').slice(0, 500);
   }
 
   private metric(
-    task: Awaited<ReturnType<ExamSummaryTaskRunner['task']>>,
+    task: SummaryTaskWithRelations,
+    summaryType: string,
     outcome: string,
     startedAt: number,
     usage: AiTokenUsage,
   ) {
     this.metrics.recordAiSummary({
-      summaryType: 'exam',
+      summaryType,
       provider: task.providerConfig.provider,
       outcome,
       durationSeconds: (Date.now() - startedAt) / 1000,

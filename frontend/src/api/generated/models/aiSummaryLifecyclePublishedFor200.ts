@@ -5,10 +5,10 @@
  * Online exam and intelligent assessment platform API
  * OpenAPI spec version: 1.0
  */
-import type { StudentPublishedAiSummaryDto } from './studentPublishedAiSummaryDto';
+import type { PublishedAiSummaryDto } from './publishedAiSummaryDto';
 
 export type AiSummaryLifecyclePublishedFor200 = {
   code: number;
-  data: StudentPublishedAiSummaryDto[];
+  data: PublishedAiSummaryDto[];
   message: string;
 };

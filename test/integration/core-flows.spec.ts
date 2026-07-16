@@ -7,7 +7,10 @@ import { join } from 'node:path';
 import { createTestApp } from '../helpers/test-app';
 import { TokenService } from '../../src/modules/auth/token.service';
 import { AiProviderGateway } from '../../src/modules/ai/ai-provider.gateway';
-import { EXAM_SUMMARY_OUTPUT_SCHEMA } from '../../src/modules/ai/schemas/summary-output.schema';
+import {
+  EXAM_SUMMARY_OUTPUT_SCHEMA,
+  STUDENT_SUMMARY_OUTPUT_SCHEMA,
+} from '../../src/modules/ai/schemas/summary-output.schema';
 
 jest.setTimeout(60_000);
 
@@ -338,7 +341,9 @@ describe('core API flows', () => {
     expect(published).toMatchObject({ reviewStatus: 'published', publishedAt: expect.any(String) });
     const studentPublished = await api('get', '/api/v1/me/ai-summaries', studentToken);
     expect(studentPublished).toHaveLength(1);
-    expect(studentPublished[0]).toMatchObject({ id: generated.summary.id, examId: exam.id, content: editedContent });
+    expect(studentPublished[0]).toMatchObject({
+      id: generated.summary.id, type: 'exam', subjectId: exam.id, content: editedContent,
+    });
     await request(app.getHttpServer())
       .get(`/api/v1/ai-summaries/${generated.summary.id}`)
       .auth(studentToken, { type: 'bearer' })
@@ -371,6 +376,54 @@ describe('core API flows', () => {
     expect(await prisma.auditLog.count({
       where: { targetId: generated.summary.id, action: { startsWith: 'ai:summary-' } },
     })).toBe(5);
+
+    const student = await prisma.user.findUniqueOrThrow({ where: { username: 'test_student' } });
+    const studentPreview = await api(
+      'get', `/api/v1/ai-summaries/students/${student.id}/preview?examIds=${exam.id}`, adminToken,
+    );
+    expect(studentPreview).toMatchObject({
+      datasetVersion: 'student-summary/v1',
+      student: { id: student.id },
+      coverage: { selectedExamCount: { value: 1 }, gradedExamCount: { value: 1 } },
+    });
+    expect(studentPreview.evidence.length).toBeGreaterThan(5);
+    await prisma.aiSummaryPromptTemplate.create({
+      data: {
+        code: 'student-summary', summaryType: 'STUDENT', version: 1,
+        systemPrompt: 'Only return schema-valid JSON grounded in graded learning evidence.',
+        outputSchema: STUDENT_SUMMARY_OUTPUT_SCHEMA as unknown as Prisma.InputJsonValue,
+        enabled: true, reviewedBy: reviewer.id, changeReason: 'integration test', createdBy: reviewer.id,
+      },
+    });
+    const studentClaim = {
+      text: '所选范围包含一场已评分考试', evidenceRefs: [studentPreview.evidence[0].refId],
+    };
+    const studentCall = jest.spyOn(app.get(AiProviderGateway), 'complete').mockResolvedValue({
+      content: JSON.stringify({
+        schemaVersion: 'student-summary-output/v1', headline: studentClaim,
+        overview: [], strengths: [], risks: [], actions: [], needsReview: [],
+      }),
+      usage: { promptTokens: 10, completionTokens: 20, totalTokens: 30, reported: true },
+      durationMs: 5,
+    });
+    const studentGenerated = await api('post', '/api/v1/ai-summaries/students', adminToken, {
+      studentId: student.id, examIds: [exam.id], configId: modelConfig.id,
+    });
+    studentCall.mockRestore();
+    expect(studentGenerated).toMatchObject({
+      status: 'succeeded', usage: { requestedOutputTokens: 1000 },
+      summary: { reviewStatus: 'draft' },
+    });
+    const studentHistory = await api(
+      'get', `/api/v1/students/${student.id}/ai-summaries`, adminToken,
+    );
+    expect(studentHistory[0]).toMatchObject({ id: studentGenerated.summary.id, type: 'student' });
+    await api('post', `/api/v1/ai-summaries/${studentGenerated.summary.id}/review`, adminToken);
+    await api('post', `/api/v1/ai-summaries/${studentGenerated.summary.id}/publish`, adminToken);
+    const ownStudentSummary = await api('get', '/api/v1/me/ai-summaries', studentToken);
+    expect(ownStudentSummary).toEqual([expect.objectContaining({
+      id: studentGenerated.summary.id, type: 'student', subjectId: student.id,
+    })]);
 
     await request(app.getHttpServer())
       .get(`/api/v1/ai-summaries/exams/${exam.id}/preview`)

@@ -7,10 +7,10 @@
  */
 import type { AiSummaryDraftDto } from './aiSummaryDraftDto';
 import type { AiSummaryTaskModelDto } from './aiSummaryTaskModelDto';
+import type { AiSummaryTaskResponseDtoStatus } from './aiSummaryTaskResponseDtoStatus';
 import type { AiSummaryTaskUsageDto } from './aiSummaryTaskUsageDto';
-import type { ExamSummaryTaskResponseDtoStatus } from './examSummaryTaskResponseDtoStatus';
 
-export interface ExamSummaryTaskResponseDto {
+export interface AiSummaryTaskResponseDto {
   attemptCount: number;
   cacheHit: boolean;
   id: string;
@@ -18,7 +18,7 @@ export interface ExamSummaryTaskResponseDto {
   model: AiSummaryTaskModelDto;
   /** @nullable */
   sanitizedError: string | null;
-  status: ExamSummaryTaskResponseDtoStatus;
+  status: AiSummaryTaskResponseDtoStatus;
   /** @nullable */
   summary: AiSummaryDraftDto | null;
   usage: AiSummaryTaskUsageDto;

@@ -1,11 +1,11 @@
 import { AiSummaryReviewStatus, AiSummaryType } from '@prisma/client';
 import { ConflictException } from '@nestjs/common';
-import { ExamSummaryLifecycleUseCases } from '../../src/modules/ai/exam-summary-lifecycle.use-cases';
+import { AiSummaryLifecycleUseCases } from '../../src/modules/ai/ai-summary-lifecycle.use-cases';
 
-describe('ExamSummaryLifecycleUseCases', () => {
+describe('AiSummaryLifecycleUseCases', () => {
   const user = {
     id: '00000000-0000-0000-0000-000000000001', username: 'teacher', realName: 'Teacher',
-    userType: 'TEACHER', roles: ['teacher'], permissions: [],
+    userType: 'TEACHER', roles: ['teacher'], permissions: ['ai.summary.exam.generate'],
   };
 
   it('records an optimistic human review transition', async () => {
@@ -60,6 +60,25 @@ describe('ExamSummaryLifecycleUseCases', () => {
     expect(deps.audit.log).toHaveBeenCalledWith(expect.objectContaining({ action: 'ai:summary-regenerate' }));
   });
 
+  it('restores the original student scope when regenerating a student summary', async () => {
+    const current = summary(AiSummaryReviewStatus.REVOKED, AiSummaryType.STUDENT, {
+      courseId: 'course-1', examIds: ['exam-1'], from: '2026-07-01T00:00:00Z',
+    });
+    const studentUser = { ...user, permissions: ['ai.summary.student.generate'] };
+    const deps = dependencies(current, current, 1);
+    deps.studentTasks.create.mockResolvedValue({ id: 'student-task', status: 'succeeded' });
+
+    await deps.service.regenerate(current.id, {}, studentUser);
+
+    expect(deps.studentTasks.create).toHaveBeenCalledWith(expect.objectContaining({
+      studentId: current.subjectId,
+      courseId: 'course-1',
+      examIds: ['exam-1'],
+      from: '2026-07-01T00:00:00Z',
+    }), studentUser, { generationKey: expect.any(String), sourceSummaryId: current.id });
+    expect(deps.tasks.create).not.toHaveBeenCalled();
+  });
+
   function dependencies(current: ReturnType<typeof summary>, after: ReturnType<typeof summary>, count: number) {
     const prisma = {
       aiSummary: {
@@ -68,26 +87,32 @@ describe('ExamSummaryLifecycleUseCases', () => {
     };
     const audit = { log: jest.fn().mockResolvedValue(undefined) };
     const tasks = { create: jest.fn() };
+    const studentTasks = { create: jest.fn() };
     const access = {
       require: jest.fn().mockResolvedValue(current),
       find: jest.fn().mockResolvedValue(after),
     };
-    const service = new ExamSummaryLifecycleUseCases(
+    const service = new AiSummaryLifecycleUseCases(
       prisma as never,
       { validate: jest.fn().mockImplementation((value) => value) } as never,
       audit as never,
       tasks as never,
+      studentTasks as never,
       access as never,
     );
-    return { service, prisma, audit, tasks, access };
+    return { service, prisma, audit, tasks, studentTasks, access };
   }
 
-  function summary(reviewStatus: AiSummaryReviewStatus) {
+  function summary(
+    reviewStatus: AiSummaryReviewStatus,
+    type: AiSummaryType = AiSummaryType.EXAM,
+    scopeJson: Record<string, unknown> = { examId: '00000000-0000-0000-0000-000000000004' },
+  ) {
     const capturedAt = '2026-07-16T00:00:00.000Z';
     return {
       id: '00000000-0000-0000-0000-000000000002',
       taskId: '00000000-0000-0000-0000-000000000003',
-      type: AiSummaryType.EXAM,
+      type,
       subjectId: '00000000-0000-0000-0000-000000000004',
       summaryJson: output('original'),
       sourceSnapshotJson: {},
@@ -105,6 +130,7 @@ describe('ExamSummaryLifecycleUseCases', () => {
       revokedAt: null as Date | null,
       createdAt: new Date(capturedAt),
       updatedAt: new Date(capturedAt),
+      task: { scopeJson },
     };
   }
 

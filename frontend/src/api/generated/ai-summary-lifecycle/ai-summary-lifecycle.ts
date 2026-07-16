@@ -13,6 +13,7 @@ import type {
   AiSummaryLifecycleRegenerate201,
   AiSummaryLifecycleReview201,
   AiSummaryLifecycleRevoke201,
+  AiSummaryLifecycleStudentHistory200,
   AiSummaryLifecycleTask200,
   AiSummaryLifecycleUpdate200,
   ApiErrorResponse,
@@ -636,6 +637,75 @@ export const getAiSummaryLifecyclePublishedForUrl = () => {
 export const aiSummaryLifecyclePublishedFor = async ( options?: RequestInit): Promise<aiSummaryLifecyclePublishedForResponse> => {
 
   return apiMutator<aiSummaryLifecyclePublishedForResponse>(getAiSummaryLifecyclePublishedForUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+export type aiSummaryLifecycleStudentHistoryResponse200 = {
+  data: AiSummaryLifecycleStudentHistory200
+  status: 200
+}
+
+export type aiSummaryLifecycleStudentHistoryResponse400 = {
+  data: ApiErrorResponse
+  status: 400
+}
+
+export type aiSummaryLifecycleStudentHistoryResponse401 = {
+  data: ApiErrorResponse
+  status: 401
+}
+
+export type aiSummaryLifecycleStudentHistoryResponse403 = {
+  data: ApiErrorResponse
+  status: 403
+}
+
+export type aiSummaryLifecycleStudentHistoryResponse404 = {
+  data: ApiErrorResponse
+  status: 404
+}
+
+export type aiSummaryLifecycleStudentHistoryResponse409 = {
+  data: ApiErrorResponse
+  status: 409
+}
+
+export type aiSummaryLifecycleStudentHistoryResponse429 = {
+  data: ApiErrorResponse
+  status: 429
+}
+
+export type aiSummaryLifecycleStudentHistoryResponse500 = {
+  data: ApiErrorResponse
+  status: 500
+}
+
+export type aiSummaryLifecycleStudentHistoryResponseSuccess = (aiSummaryLifecycleStudentHistoryResponse200) & {
+  headers: Headers;
+};
+export type aiSummaryLifecycleStudentHistoryResponseError = (aiSummaryLifecycleStudentHistoryResponse400 | aiSummaryLifecycleStudentHistoryResponse401 | aiSummaryLifecycleStudentHistoryResponse403 | aiSummaryLifecycleStudentHistoryResponse404 | aiSummaryLifecycleStudentHistoryResponse409 | aiSummaryLifecycleStudentHistoryResponse429 | aiSummaryLifecycleStudentHistoryResponse500) & {
+  headers: Headers;
+};
+
+export type aiSummaryLifecycleStudentHistoryResponse = (aiSummaryLifecycleStudentHistoryResponseSuccess | aiSummaryLifecycleStudentHistoryResponseError)
+
+export const getAiSummaryLifecycleStudentHistoryUrl = (studentId: string,) => {
+
+
+
+
+  return `/api/v1/students/${studentId}/ai-summaries`
+}
+
+export const aiSummaryLifecycleStudentHistory = async (studentId: string, options?: RequestInit): Promise<aiSummaryLifecycleStudentHistoryResponse> => {
+
+  return apiMutator<aiSummaryLifecycleStudentHistoryResponse>(getAiSummaryLifecycleStudentHistoryUrl(studentId),
   {
     ...options,
     method: 'GET'

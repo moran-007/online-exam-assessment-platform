@@ -7,20 +7,20 @@ import {
   AiSummaryLifecycleRecordDto,
   AiSummaryLifecycleTaskDto,
   RegenerateAiSummaryDto,
-  StudentPublishedAiSummaryDto,
+  PublishedAiSummaryDto,
   UpdateAiSummaryDraftDto,
 } from './dto/ai-summary-lifecycle.dto';
-import { ExamSummaryTaskResponseDto } from './dto/ai-summary.dto';
-import { ExamSummaryLifecycleUseCases } from './exam-summary-lifecycle.use-cases';
-import { ExamSummaryQueryUseCases } from './exam-summary-query.use-cases';
+import { AiSummaryTaskResponseDto } from './dto/ai-summary.dto';
+import { AiSummaryLifecycleUseCases } from './ai-summary-lifecycle.use-cases';
+import { AiSummaryQueryUseCases } from './ai-summary-query.use-cases';
 
 @ApiTags('AI Summary Lifecycle')
 @ApiBearerAuth()
 @Controller()
 export class AiSummaryLifecycleController {
   constructor(
-    private readonly queries: ExamSummaryQueryUseCases,
-    private readonly lifecycle: ExamSummaryLifecycleUseCases,
+    private readonly queries: AiSummaryQueryUseCases,
+    private readonly lifecycle: AiSummaryLifecycleUseCases,
   ) {}
 
   @Get('ai-summaries/tasks/:id')
@@ -70,8 +70,8 @@ export class AiSummaryLifecycleController {
   }
 
   @Post('ai-summaries/:id/regenerate')
-  @Permissions('ai.summary.exam.generate')
-  @ApiCreatedResponse({ type: ExamSummaryTaskResponseDto })
+  @Permissions('ai.summary.view-class')
+  @ApiCreatedResponse({ type: AiSummaryTaskResponseDto })
   regenerate(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: RegenerateAiSummaryDto,
@@ -84,12 +84,19 @@ export class AiSummaryLifecycleController {
   @Permissions('ai.summary.view-class')
   @ApiOkResponse({ type: [AiSummaryLifecycleRecordDto] })
   history(@Param('examId', ParseUUIDPipe) examId: string, @CurrentUser() user: RequestUser) {
-    return this.queries.history(examId, user);
+    return this.queries.examHistory(examId, user);
+  }
+
+  @Get('students/:studentId/ai-summaries')
+  @Permissions('ai.summary.view-class')
+  @ApiOkResponse({ type: [AiSummaryLifecycleRecordDto] })
+  studentHistory(@Param('studentId', ParseUUIDPipe) studentId: string, @CurrentUser() user: RequestUser) {
+    return this.queries.studentHistory(studentId, user);
   }
 
   @Get('me/ai-summaries')
   @Permissions('ai.summary.view-own')
-  @ApiOkResponse({ type: [StudentPublishedAiSummaryDto] })
+  @ApiOkResponse({ type: [PublishedAiSummaryDto] })
   publishedFor(@CurrentUser() user: RequestUser) {
     return this.queries.publishedFor(user);
   }

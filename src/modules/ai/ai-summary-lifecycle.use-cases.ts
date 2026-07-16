@@ -1,14 +1,16 @@
-import { ConflictException, Injectable } from '@nestjs/common';
-import { AiSummaryReviewStatus, Prisma } from '@prisma/client';
+import { ConflictException, ForbiddenException, Injectable } from '@nestjs/common';
+import { AiSummaryReviewStatus, AiSummaryType, Prisma } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
 import { RequestUser } from '../../common/interfaces/request-user.interface';
+import { hasPermission } from '../../common/security/permission-policy';
 import { AuditService } from '../audit/audit.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { AiSummaryAccessService } from './ai-summary-access.service';
 import { evidenceIndex, presentSummary } from './ai-summary.presenter';
 import { RegenerateAiSummaryDto, UpdateAiSummaryDraftDto } from './dto/ai-summary-lifecycle.dto';
 import { ExamSummaryTaskUseCases } from './exam-summary-task.use-cases';
-import { ExamSummaryAccessService } from './exam-summary-access.service';
 import { SummaryOutputValidator } from './schemas/summary-output.validator';
+import { StudentSummaryTaskUseCases } from './student-summary-task.use-cases';
 
 const EDITABLE_STATUSES = [
   AiSummaryReviewStatus.DRAFT,
@@ -18,13 +20,14 @@ const EDITABLE_STATUSES = [
 ];
 
 @Injectable()
-export class ExamSummaryLifecycleUseCases {
+export class AiSummaryLifecycleUseCases {
   constructor(
     private readonly prisma: PrismaService,
     private readonly validator: SummaryOutputValidator,
     private readonly audit: AuditService,
-    private readonly tasks: ExamSummaryTaskUseCases,
-    private readonly access: ExamSummaryAccessService,
+    private readonly examTasks: ExamSummaryTaskUseCases,
+    private readonly studentTasks: StudentSummaryTaskUseCases,
+    private readonly access: AiSummaryAccessService,
   ) {}
 
   async update(id: string, dto: UpdateAiSummaryDraftDto, user: RequestUser) {
@@ -91,11 +94,19 @@ export class ExamSummaryLifecycleUseCases {
 
   async regenerate(id: string, dto: RegenerateAiSummaryDto, user: RequestUser) {
     const current = await this.access.require(id, user);
-    const task = await this.tasks.create({
-      examId: current.subjectId,
-      configId: dto.configId,
-      maxTokens: dto.maxTokens,
-    }, user, { generationKey: randomUUID(), sourceSummaryId: current.id });
+    this.assertGenerationPermission(current.type, user);
+    const options = { generationKey: randomUUID(), sourceSummaryId: current.id };
+    const task = current.type === AiSummaryType.EXAM
+      ? await this.examTasks.create({
+        examId: current.subjectId,
+        configId: dto.configId,
+        maxTokens: dto.maxTokens,
+      }, user, options)
+      : await this.studentTasks.create({
+        ...studentScope(current.task.scopeJson, current.subjectId),
+        configId: dto.configId,
+        maxTokens: dto.maxTokens,
+      }, user, options);
     await this.audit.log({
       userId: user.id,
       action: 'ai:summary-regenerate',
@@ -105,6 +116,13 @@ export class ExamSummaryLifecycleUseCases {
       afterData: { taskId: task.id, status: task.status },
     });
     return task;
+  }
+
+  private assertGenerationPermission(type: AiSummaryType, user: RequestUser) {
+    const required = type === AiSummaryType.STUDENT
+      ? 'ai.summary.student.generate'
+      : 'ai.summary.exam.generate';
+    if (!hasPermission(user, required)) throw new ForbiddenException('无权限重新生成该总结');
   }
 
   private async transition(
@@ -124,8 +142,8 @@ export class ExamSummaryLifecycleUseCases {
 
   private auditChange(
     action: string,
-    before: Awaited<ReturnType<ExamSummaryAccessService['find']>>,
-    after: Awaited<ReturnType<ExamSummaryAccessService['find']>>,
+    before: Awaited<ReturnType<AiSummaryAccessService['find']>>,
+    after: Awaited<ReturnType<AiSummaryAccessService['find']>>,
     userId: string,
   ) {
     return this.audit.log({
@@ -138,4 +156,19 @@ export class ExamSummaryLifecycleUseCases {
       afterData: { reviewStatus: after.reviewStatus, draftVersion: after.draftVersion },
     });
   }
+}
+
+function studentScope(value: Prisma.JsonValue, studentId: string) {
+  const record = value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, Prisma.JsonValue>
+    : {};
+  return {
+    studentId,
+    ...(typeof record.courseId === 'string' ? { courseId: record.courseId } : {}),
+    ...(Array.isArray(record.examIds)
+      ? { examIds: record.examIds.filter((item): item is string => typeof item === 'string') }
+      : {}),
+    ...(typeof record.from === 'string' ? { from: record.from } : {}),
+    ...(typeof record.to === 'string' ? { to: record.to } : {}),
+  };
 }

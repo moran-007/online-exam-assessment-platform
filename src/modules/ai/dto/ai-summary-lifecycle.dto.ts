@@ -29,11 +29,14 @@ export class RegenerateAiSummaryDto {
 
 export class AiSummaryLifecycleTaskDto {
   @ApiProperty({ format: 'uuid' }) id: string;
+  @ApiProperty({ enum: ['exam', 'student'] }) type: string;
+  @ApiProperty({ format: 'uuid' }) subjectId: string;
   @ApiProperty({ enum: ['pending', 'processing', 'succeeded', 'failed', 'cancelled'] }) status: string;
   @ApiProperty() attemptCount: number;
   @ApiProperty() inputHash: string;
   @ApiProperty() inputTokens: number;
   @ApiProperty() outputTokens: number;
+  @ApiProperty() requestedOutputTokens: number;
   @ApiProperty() model: string;
   @ApiProperty({ nullable: true }) sanitizedError: string | null;
   @ApiProperty({ nullable: true, format: 'uuid' }) summaryId: string | null;
@@ -41,7 +44,7 @@ export class AiSummaryLifecycleTaskDto {
 
 export class AiSummaryLifecycleRecordDto {
   @ApiProperty({ format: 'uuid' }) id: string;
-  @ApiProperty({ enum: ['exam'] }) type: string;
+  @ApiProperty({ enum: ['exam', 'student'] }) type: string;
   @ApiProperty({ format: 'uuid' }) subjectId: string;
   @ApiProperty({ enum: ['draft', 'in_review', 'approved', 'published', 'revoked'] }) reviewStatus: string;
   @ApiProperty() draftVersion: number;
@@ -53,10 +56,13 @@ export class AiSummaryLifecycleRecordDto {
   @ApiProperty({ format: 'date-time' }) updatedAt: Date;
 }
 
-export class StudentPublishedAiSummaryDto {
+export class PublishedAiSummaryDto {
   @ApiProperty({ format: 'uuid' }) id: string;
-  @ApiProperty({ format: 'uuid' }) examId: string;
+  @ApiProperty({ enum: ['exam', 'student'] }) type: string;
+  @ApiProperty({ format: 'uuid' }) subjectId: string;
   @ApiProperty({ type: 'object', additionalProperties: true }) content: Record<string, unknown>;
   @ApiProperty({ type: () => [AiEvidenceRefDto] }) evidence: AiEvidenceRefDto[];
   @ApiProperty({ format: 'date-time' }) publishedAt: Date;
 }
+
+export class StudentPublishedAiSummaryDto extends PublishedAiSummaryDto {}

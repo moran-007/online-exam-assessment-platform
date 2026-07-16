@@ -1,9 +1,9 @@
 import { AiSummaryTaskStatus, AiSummaryType } from '@prisma/client';
 import { AiProviderCallException } from '../../src/modules/ai/ai-provider.gateway';
-import { ExamSummaryTaskRunner } from '../../src/modules/ai/exam-summary-task.runner';
+import { AiSummaryTaskRunner } from '../../src/modules/ai/ai-summary-task.runner';
 import { SummaryOutputValidationError } from '../../src/modules/ai/schemas/summary-output.validator';
 
-describe('ExamSummaryTaskRunner', () => {
+describe('AiSummaryTaskRunner', () => {
   it('records usage and atomically creates a validated draft', async () => {
     const fixture = dependencies();
     fixture.gateway.complete.mockResolvedValue({
@@ -88,8 +88,33 @@ describe('ExamSummaryTaskRunner', () => {
     }));
   });
 
-  function dependencies() {
-    const task = taskFixture();
+  it('uses the student prompt and persists a student summary through the shared runner', async () => {
+    const fixture = dependencies(AiSummaryType.STUDENT);
+    fixture.gateway.complete.mockResolvedValue({
+      content: JSON.stringify(output('student-summary-output/v1')),
+      usage: { promptTokens: 40, completionTokens: 15, totalTokens: 55, reported: true },
+      durationMs: 10,
+    });
+    fixture.validator.validate.mockReturnValue(output('student-summary-output/v1'));
+
+    await fixture.runner.run(fixture.task.id);
+
+    expect(fixture.gateway.complete).toHaveBeenCalledWith(expect.objectContaining({
+      userPrompt: expect.stringContaining('不得把无教育数据解释为缺勤'),
+      responseFormat: expect.objectContaining({
+        json_schema: expect.objectContaining({ name: 'student_summary' }),
+      }),
+    }));
+    expect(fixture.tokenUsage.record).toHaveBeenCalledWith(expect.objectContaining({
+      operation: 'student-summary',
+    }));
+    expect(fixture.prisma.aiSummary.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ type: AiSummaryType.STUDENT }),
+    }));
+  });
+
+  function dependencies(type: AiSummaryType = AiSummaryType.EXAM) {
+    const task = taskFixture(type);
     const prisma = {
       aiSummaryTask: {
         updateMany: jest.fn().mockResolvedValue({ count: 1 }),
@@ -105,7 +130,7 @@ describe('ExamSummaryTaskRunner', () => {
       record: jest.fn().mockResolvedValue({}),
     };
     const validator = { validate: jest.fn() };
-    const runner = new ExamSummaryTaskRunner(
+    const runner = new AiSummaryTaskRunner(
       prisma as never,
       { decrypt: jest.fn().mockReturnValue('secret') } as never,
       gateway as never,
@@ -119,14 +144,16 @@ describe('ExamSummaryTaskRunner', () => {
     return { runner, prisma, gateway, tokenUsage, validator, task };
   }
 
-  function taskFixture() {
+  function taskFixture(type: AiSummaryType) {
     const capturedAt = '2026-07-16T00:00:00.000Z';
+    const datasetType = type === AiSummaryType.STUDENT ? 'student' : 'exam';
+    const schemaVersion = `${datasetType}-summary-output/v1`;
     return {
       id: '00000000-0000-0000-0000-000000000001',
       subjectId: '00000000-0000-0000-0000-000000000002',
-      type: AiSummaryType.EXAM,
+      type,
       inputSnapshotJson: {
-        type: 'exam', datasetVersion: 'exam-summary/v1', generatedAt: capturedAt,
+        type: datasetType, datasetVersion: `${datasetType}-summary/v1`, generatedAt: capturedAt,
         dataCoverage: { from: null, to: null, includes: ['exam'], excludes: [] },
         score: { value: 80, evidenceRef: 'exam:1:score' },
         evidenceIndex: {
@@ -137,6 +164,7 @@ describe('ExamSummaryTaskRunner', () => {
         },
       },
       requestedOutputTokens: 1000,
+      schemaVersion,
       modelSnapshot: 'model-a',
       correlationId: '00000000-0000-0000-0000-000000000003',
       attemptCount: 1,
@@ -153,10 +181,10 @@ describe('ExamSummaryTaskRunner', () => {
     };
   }
 
-  function output() {
+  function output(schemaVersion = 'exam-summary-output/v1') {
     const claim = { text: '平均成绩为 80 分', evidenceRefs: ['exam:1:score'] };
     return {
-      schemaVersion: 'exam-summary-output/v1', headline: claim,
+      schemaVersion, headline: claim,
       overview: [], strengths: [], risks: [], actions: [], needsReview: [],
     };
   }

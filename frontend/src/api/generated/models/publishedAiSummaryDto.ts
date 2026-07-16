@@ -6,12 +6,14 @@
  * OpenAPI spec version: 1.0
  */
 import type { AiEvidenceRefDto } from './aiEvidenceRefDto';
-import type { StudentPublishedAiSummaryDtoContent } from './studentPublishedAiSummaryDtoContent';
+import type { PublishedAiSummaryDtoContent } from './publishedAiSummaryDtoContent';
+import type { PublishedAiSummaryDtoType } from './publishedAiSummaryDtoType';
 
-export interface StudentPublishedAiSummaryDto {
-  content: StudentPublishedAiSummaryDtoContent;
+export interface PublishedAiSummaryDto {
+  content: PublishedAiSummaryDtoContent;
   evidence: AiEvidenceRefDto[];
-  examId: string;
   id: string;
   publishedAt: string;
+  subjectId: string;
+  type: PublishedAiSummaryDtoType;
 }

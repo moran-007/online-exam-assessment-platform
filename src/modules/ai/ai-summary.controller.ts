@@ -6,12 +6,17 @@ import { RequestUser } from '../../common/interfaces/request-user.interface';
 import {
   CreateExamSummaryTaskDto,
   ExamSummaryDatasetPreviewDto,
-  ExamSummaryTaskResponseDto,
+  AiSummaryTaskResponseDto,
 } from './dto/ai-summary.dto';
 import { ExamSummaryPreviewUseCases } from './exam-summary-preview.use-cases';
 import { ExamSummaryTaskUseCases } from './exam-summary-task.use-cases';
 import { StudentSummaryPreviewUseCases } from './student-summary-preview.use-cases';
-import { StudentSummaryDatasetPreviewDto, StudentSummaryScopeQueryDto } from './dto/student-summary.dto';
+import {
+  CreateStudentSummaryTaskDto,
+  StudentSummaryDatasetPreviewDto,
+  StudentSummaryScopeQueryDto,
+} from './dto/student-summary.dto';
+import { StudentSummaryTaskUseCases } from './student-summary-task.use-cases';
 
 @ApiTags('AI Summary')
 @ApiBearerAuth()
@@ -21,6 +26,7 @@ export class AiSummaryController {
     private readonly previews: ExamSummaryPreviewUseCases,
     private readonly tasks: ExamSummaryTaskUseCases,
     private readonly studentPreviews: StudentSummaryPreviewUseCases,
+    private readonly studentTasks: StudentSummaryTaskUseCases,
   ) {}
 
   @Get('exams/:examId/preview')
@@ -32,7 +38,7 @@ export class AiSummaryController {
 
   @Post('exams')
   @Permissions('ai.summary.exam.generate')
-  @ApiCreatedResponse({ type: ExamSummaryTaskResponseDto })
+  @ApiCreatedResponse({ type: AiSummaryTaskResponseDto })
   create(@Body() dto: CreateExamSummaryTaskDto, @CurrentUser() user: RequestUser) {
     return this.tasks.create(dto, user);
   }
@@ -46,5 +52,12 @@ export class AiSummaryController {
     @CurrentUser() user: RequestUser,
   ) {
     return this.studentPreviews.preview({ studentId, ...query }, user);
+  }
+
+  @Post('students')
+  @Permissions('ai.summary.student.generate')
+  @ApiCreatedResponse({ type: AiSummaryTaskResponseDto })
+  createStudent(@Body() dto: CreateStudentSummaryTaskDto, @CurrentUser() user: RequestUser) {
+    return this.studentTasks.create(dto, user);
   }
 }

@@ -130,7 +130,7 @@ export class AiSummaryDraftDto {
   @ApiProperty({ type: 'object', additionalProperties: true }) content: Record<string, unknown>;
 }
 
-export class ExamSummaryTaskResponseDto {
+export class AiSummaryTaskResponseDto {
   @ApiProperty({ format: 'uuid' }) id: string;
   @ApiProperty({ enum: ['pending', 'processing', 'succeeded', 'failed', 'cancelled'] }) status: string;
   @ApiProperty() attemptCount: number;
@@ -141,3 +141,5 @@ export class ExamSummaryTaskResponseDto {
   @ApiProperty({ nullable: true }) sanitizedError: string | null;
   @ApiProperty({ type: () => AiSummaryDraftDto, nullable: true }) summary: AiSummaryDraftDto | null;
 }
+
+export class ExamSummaryTaskResponseDto extends AiSummaryTaskResponseDto {}

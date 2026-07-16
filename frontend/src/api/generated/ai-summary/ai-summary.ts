@@ -7,11 +7,13 @@
  */
 import type {
   AiSummaryCreate201,
+  AiSummaryCreateStudent201,
   AiSummaryPreview200,
   AiSummaryStudentPreview200,
   AiSummaryStudentPreviewParams,
   ApiErrorResponse,
-  CreateExamSummaryTaskDto
+  CreateExamSummaryTaskDto,
+  CreateStudentSummaryTaskDto
 } from '../models';
 
 import { apiMutator } from '../../generated-mutator';
@@ -150,6 +152,75 @@ export const aiSummaryPreview = async (examId: string, options?: RequestInit): P
     method: 'GET'
 
 
+  }
+);}
+
+
+export type aiSummaryCreateStudentResponse201 = {
+  data: AiSummaryCreateStudent201
+  status: 201
+}
+
+export type aiSummaryCreateStudentResponse400 = {
+  data: ApiErrorResponse
+  status: 400
+}
+
+export type aiSummaryCreateStudentResponse401 = {
+  data: ApiErrorResponse
+  status: 401
+}
+
+export type aiSummaryCreateStudentResponse403 = {
+  data: ApiErrorResponse
+  status: 403
+}
+
+export type aiSummaryCreateStudentResponse404 = {
+  data: ApiErrorResponse
+  status: 404
+}
+
+export type aiSummaryCreateStudentResponse409 = {
+  data: ApiErrorResponse
+  status: 409
+}
+
+export type aiSummaryCreateStudentResponse429 = {
+  data: ApiErrorResponse
+  status: 429
+}
+
+export type aiSummaryCreateStudentResponse500 = {
+  data: ApiErrorResponse
+  status: 500
+}
+
+export type aiSummaryCreateStudentResponseSuccess = (aiSummaryCreateStudentResponse201) & {
+  headers: Headers;
+};
+export type aiSummaryCreateStudentResponseError = (aiSummaryCreateStudentResponse400 | aiSummaryCreateStudentResponse401 | aiSummaryCreateStudentResponse403 | aiSummaryCreateStudentResponse404 | aiSummaryCreateStudentResponse409 | aiSummaryCreateStudentResponse429 | aiSummaryCreateStudentResponse500) & {
+  headers: Headers;
+};
+
+export type aiSummaryCreateStudentResponse = (aiSummaryCreateStudentResponseSuccess | aiSummaryCreateStudentResponseError)
+
+export const getAiSummaryCreateStudentUrl = () => {
+
+
+
+
+  return `/api/v1/ai-summaries/students`
+}
+
+export const aiSummaryCreateStudent = async (createStudentSummaryTaskDto: CreateStudentSummaryTaskDto, options?: RequestInit): Promise<aiSummaryCreateStudentResponse> => {
+
+  return apiMutator<aiSummaryCreateStudentResponse>(getAiSummaryCreateStudentUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(createStudentSummaryTaskDto)
   }
 );}
 

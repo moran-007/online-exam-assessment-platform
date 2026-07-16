@@ -6,6 +6,7 @@
  * OpenAPI spec version: 1.0
  */
 import type { AiSummaryLifecycleTaskDtoStatus } from './aiSummaryLifecycleTaskDtoStatus';
+import type { AiSummaryLifecycleTaskDtoType } from './aiSummaryLifecycleTaskDtoType';
 
 export interface AiSummaryLifecycleTaskDto {
   attemptCount: number;
@@ -14,9 +15,12 @@ export interface AiSummaryLifecycleTaskDto {
   inputTokens: number;
   model: string;
   outputTokens: number;
+  requestedOutputTokens: number;
   /** @nullable */
   sanitizedError: string | null;
   status: AiSummaryLifecycleTaskDtoStatus;
+  subjectId: string;
   /** @nullable */
   summaryId: string | null;
+  type: AiSummaryLifecycleTaskDtoType;
 }

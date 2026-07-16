@@ -6,10 +6,10 @@
  * OpenAPI spec version: 1.0
  */
 
-export type ExamSummaryTaskResponseDtoStatus = typeof ExamSummaryTaskResponseDtoStatus[keyof typeof ExamSummaryTaskResponseDtoStatus];
+export type AiSummaryTaskResponseDtoStatus = typeof AiSummaryTaskResponseDtoStatus[keyof typeof AiSummaryTaskResponseDtoStatus];
 
 
-export const ExamSummaryTaskResponseDtoStatus = {
+export const AiSummaryTaskResponseDtoStatus = {
   pending: 'pending',
   processing: 'processing',
   succeeded: 'succeeded',

@@ -5,10 +5,5 @@
  * Online exam and intelligent assessment platform API
  * OpenAPI spec version: 1.0
  */
-import type { AiSummaryTaskResponseDto } from './aiSummaryTaskResponseDto';
 
-export type AiSummaryCreate201 = {
-  code: number;
-  data: AiSummaryTaskResponseDto;
-  message: string;
-};
+export type PublishedAiSummaryDtoContent = { [key: string]: unknown };

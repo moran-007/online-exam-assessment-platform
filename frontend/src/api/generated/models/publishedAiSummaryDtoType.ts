@@ -6,10 +6,10 @@
  * OpenAPI spec version: 1.0
  */
 
-export type AiSummaryLifecycleRecordDtoType = typeof AiSummaryLifecycleRecordDtoType[keyof typeof AiSummaryLifecycleRecordDtoType];
+export type PublishedAiSummaryDtoType = typeof PublishedAiSummaryDtoType[keyof typeof PublishedAiSummaryDtoType];
 
 
-export const AiSummaryLifecycleRecordDtoType = {
+export const PublishedAiSummaryDtoType = {
   exam: 'exam',
   student: 'student',
 } as const;
