@@ -8,10 +8,12 @@ export const studentMenuItems = [
   { path: '/student/exams', label: '我的考试', icon: 'Calendar' },
   { path: '/student/wrong-questions', label: '错题本', icon: 'Notebook' },
   { path: '/student/profile', label: '个人信息', icon: 'User' },
+  { path: '/teaching-operations', label: '课表与课时', icon: 'Calendar' },
 ];
 
 export const parentMenuItems = [
   { path: '/profile', label: '关联学生', icon: 'User' },
+  { path: '/teaching-operations', label: '课表与课时', icon: 'Calendar' },
 ];
 
 export const adminMenuItems = [
@@ -21,6 +23,7 @@ export const adminMenuItems = [
   { path: '/users', label: '用户权限', icon: 'Setting', userTypes: ['SUPER_ADMIN'] },
   { path: '/academic-profiles', label: '教务档案', icon: 'Postcard', userTypes: ['SUPER_ADMIN', 'ADMIN'] },
   { path: '/ai-settings', label: 'AI 配置', icon: 'Setting', userTypes: ['SUPER_ADMIN', 'ADMIN', 'TEACHER', 'ASSISTANT'] },
+  { path: '/teaching-operations', label: '教学运营', icon: 'Calendar', permissions: ['schedule:read'] },
   { path: '/knowledge', label: '课程知识点', icon: 'Share', permissions: ['knowledge-point:read'] },
   { path: '/tags', label: '标签', icon: 'PriceTag', permissions: ['tag:read'] },
   { path: '/questions', label: '题库', icon: 'EditPen', permissions: ['question:read'] },

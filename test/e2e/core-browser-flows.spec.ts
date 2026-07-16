@@ -11,6 +11,7 @@ let examId = '';
 let materialExamId = '';
 let paperName = '';
 let classId = '';
+let operationsDate = '';
 
 test.beforeAll(async ({ request }) => {
   await rm(process.env.UPLOADS_DIR!, { recursive: true, force: true });
@@ -24,16 +25,27 @@ test.beforeAll(async ({ request }) => {
       { username: 'e2e_parent', passwordHash, realName: 'E2E Parent', phone: '13900000009', userType: UserType.PARENT },
     ],
   });
-  const profileRead = await prisma.permission.create({
-    data: { name: 'Read academic profile', code: 'academic-profile:read', type: PermissionType.API },
-  });
+  const permissionRows = await Promise.all([
+    ['academic-profile:read', 'Read academic profile'],
+    ['lesson-type:read', 'Read lesson types'],
+    ['course-unit:read', 'Read course units'],
+    ['schedule:read', 'Read schedule'],
+    ['schedule:manage', 'Manage schedule'],
+    ['attendance:read', 'Read attendance'],
+    ['attendance:confirm', 'Confirm attendance'],
+    ['attendance:correct', 'Correct attendance'],
+    ['lesson-hour:read', 'Read lesson hours'],
+  ].map(([code, name]) => prisma.permission.create({ data: { name, code, type: PermissionType.API } })));
   const roleRows = await Promise.all([
     prisma.role.create({ data: { name: 'E2E Teacher', code: 'teacher' } }),
     prisma.role.create({ data: { name: 'E2E Student', code: 'student' } }),
     prisma.role.create({ data: { name: 'E2E Parent', code: 'parent' } }),
   ]);
+  const readCodes = new Set(['academic-profile:read', 'schedule:read', 'attendance:read', 'lesson-hour:read']);
   await prisma.rolePermission.createMany({
-    data: roleRows.map((role) => ({ roleId: role.id, permissionId: profileRead.id })),
+    data: roleRows.flatMap((role) => permissionRows
+      .filter((permission) => role.code === 'teacher' || readCodes.has(permission.code))
+      .map((permission) => ({ roleId: role.id, permissionId: permission.id }))),
   });
   const fixtureUsers = await prisma.user.findMany({
     where: { username: { in: ['e2e_teacher', 'e2e_student', 'e2e_parent'] } },
@@ -64,6 +76,30 @@ test.beforeAll(async ({ request }) => {
   classId = classGroup.id;
   const student = await prisma.user.findUniqueOrThrow({ where: { username: 'e2e_student' } });
   await api(request, 'post', `/classes/${classId}/students`, token, { userIds: [student.id] });
+  operationsDate = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const operationsType = await api(request, 'post', '/lesson-types', token, {
+    name: 'E2E 计费正课', defaultHours: 1, countInStatistics: true, active: true,
+  });
+  await api(request, 'post', '/schedule-rules', token, {
+    classId,
+    lessonTypeId: operationsType.id,
+    weekday: new Date(`${operationsDate}T00:00:00.000Z`).getUTCDay(),
+    startMinute: 1080,
+    endMinute: 1140,
+    effectiveFrom: operationsDate,
+    effectiveTo: operationsDate,
+    timezone: 'Asia/Shanghai',
+    lessonHours: 1,
+    classroom: 'E2E Lab',
+  });
+  await api(request, 'post', '/lesson-hours/adjustments', token, {
+    studentId: student.id,
+    classId,
+    type: 'OPENING_BALANCE',
+    amount: 5,
+    idempotencyKey: 'e2e-opening-balance',
+    note: 'E2E opening balance',
+  });
   await api(request, 'post', '/legacy-migrations/preflight', token, {
     sourceSystem: 'e2e-worker', sourceVersion: 'profile-v1',
     students: [{ legacyId: 'conflict-student', name: 'Conflict Student', phone: '13900000008' }],
@@ -408,6 +444,67 @@ test('academic profiles, parent scope and Gate C are operable through browser cl
 
   await adminContext.close();
   await parentContext.close();
+  await studentContext.close();
+});
+
+test('Gate D schedule, attendance, reversal ledger and reconciliation work through browser clicks', async ({ browser }) => {
+  const adminContext = await browser.newContext();
+  const studentContext = await browser.newContext();
+  const adminPage = await adminContext.newPage();
+  const studentPage = await studentContext.newPage();
+
+  await login(adminPage, 'e2e_admin');
+  await adminPage.goto('/teaching-operations');
+  await expect(adminPage.getByRole('heading', { name: '教学运营' })).toBeVisible();
+  await adminPage.getByTestId('generate-sessions').click();
+  const generateDialog = adminPage.getByRole('dialog', { name: '批量生成课次' });
+  await expect(generateDialog).toBeVisible();
+  await generateDialog.getByTestId('submit-generate').click();
+  await expect(adminPage.getByText(/生成 1 节，跳过重复 0 节/)).toBeVisible();
+
+  const sessionRow = adminPage.getByTestId('session-table').getByRole('row', { name: /E2E Browser Class/ });
+  await expect(sessionRow).toContainText('E2E Browser Class课程');
+  await sessionRow.getByRole('button', { name: '打开考勤' }).click();
+  const attendanceRow = adminPage.getByTestId('attendance-table').getByRole('row', { name: /E2E Student/ });
+  await attendanceRow.locator('.el-select').click();
+  await adminPage.locator('.el-select-dropdown__item:visible', { hasText: '出勤' }).click();
+  await adminPage.getByTestId('confirm-attendance').click();
+  await expect(adminPage.getByText('已确认 1 条，幂等跳过 0 条')).toBeVisible();
+  await adminPage.getByTestId('confirm-attendance').click();
+  await expect(adminPage.getByText('请选择至少一条尚未确认的考勤')).toBeVisible();
+
+  await adminPage.getByRole('tab', { name: '课时台账' }).click();
+  const balanceRow = adminPage.getByTestId('balance-table').getByRole('row', { name: /E2E Student/ });
+  await expect(balanceRow).toContainText('4');
+  expect(await prisma.lessonHourLedger.count({ where: { student: { username: 'e2e_student' }, type: 'CONSUME' } })).toBe(1);
+
+  await adminPage.getByRole('tab', { name: '考勤确认' }).click();
+  const confirmedRow = adminPage.getByTestId('attendance-table').getByRole('row', { name: /E2E Student/ });
+  await confirmedRow.getByRole('button', { name: '更正' }).click();
+  const correctionDialog = adminPage.getByRole('dialog', { name: '更正考勤' });
+  await correctionDialog.locator('.el-select').click();
+  await adminPage.locator('.el-select-dropdown__item:visible', { hasText: '请假' }).click();
+  await correctionDialog.locator('.el-input-number input').fill('0');
+  await correctionDialog.locator('textarea').fill('浏览器验收：核实为已请假');
+  await correctionDialog.getByTestId('submit-correction').click();
+  const correctionConfirm = adminPage.getByRole('dialog', { name: '确认更正' });
+  await correctionConfirm.locator('.el-message-box__btns .el-button--primary').click();
+  await expect(adminPage.getByText('考勤已更正，冲正台账已追加')).toBeVisible();
+
+  await adminPage.getByRole('tab', { name: '课时台账' }).click();
+  await expect(balanceRow).toContainText('5');
+  expect(await prisma.lessonHourLedger.count({ where: { student: { username: 'e2e_student' }, type: 'REVERSAL' } })).toBe(1);
+  await adminPage.getByTestId('reconcile-hours').click();
+  await expect(adminPage.getByText(/核对通过：.*名学生差异为 0/)).toBeVisible();
+
+  await login(studentPage, 'e2e_student');
+  await studentPage.goto('/teaching-operations');
+  await expect(studentPage.getByRole('heading', { name: '教学运营' })).toBeVisible();
+  await studentPage.getByRole('tab', { name: '课时台账' }).click();
+  await expect(studentPage.getByTestId('balance-table').getByRole('row', { name: /E2E Student/ })).toContainText('5');
+  await expect(studentPage.getByRole('button', { name: '登记课时变动' })).toHaveCount(0);
+
+  await adminContext.close();
   await studentContext.close();
 });
 

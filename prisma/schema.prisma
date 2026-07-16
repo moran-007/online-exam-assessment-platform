@@ -250,6 +250,54 @@ enum AiProviderConfigScope {
   PERSONAL @map("personal")
 }
 
+enum CourseUnitStatus {
+  ACTIVE   @map("active")
+  DISABLED @map("disabled")
+  ARCHIVED @map("archived")
+}
+
+enum ScheduleRuleStatus {
+  ACTIVE   @map("active")
+  PAUSED   @map("paused")
+  ARCHIVED @map("archived")
+}
+
+enum LessonSessionStatus {
+  PLANNED     @map("planned")
+  COMPLETED   @map("completed")
+  CANCELLED   @map("cancelled")
+  RESCHEDULED @map("rescheduled")
+}
+
+enum LessonSessionKind {
+  REGULAR   @map("regular")
+  TEMPORARY @map("temporary")
+  MAKEUP    @map("makeup")
+  TRIAL     @map("trial")
+}
+
+enum AttendanceStatus {
+  UNCONFIRMED @map("unconfirmed")
+  PRESENT     @map("present")
+  LATE        @map("late")
+  EARLY_LEAVE @map("early_leave")
+  LEAVE       @map("leave")
+  ABSENT      @map("absent")
+  MAKEUP      @map("makeup")
+}
+
+enum LessonHourLedgerType {
+  OPENING_BALANCE   @map("opening_balance")
+  PURCHASE          @map("purchase")
+  GIFT              @map("gift")
+  CONSUME           @map("consume")
+  REVERSAL          @map("reversal")
+  REFUND            @map("refund")
+  TRANSFER_IN       @map("transfer_in")
+  TRANSFER_OUT      @map("transfer_out")
+  MANUAL_ADJUSTMENT @map("manual_adjustment")
+}
+
 model User {
   id                 String     @id @default(uuid()) @db.Uuid
   username           String     @unique @db.VarChar(64)
@@ -281,6 +329,12 @@ model User {
   teacherProfile        TeacherProfile?
   parentStudents        ParentStudent[]        @relation("ParentStudentParent")
   childParents          ParentStudent[]        @relation("ParentStudentStudent")
+  scheduleRulesTaught   ClassScheduleRule[]    @relation("ScheduleRuleTeacher")
+  lessonSessionsTaught  LessonSession[]        @relation("LessonSessionTeacher")
+  attendanceRecords     AttendanceRecord[]     @relation("AttendanceStudent")
+  attendanceConfirmed   AttendanceRecord[]     @relation("AttendanceConfirmer")
+  attendanceRevisions   AttendanceRevision[]   @relation("AttendanceCorrector")
+  lessonHourEntries     LessonHourLedger[]     @relation("LessonHourStudent")
 
   @@index([userType])
   @@index([status])
@@ -408,11 +462,13 @@ model Course {
   updatedAt   DateTime     @updatedAt @map("updated_at")
   deletedAt   DateTime?    @map("deleted_at")
 
-  knowledgePoints KnowledgePoint[]
-  questions       Question[]
-  papers          Paper[]
-  exams           Exam[]
-  classes         ClassGroup[]
+  knowledgePoints   KnowledgePoint[]
+  questions         Question[]
+  papers            Paper[]
+  exams             Exam[]
+  classes           ClassGroup[]
+  unitTemplates     CourseUnitTemplate[]
+  lessonHourEntries LessonHourLedger[]
 
   @@index([status])
   @@map("courses")
@@ -432,9 +488,12 @@ model ClassGroup {
   updatedAt   DateTime  @updatedAt @map("updated_at")
   deletedAt   DateTime? @map("deleted_at")
 
-  course   Course?        @relation(fields: [courseId], references: [id])
-  students ClassStudent[]
-  teachers ClassTeacher[]
+  course            Course?             @relation(fields: [courseId], references: [id])
+  students          ClassStudent[]
+  teachers          ClassTeacher[]
+  scheduleRules     ClassScheduleRule[]
+  lessonSessions    LessonSession[]
+  lessonHourEntries LessonHourLedger[]
 
   @@index([courseId])
   @@index([status])
@@ -539,6 +598,212 @@ model ParentStudent {
   @@index([parentId, status])
   @@index([studentId, status])
   @@map("parent_students")
+}
+
+model LessonType {
+  id                String   @id @default(uuid()) @db.Uuid
+  name              String   @unique @db.VarChar(96)
+  defaultHours      Decimal  @default(1) @map("default_hours") @db.Decimal(8, 2)
+  countInStatistics Boolean  @default(true) @map("count_in_statistics")
+  active            Boolean  @default(true)
+  description       String?  @db.Text
+  createdBy         String?  @map("created_by") @db.Uuid
+  updatedBy         String?  @map("updated_by") @db.Uuid
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  unitTemplates  CourseUnitTemplate[]
+  scheduleRules  ClassScheduleRule[]
+  lessonSessions LessonSession[]
+
+  @@index([active, name])
+  @@map("lesson_types")
+}
+
+model CourseUnitTemplate {
+  id              String           @id @default(uuid()) @db.Uuid
+  code            String           @unique @db.VarChar(128)
+  courseId        String?          @map("course_id") @db.Uuid
+  lessonTypeId    String           @map("lesson_type_id") @db.Uuid
+  category        String?          @db.VarChar(96)
+  stage           String?          @db.VarChar(96)
+  unitNo          Int?             @map("unit_no")
+  name            String           @db.VarChar(160)
+  defaultHours    Decimal          @default(1) @map("default_hours") @db.Decimal(8, 2)
+  teachingContent String?          @map("teaching_content") @db.Text
+  status          CourseUnitStatus @default(ACTIVE)
+  createdBy       String?          @map("created_by") @db.Uuid
+  updatedBy       String?          @map("updated_by") @db.Uuid
+  createdAt       DateTime         @default(now()) @map("created_at")
+  updatedAt       DateTime         @updatedAt @map("updated_at")
+
+  course         Course?             @relation(fields: [courseId], references: [id])
+  lessonType     LessonType          @relation(fields: [lessonTypeId], references: [id])
+  scheduleRules  ClassScheduleRule[]
+  lessonSessions LessonSession[]
+
+  @@index([courseId, status])
+  @@index([lessonTypeId, status])
+  @@index([category, stage, unitNo])
+  @@map("course_unit_templates")
+}
+
+model ClassScheduleRule {
+  id             String             @id @default(uuid()) @db.Uuid
+  classId        String             @map("class_id") @db.Uuid
+  teacherId      String?            @map("teacher_id") @db.Uuid
+  lessonTypeId   String             @map("lesson_type_id") @db.Uuid
+  unitTemplateId String?            @map("unit_template_id") @db.Uuid
+  weekday        Int
+  startMinute    Int                @map("start_minute")
+  endMinute      Int                @map("end_minute")
+  effectiveFrom  DateTime           @map("effective_from") @db.Date
+  effectiveTo    DateTime?          @map("effective_to") @db.Date
+  timezone       String             @default("Asia/Shanghai") @db.VarChar(64)
+  lessonHours    Decimal            @default(1) @map("lesson_hours") @db.Decimal(8, 2)
+  classroom      String?            @db.VarChar(128)
+  status         ScheduleRuleStatus @default(ACTIVE)
+  createdBy      String?            @map("created_by") @db.Uuid
+  updatedBy      String?            @map("updated_by") @db.Uuid
+  createdAt      DateTime           @default(now()) @map("created_at")
+  updatedAt      DateTime           @updatedAt @map("updated_at")
+
+  classGroup   ClassGroup          @relation(fields: [classId], references: [id])
+  teacher      User?               @relation("ScheduleRuleTeacher", fields: [teacherId], references: [id])
+  lessonType   LessonType          @relation(fields: [lessonTypeId], references: [id])
+  unitTemplate CourseUnitTemplate? @relation(fields: [unitTemplateId], references: [id])
+  sessions     LessonSession[]
+
+  @@index([classId, status])
+  @@index([teacherId, status])
+  @@index([effectiveFrom, effectiveTo])
+  @@map("class_schedule_rules")
+}
+
+model LessonSession {
+  id              String              @id @default(uuid()) @db.Uuid
+  classId         String              @map("class_id") @db.Uuid
+  teacherId       String?             @map("teacher_id") @db.Uuid
+  lessonTypeId    String              @map("lesson_type_id") @db.Uuid
+  unitTemplateId  String?             @map("unit_template_id") @db.Uuid
+  scheduleRuleId  String?             @map("schedule_rule_id") @db.Uuid
+  sourceSessionId String?             @map("source_session_id") @db.Uuid
+  generationKey   String              @unique @map("generation_key") @db.VarChar(180)
+  title           String              @db.VarChar(180)
+  kind            LessonSessionKind   @default(REGULAR)
+  status          LessonSessionStatus @default(PLANNED)
+  startsAt        DateTime            @map("starts_at") @db.Timestamptz(3)
+  endsAt          DateTime            @map("ends_at") @db.Timestamptz(3)
+  timezone        String              @default("Asia/Shanghai") @db.VarChar(64)
+  lessonHours     Decimal             @default(1) @map("lesson_hours") @db.Decimal(8, 2)
+  classroom       String?             @db.VarChar(128)
+  cancelReason    String?             @map("cancel_reason") @db.Text
+  sourceSystem    String?             @map("source_system") @db.VarChar(64)
+  legacyId        String?             @map("legacy_id") @db.VarChar(128)
+  createdBy       String?             @map("created_by") @db.Uuid
+  updatedBy       String?             @map("updated_by") @db.Uuid
+  createdAt       DateTime            @default(now()) @map("created_at")
+  updatedAt       DateTime            @updatedAt @map("updated_at")
+
+  classGroup      ClassGroup          @relation(fields: [classId], references: [id])
+  teacher         User?               @relation("LessonSessionTeacher", fields: [teacherId], references: [id])
+  lessonType      LessonType          @relation(fields: [lessonTypeId], references: [id])
+  unitTemplate    CourseUnitTemplate? @relation(fields: [unitTemplateId], references: [id])
+  scheduleRule    ClassScheduleRule?  @relation(fields: [scheduleRuleId], references: [id])
+  sourceSession   LessonSession?      @relation("SessionDerivation", fields: [sourceSessionId], references: [id])
+  derivedSessions LessonSession[]     @relation("SessionDerivation")
+  attendance      AttendanceRecord[]
+  hourEntries     LessonHourLedger[]
+
+  @@unique([sourceSystem, legacyId])
+  @@index([classId, startsAt])
+  @@index([teacherId, startsAt])
+  @@index([status, startsAt])
+  @@index([scheduleRuleId, startsAt])
+  @@map("lesson_sessions")
+}
+
+model AttendanceRecord {
+  id               String           @id @default(uuid()) @db.Uuid
+  sessionId        String           @map("session_id") @db.Uuid
+  studentId        String           @map("student_id") @db.Uuid
+  status           AttendanceStatus @default(UNCONFIRMED)
+  deductHours      Decimal          @default(0) @map("deduct_hours") @db.Decimal(8, 2)
+  confirmedBy      String?          @map("confirmed_by") @db.Uuid
+  confirmedAt      DateTime?        @map("confirmed_at") @db.Timestamptz(3)
+  correctionReason String?          @map("correction_reason") @db.Text
+  legacyBaseline   Boolean          @default(false) @map("legacy_baseline")
+  sourceSystem     String?          @map("source_system") @db.VarChar(64)
+  legacyId         String?          @map("legacy_id") @db.VarChar(128)
+  version          Int              @default(1)
+  createdAt        DateTime         @default(now()) @map("created_at")
+  updatedAt        DateTime         @updatedAt @map("updated_at")
+
+  session     LessonSession        @relation(fields: [sessionId], references: [id])
+  student     User                 @relation("AttendanceStudent", fields: [studentId], references: [id])
+  confirmer   User?                @relation("AttendanceConfirmer", fields: [confirmedBy], references: [id])
+  revisions   AttendanceRevision[]
+  hourEntries LessonHourLedger[]
+
+  @@unique([sessionId, studentId])
+  @@unique([sourceSystem, legacyId])
+  @@index([studentId, confirmedAt])
+  @@index([status, confirmedAt])
+  @@map("attendance_records")
+}
+
+model AttendanceRevision {
+  id                String           @id @default(uuid()) @db.Uuid
+  attendanceId      String           @map("attendance_id") @db.Uuid
+  version           Int
+  beforeStatus      AttendanceStatus @map("before_status")
+  beforeDeductHours Decimal          @map("before_deduct_hours") @db.Decimal(8, 2)
+  afterStatus       AttendanceStatus @map("after_status")
+  afterDeductHours  Decimal          @map("after_deduct_hours") @db.Decimal(8, 2)
+  reason            String           @db.Text
+  correctedBy       String           @map("corrected_by") @db.Uuid
+  createdAt         DateTime         @default(now()) @map("created_at")
+
+  attendance AttendanceRecord @relation(fields: [attendanceId], references: [id])
+  corrector  User             @relation("AttendanceCorrector", fields: [correctedBy], references: [id])
+
+  @@unique([attendanceId, version])
+  @@index([correctedBy, createdAt])
+  @@map("attendance_revisions")
+}
+
+model LessonHourLedger {
+  id             String               @id @default(uuid()) @db.Uuid
+  studentId      String               @map("student_id") @db.Uuid
+  courseId       String?              @map("course_id") @db.Uuid
+  classId        String?              @map("class_id") @db.Uuid
+  sessionId      String?              @map("session_id") @db.Uuid
+  attendanceId   String?              @map("attendance_id") @db.Uuid
+  type           LessonHourLedgerType
+  amount         Decimal              @db.Decimal(10, 2)
+  idempotencyKey String               @unique @map("idempotency_key") @db.VarChar(180)
+  reversalOfId   String?              @map("reversal_of_id") @db.Uuid
+  sourceSystem   String?              @map("source_system") @db.VarChar(64)
+  legacyId       String?              @map("legacy_id") @db.VarChar(128)
+  note           String?              @db.Text
+  createdBy      String?              @map("created_by") @db.Uuid
+  createdAt      DateTime             @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  student    User               @relation("LessonHourStudent", fields: [studentId], references: [id])
+  course     Course?            @relation(fields: [courseId], references: [id])
+  classGroup ClassGroup?        @relation(fields: [classId], references: [id])
+  session    LessonSession?     @relation(fields: [sessionId], references: [id])
+  attendance AttendanceRecord?  @relation(fields: [attendanceId], references: [id])
+  reversalOf LessonHourLedger?  @relation("LedgerReversal", fields: [reversalOfId], references: [id])
+  reversals  LessonHourLedger[] @relation("LedgerReversal")
+
+  @@unique([sourceSystem, legacyId])
+  @@index([studentId, createdAt])
+  @@index([classId, createdAt])
+  @@index([sessionId])
+  @@index([attendanceId])
+  @@index([reversalOfId])
+  @@map("lesson_hour_ledger")
 }
 
 model MigrationRun {

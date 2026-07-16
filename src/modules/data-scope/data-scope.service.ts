@@ -30,6 +30,86 @@ export class DataScopeService {
     return relations.map((relation) => relation.classId);
   }
 
+  async academicClassIdsFor(user: RequestUser) {
+    if (this.isUnrestricted(user)) return null;
+
+    if (this.isScopedTeacher(user)) {
+      return this.classIdsFor(user);
+    }
+
+    if (user.userType === UserType.STUDENT) {
+      const memberships = await this.prisma.classStudent.findMany({
+        where: {
+          studentId: user.id,
+          status: ClassMemberStatus.ACTIVE,
+          classGroup: { deletedAt: null, status: 'active' },
+        },
+        select: { classId: true },
+      });
+      return memberships.map((membership) => membership.classId);
+    }
+
+    if (user.userType === UserType.PARENT) {
+      const memberships = await this.prisma.classStudent.findMany({
+        where: {
+          status: ClassMemberStatus.ACTIVE,
+          classGroup: { deletedAt: null, status: 'active' },
+          student: {
+            childParents: {
+              some: { parentId: user.id, status: ClassMemberStatus.ACTIVE },
+            },
+          },
+        },
+        select: { classId: true },
+        distinct: ['classId'],
+      });
+      return memberships.map((membership) => membership.classId);
+    }
+
+    return [];
+  }
+
+  async studentIdsFor(user: RequestUser) {
+    if (this.isUnrestricted(user)) return null;
+    if (user.userType === UserType.STUDENT) return [user.id];
+
+    if (user.userType === UserType.PARENT) {
+      const relations = await this.prisma.parentStudent.findMany({
+        where: { parentId: user.id, status: ClassMemberStatus.ACTIVE },
+        select: { studentId: true },
+      });
+      return relations.map((relation) => relation.studentId);
+    }
+
+    if (this.isScopedTeacher(user)) {
+      const memberships = await this.prisma.classStudent.findMany({
+        where: {
+          status: ClassMemberStatus.ACTIVE,
+          classGroup: {
+            deletedAt: null,
+            status: 'active',
+            teachers: { some: { teacherId: user.id, status: ClassMemberStatus.ACTIVE } },
+          },
+        },
+        select: { studentId: true },
+        distinct: ['studentId'],
+      });
+      return memberships.map((membership) => membership.studentId);
+    }
+
+    return [];
+  }
+
+  async assertAcademicClassAccessible(user: RequestUser, classId: string) {
+    const classIds = await this.academicClassIdsFor(user);
+    this.assertInScope(classIds === null || classIds.includes(classId), '无权限访问该班级教务数据');
+  }
+
+  async assertStudentAccessible(user: RequestUser, studentId: string) {
+    const studentIds = await this.studentIdsFor(user);
+    this.assertInScope(studentIds === null || studentIds.includes(studentId), '无权限访问该学生教务数据');
+  }
+
   async teacherIdsVisibleTo(user: RequestUser) {
     if (this.isUnrestricted(user)) return null;
     if (this.isScopedTeacher(user)) return [user.id];

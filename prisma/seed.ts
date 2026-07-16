@@ -44,6 +44,14 @@ const permissions = [
   ['academic-profile:update', '维护学生和教师档案'],
   ['parent-student:manage', '维护家长与学生关系'],
   ['legacy-migration:manage', '预检、处置和批准历史数据迁移'],
+  ['lesson-type:read', '查看课型'], ['lesson-type:manage', '管理课型'],
+  ['course-unit:read', '查看课程单元模板'], ['course-unit:manage', '管理课程单元模板'],
+  ['schedule:read', '按数据范围查看排课'], ['schedule:manage', '维护规则、生成课次和调课'],
+  ['attendance:read', '按数据范围查看考勤'], ['attendance:confirm', '确认考勤并扣减课时'],
+  ['attendance:correct', '通过冲正台账更正考勤'],
+  ['lesson-hour:read', '按数据范围查看课时余额与台账'],
+  ['lesson-hour:adjust', '新增购买、赠送、退款和人工调整'],
+  ['lesson-hour:reconcile', '重算并核对课时台账'],
   ['statistics:read', '查看统计'], ['audit-log:read', '查看审计日志'],
 ] as const;
 
@@ -132,17 +140,28 @@ async function main() {
         'ai.summary.view-class',
         'ai.provider.manage-own',
         'academic-profile:read',
+        'lesson-type:read',
+        'course-unit:read',
+        'schedule:read',
+        'schedule:manage',
+        'attendance:read',
+        'attendance:confirm',
+        'attendance:correct',
+        'lesson-hour:read',
       ],
     },
     {
       code: 'student',
       name: '学生',
-      permissions: ['course:read', 'knowledge-point:read', 'tag:read', 'ai.summary.view-own', 'academic-profile:read'],
+      permissions: [
+        'course:read', 'knowledge-point:read', 'tag:read', 'ai.summary.view-own', 'academic-profile:read',
+        'schedule:read', 'attendance:read', 'lesson-hour:read',
+      ],
     },
     {
       code: 'parent',
       name: '家长',
-      permissions: ['academic-profile:read', 'ai.summary.view-own'],
+      permissions: ['academic-profile:read', 'ai.summary.view-own', 'schedule:read', 'attendance:read', 'lesson-hour:read'],
     },
   ];
 

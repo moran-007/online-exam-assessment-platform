@@ -27,6 +27,7 @@ const ExternalAccountView = () => import('./views/ExternalAccountView.vue');
 const UserManagementView = () => import('./views/UserManagementView.vue');
 const AiSettingsView = () => import('./views/AiSettingsView.vue');
 const AcademicProfilesView = () => import('./views/AcademicProfilesView.vue');
+const AcademicOperationsView = () => import('./views/AcademicOperationsView.vue');
 
 const routes = [
   { path: '/login', component: LoginView, meta: { public: true } },
@@ -38,6 +39,7 @@ const routes = [
   { path: '/classes', component: ClassView, meta: { adminOnly: true, permissions: ['class:read'] } },
   { path: '/users', component: UserManagementView, meta: { adminOnly: true, userTypes: ['SUPER_ADMIN'] } },
   { path: '/academic-profiles', component: AcademicProfilesView, meta: { adminOnly: true, userTypes: ['SUPER_ADMIN', 'ADMIN'] } },
+  { path: '/teaching-operations', component: AcademicOperationsView, meta: { permissions: ['schedule:read'] } },
   { path: '/ai-settings', component: AiSettingsView, meta: { adminOnly: true, userTypes: ['SUPER_ADMIN', 'ADMIN', 'TEACHER', 'ASSISTANT'] } },
   { path: '/knowledge', component: KnowledgeView, meta: { adminOnly: true, permissions: ['knowledge-point:read'] } },
   { path: '/tags', component: TagView, meta: { adminOnly: true, permissions: ['tag:read'] } },
