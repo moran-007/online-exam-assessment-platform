@@ -198,6 +198,15 @@ Stop-Port 3000
 Stop-Port 5173
 Stop-Port 5174
 
+$CutoverStatePath = Join-Path $Runtime "cutover\worker-01-state.json"
+if (Test-Path $CutoverStatePath) {
+  $CutoverState = Get-Content -LiteralPath $CutoverStatePath -Raw | ConvertFrom-Json
+  if ($CutoverState.phase -in @("FROZEN", "ACTIVE_MAIN", "ENTRY_ROLLED_BACK", "ARCHIVED")) {
+    Write-Host "worker_01 cutover state: $($CutoverState.phase); stopping legacy service port 8000."
+    Stop-Port 8000
+  }
+}
+
 Write-Step "Preparing local PostgreSQL"
 Ensure-Postgres
 Ensure-EnvFile

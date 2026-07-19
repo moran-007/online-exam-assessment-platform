@@ -151,16 +151,49 @@ async function restoreBackup(backupDir: string, targetDatabase: string, targetUp
 }
 
 async function tableCountsFor(prisma: PrismaClient) {
-  const [users, questions, papers, exams, examAttempts, answerRecords, fileAssets] = await Promise.all([
+  const [
+    users, classes, classStudents, classTeachers, lessonTypes, courseUnits, lessonSessions,
+    attendanceRecords, lessonHourLedger, lessonRecords, lessonRecordVersions, lessonAssets,
+    scratchTemplates, scratchAssignments, scratchWorks, scratchWorkVersions, scratchReviews,
+    scratchJudgeRuns, questions, papers, exams, examAttempts, answerRecords, fileAssets,
+    migrationRuns, legacyIdMappings, migrationConflicts, auditLogs,
+  ] = await Promise.all([
     prisma.user.count(),
+    prisma.classGroup.count(),
+    prisma.classStudent.count(),
+    prisma.classTeacher.count(),
+    prisma.lessonType.count(),
+    prisma.courseUnitTemplate.count(),
+    prisma.lessonSession.count(),
+    prisma.attendanceRecord.count(),
+    prisma.lessonHourLedger.count(),
+    prisma.lessonRecord.count(),
+    prisma.lessonRecordVersion.count(),
+    prisma.lessonAsset.count(),
+    prisma.scratchTemplate.count(),
+    prisma.lessonScratchAssignment.count(),
+    prisma.scratchWork.count(),
+    prisma.scratchWorkVersion.count(),
+    prisma.scratchReview.count(),
+    prisma.scratchJudgeRun.count(),
     prisma.question.count(),
     prisma.paper.count(),
     prisma.exam.count(),
     prisma.examAttempt.count(),
     prisma.answerRecord.count(),
     prisma.fileAsset.count(),
+    prisma.migrationRun.count(),
+    prisma.legacyIdMapping.count(),
+    prisma.migrationConflict.count(),
+    prisma.auditLog.count(),
   ]);
-  return { users, questions, papers, exams, examAttempts, answerRecords, fileAssets };
+  return {
+    users, classes, classStudents, classTeachers, lessonTypes, courseUnits, lessonSessions,
+    attendanceRecords, lessonHourLedger, lessonRecords, lessonRecordVersions, lessonAssets,
+    scratchTemplates, scratchAssignments, scratchWorks, scratchWorkVersions, scratchReviews,
+    scratchJudgeRuns, questions, papers, exams, examAttempts, answerRecords, fileAssets,
+    migrationRuns, legacyIdMappings, migrationConflicts, auditLogs,
+  };
 }
 
 async function migrationCountFor(prisma: PrismaClient) {

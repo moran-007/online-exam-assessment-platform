@@ -40,6 +40,7 @@
     "migration:worker:operations": "tsx scripts/migrate-worker-academic-operations.ts",
     "migration:worker:lesson-records": "tsx scripts/migrate-worker-lesson-records.ts",
     "migration:worker:scratch": "tsx scripts/migrate-worker-scratch.ts",
+    "cutover:worker": "tsx scripts/worker-cutover.ts",
     "fixture:stage6-browser": "tsx scripts/prepare-stage6-browser-fixture.ts",
     "backup:create": "tsx scripts/backup.ts create",
     "backup:verify": "tsx scripts/backup.ts verify",
