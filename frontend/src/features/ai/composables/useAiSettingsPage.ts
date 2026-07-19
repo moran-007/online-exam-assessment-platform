@@ -16,7 +16,7 @@ type AiConfigForm = CreateAiProviderConfig & { id: string };
 
 const emptyForm = (scope: 'system' | 'personal'): AiConfigForm => ({
   id: '', name: '', provider: 'custom', baseUrl: '', model: '', apiKey: '',
-  scope, enabled: true, isDefault: false, timeoutMs: 30_000, maxTokens: 1000, monthlyTokenBudget: undefined,
+  scope, enabled: true, isDefault: false, timeoutMs: 30_000, maxTokens: undefined, monthlyTokenBudget: undefined,
   inputCostPerMillion: 0, outputCostPerMillion: 0,
 });
 
@@ -43,11 +43,7 @@ export function useAiSettingsPage() {
       ?? activeConfigurations.value.find((item) => item.isDefault)
       ?? activeConfigurations.value[0];
     const requested = optionalOutputLimit(summaryForm.maxTokens).maxTokens;
-    if (!selected) return requested ? `本次要求 ${requested} Token` : '自动使用默认模型配置上限';
-    const effective = Math.min(requested ?? selected.maxTokens, selected.maxTokens);
-    return requested
-      ? `实际不超过 ${effective} Token（配置上限 ${selected.maxTokens}）`
-      : `自动使用配置上限 ${selected.maxTokens} Token`;
+    return outputLimitHint(selected?.maxTokens, requested);
   });
 
   async function load() {
@@ -85,7 +81,8 @@ export function useAiSettingsPage() {
     Object.assign(form, {
       id: row.id, name: row.name, provider: row.provider, baseUrl: row.baseUrl, model: row.model,
       scope: row.scope,
-      apiKey: '', enabled: row.enabled, isDefault: row.isDefault, timeoutMs: row.timeoutMs, maxTokens: row.maxTokens,
+      apiKey: '', enabled: row.enabled, isDefault: row.isDefault, timeoutMs: row.timeoutMs,
+      maxTokens: row.maxTokens ?? undefined,
       monthlyTokenBudget: row.monthlyTokenBudget ?? undefined,
       inputCostPerMillion: row.inputCostPerMillion,
       outputCostPerMillion: row.outputCostPerMillion,
@@ -99,8 +96,8 @@ export function useAiSettingsPage() {
       ElMessage.warning('请填写名称、Base URL、模型和 API Key');
       return;
     }
-    const configuredMaxTokens = Number(form.maxTokens);
-    if (!Number.isInteger(configuredMaxTokens) || configuredMaxTokens < 1 || configuredMaxTokens > 8192) {
+    const configuredMaxTokens = optionalOutputLimit(form.maxTokens).maxTokens ?? null;
+    if (form.maxTokens !== undefined && form.maxTokens !== null && configuredMaxTokens === null) {
       ElMessage.warning('模型配置输出上限必须是 1–8192 之间的整数');
       return;
     }
@@ -173,7 +170,8 @@ export function useAiSettingsPage() {
         ...optionalOutputLimit(summaryForm.maxTokens),
       });
       summaryResult.value = result.summary;
-      summaryMeta.value = `${result.provider} / ${result.model} · 请求上限 ${result.outputLimitTokens} · ${result.durationMs}ms · 输入 ${result.usage.promptTokens} / 输出 ${result.usage.completionTokens} / 合计 ${result.usage.totalTokens} tokens · ${formatTokenQuota(result.tokenQuota)}`;
+      const limit = result.outputLimitTokens === null ? '未显式限制' : `${result.outputLimitTokens} Token`;
+      summaryMeta.value = `${result.provider} / ${result.model} · 供应商输出上限 ${limit} · ${result.durationMs}ms · 输入 ${result.usage.promptTokens} / 输出 ${result.usage.completionTokens} / 合计 ${result.usage.totalTokens} tokens · ${formatTokenQuota(result.tokenQuota)}`;
     } catch (error: unknown) {
       ElMessage.error(message(error, 'AI 总结生成失败'));
     } finally {
@@ -205,6 +203,16 @@ function configFrom(value: unknown) {
 }
 
 function optionalOutputLimit(value: unknown): { maxTokens?: number } {
+  if (value === undefined || value === null || value === '') return {};
   const normalized = Number(value);
-  return Number.isInteger(normalized) && normalized > 0 ? { maxTokens: normalized } : {};
+  return Number.isInteger(normalized) && normalized > 0 && normalized <= 8192 ? { maxTokens: normalized } : {};
+}
+
+function outputLimitHint(configured: number | null | undefined, requested: number | undefined) {
+  if (requested !== undefined && configured !== null && configured !== undefined) {
+    return `实际不超过 ${Math.min(requested, configured)} Token（配置上限 ${configured}）`;
+  }
+  if (requested !== undefined) return `本次向供应商设置 ${requested} Token 上限`;
+  if (configured !== null && configured !== undefined) return `使用配置上限 ${configured} Token`;
+  return '不向供应商发送输出上限；用量未报告时按 8192 Token 估算预留';
 }

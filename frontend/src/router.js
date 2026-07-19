@@ -40,7 +40,11 @@ const routes = [
   { path: '/classes', component: ClassView, meta: { adminOnly: true, permissions: ['class:read'] } },
   { path: '/users', component: UserManagementView, meta: { adminOnly: true, userTypes: ['SUPER_ADMIN'] } },
   { path: '/academic-profiles', component: AcademicProfilesView, meta: { adminOnly: true, userTypes: ['SUPER_ADMIN', 'ADMIN'] } },
-  { path: '/teaching-operations', component: AcademicOperationsView, meta: { permissions: ['schedule:read'] } },
+  {
+    path: '/teaching-operations',
+    component: AcademicOperationsView,
+    meta: { permissions: ['schedule:read', 'lesson-hour:read', 'lesson-type:read', 'course-unit:read'] },
+  },
   { path: '/learning-portal', component: LearningPortalView, meta: { permissions: ['lesson-record:read'] } },
   { path: '/ai-settings', component: AiSettingsView, meta: { adminOnly: true, userTypes: ['SUPER_ADMIN', 'ADMIN', 'TEACHER', 'ASSISTANT'] } },
   { path: '/knowledge', component: KnowledgeView, meta: { adminOnly: true, permissions: ['knowledge-point:read'] } },

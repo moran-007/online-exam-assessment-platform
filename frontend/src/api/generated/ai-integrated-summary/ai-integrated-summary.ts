@@ -48,7 +48,7 @@ export type integratedSummaryCreateClassResponse404 = {
 }
 
 export type integratedSummaryCreateClassResponse409 = {
-  data: ApiErrorResponse
+  data: void
   status: 409
 }
 
@@ -195,7 +195,7 @@ export type integratedSummaryCreateLessonResponse404 = {
 }
 
 export type integratedSummaryCreateLessonResponse409 = {
-  data: ApiErrorResponse
+  data: void
   status: 409
 }
 
@@ -333,7 +333,7 @@ export type integratedSummaryCreateParentResponse404 = {
 }
 
 export type integratedSummaryCreateParentResponse409 = {
-  data: ApiErrorResponse
+  data: void
   status: 409
 }
 

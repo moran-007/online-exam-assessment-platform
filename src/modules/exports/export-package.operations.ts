@@ -1,27 +1,8 @@
-/* eslint-disable @typescript-eslint/no-unused-vars */
-import { BadRequestException, ForbiddenException, Injectable, NotFoundException, OnModuleInit } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { ExportStatus, MasteryStatus, Prisma, QuestionStatus, UserType, WrongQuestionSourceType } from '@prisma/client';
-import {
-  AlignmentType,
-  Document,
-  HeadingLevel,
-  Packer,
-  Paragraph,
-  TextRun,
-} from 'docx';
-import PDFDocument = require('pdfkit');
-import { existsSync } from 'node:fs';
-import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises';
-import { basename, extname, isAbsolute, join, relative, resolve } from 'node:path';
-import { toPagination } from '../../common/dto/pagination-query.dto';
+import { BadRequestException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
+import { join } from 'node:path';
 import { toApiEnum } from '../../common/utils/enum-normalizer';
-import { RequestUser } from '../../common/interfaces/request-user.interface';
-import { AuditService } from '../audit/audit.service';
-import { DataScopeService } from '../data-scope/data-scope.service';
-import { PrismaService } from '../prisma/prisma.service';
 import { CreateExportDto } from './dto/create-export.dto';
-import { QueryExportDto } from './dto/query-export.dto';
 
 type ExportQuestion = {
   sourceId?: string;
@@ -46,20 +27,6 @@ type ExportQuestion = {
   lastWrongAt?: Date;
 };
 
-type DocumentExportContent = {
-  title: string;
-  subtitle: string;
-  questions: ExportQuestion[];
-  includeAnswers: boolean;
-  includeAnalysis: boolean;
-  includeWrongInfo: boolean;
-  template?: string;
-};
-
-type MarkdownSegment =
-  | { type: 'text'; value: string }
-  | { type: 'image'; alt: string; src: string };
-
 type QuestionExportEntity = Prisma.QuestionGetPayload<{
   include: {
     course: true;
@@ -70,22 +37,22 @@ type QuestionExportEntity = Prisma.QuestionGetPayload<{
   };
 }>;
 
-type FullArchivePaper = Prisma.PaperGetPayload<{
-  include: {
-    course: true;
-    _count: { select: { sections: true; questions: true; exams: true } };
-  };
-}>;
-
-type ZipEntry = {
-  name: string;
-  data: Buffer;
-  date?: Date;
-};
 import { ExportsContext } from './exports.context';
 import { loadQuestionExportItems, paperDocumentContent } from './export-dataset.operations';
 import { collectExportQuestionUploads, collectMarkdownUploads, exportQuestionImportAnswers, exportQuestionImportMarkdown, questionImportAnswers, questionImportMarkdown, rewriteMarkdownUploads } from './export-renderer.operations';
-import { createZip } from './export-zip.operations';
+import { writeZipFile, type ZipEntry } from './export-zip.operations';
+
+function jsonEntry(name: string, value: unknown): ZipEntry {
+  return {
+    name,
+    data: JSON.stringify(value, (_key, item) => typeof item === 'bigint' ? item.toString() : item, 2),
+  };
+}
+
+function textEntry(name: string, data: string): ZipEntry {
+  return { name, data };
+}
+
 export async function buildQuestionPackageEntries(ctx: ExportsContext, dto: CreateExportDto, allowEmpty = false) {
     const questions = await loadQuestionExportItems(ctx, dto);
     if (!questions.length && !allowEmpty) {
@@ -115,58 +82,33 @@ export async function buildQuestionPackageEntries(ctx: ExportsContext, dto: Crea
     };
 
     const entries: ZipEntry[] = [
-      {
-        name: 'metadata.json',
-        data: Buffer.from(
-          JSON.stringify(
-            {
-              packageType: 'question_bank',
-              schemaVersion: 1,
-              exportedAt,
-              includeAnswers,
-              includeAnalysis,
-              count: questions.length,
-              assetCount: assetMap.size,
-            },
-            null,
-            2,
-          ),
-          'utf8',
-        ),
-      },
-      {
-        name: 'README.txt',
-        data: Buffer.from(
-          [
-            '题目压缩包',
-            `导出时间：${exportedAt}`,
-            `题目数量：${questions.length}`,
-            '',
-            includeAnswers
-              ? 'questions-template.md 与 answers.txt 可直接用于“题目导入 > 批量导入”。'
-              : '本次未包含答案；questions-template.md 可导入题干，客观题需补充 answers.txt 后再导入。',
-            'questions.json 保留 importPayload、题目 Markdown、答案、解析、标签、知识点和状态。',
-            'assets/ 目录保存题目中引用到的本地上传图片或附件，JSON 中的 /uploads 链接已改写为相对路径。',
-          ].join('\n'),
-          'utf8',
-        ),
-      },
-      {
-        name: 'questions.json',
-        data: Buffer.from(JSON.stringify(payload, null, 2), 'utf8'),
-      },
-      {
-        name: 'questions-template.md',
-        data: Buffer.from(templateText, 'utf8'),
-      },
-      {
-        name: 'answers.txt',
-        data: Buffer.from(answerText, 'utf8'),
-      },
+      jsonEntry('metadata.json', {
+        packageType: 'question_bank',
+        schemaVersion: 1,
+        exportedAt,
+        includeAnswers,
+        includeAnalysis,
+        count: questions.length,
+        assetCount: assetMap.size,
+      }),
+      textEntry('README.txt', [
+        '题目压缩包',
+        `导出时间：${exportedAt}`,
+        `题目数量：${questions.length}`,
+        '',
+        includeAnswers
+          ? 'questions-template.md 与 answers.txt 可直接用于“题目导入 > 批量导入”。'
+          : '本次未包含答案；questions-template.md 可导入题干，客观题需补充 answers.txt 后再导入。',
+        'questions.json 保留 importPayload、题目 Markdown、答案、解析、标签、知识点和状态。',
+        'assets/ 目录保存题目中引用到的本地上传图片或附件，JSON 中的 /uploads 链接已改写为相对路径。',
+      ].join('\n')),
+      jsonEntry('questions.json', payload),
+      textEntry('questions-template.md', templateText),
+      textEntry('answers.txt', answerText),
     ];
 
     for (const [localPath, zipPath] of assetMap.entries()) {
-      entries.push({ name: zipPath, data: await readFile(localPath) });
+      entries.push({ name: zipPath, filePath: localPath });
     }
 
     return {
@@ -178,10 +120,9 @@ export async function buildQuestionPackageEntries(ctx: ExportsContext, dto: Crea
 
 export async function writePaperDocumentPackageExport(ctx: ExportsContext, taskId: string, dto: CreateExportDto) {
     const packageContent = await buildPaperDocumentPackageEntries(ctx, dto);
-    await mkdir(ctx.exportDir, { recursive: true });
     const fileName = `paper_document-${taskId}.zip`;
     const filePath = join(ctx.exportDir, fileName);
-    await writeFile(filePath, createZip(ctx, packageContent.entries));
+    await writeZipFile(filePath, packageContent.entries);
     return `/uploads/exports/${fileName}`;
   }
 
@@ -222,60 +163,35 @@ export async function buildPaperDocumentPackageEntries(ctx: ExportsContext, dto:
     };
 
     const entries: ZipEntry[] = [
-      {
-        name: 'metadata.json',
-        data: Buffer.from(
-          JSON.stringify(
-            {
-              packageType: 'paper_document',
-              schemaVersion: 2,
-              exportedAt,
-              includeAnswers,
-              includeAnalysis,
-              template: dto.template ?? 'teacher',
-              paperId: dto.paperId ?? '',
-              paperName: content.title,
-              count: content.questions.length,
-              assetCount: assetMap.size,
-            },
-            null,
-            2,
-          ),
-          'utf8',
-        ),
-      },
-      {
-        name: 'README.txt',
-        data: Buffer.from(
-          [
-            '试卷题目迁移包',
-            `试卷：${content.title}`,
-            `导出时间：${exportedAt}`,
-            `题目数量：${content.questions.length}`,
-            '',
-            'questions.json 是首选回导文件，保留题目 Markdown、选项、答案、解析、标签、知识点和填空规则。',
-            'questions-template.md 与 answers.txt 可人工查看或兜底导入。',
-            'assets/ 目录保存题目中引用到的本地上传图片或附件，JSON 与 Markdown 中的 /uploads 链接已改写为相对路径。',
-          ].join('\n'),
-          'utf8',
-        ),
-      },
-      {
-        name: 'questions.json',
-        data: Buffer.from(JSON.stringify(payload, null, 2), 'utf8'),
-      },
-      {
-        name: 'questions-template.md',
-        data: Buffer.from(templateText, 'utf8'),
-      },
-      {
-        name: 'answers.txt',
-        data: Buffer.from(answerText, 'utf8'),
-      },
+      jsonEntry('metadata.json', {
+        packageType: 'paper_document',
+        schemaVersion: 2,
+        exportedAt,
+        includeAnswers,
+        includeAnalysis,
+        template: dto.template ?? 'teacher',
+        paperId: dto.paperId ?? '',
+        paperName: content.title,
+        count: content.questions.length,
+        assetCount: assetMap.size,
+      }),
+      textEntry('README.txt', [
+        '试卷题目迁移包',
+        `试卷：${content.title}`,
+        `导出时间：${exportedAt}`,
+        `题目数量：${content.questions.length}`,
+        '',
+        'questions.json 是首选回导文件，保留题目 Markdown、选项、答案、解析、标签、知识点和填空规则。',
+        'questions-template.md 与 answers.txt 可人工查看或兜底导入。',
+        'assets/ 目录保存题目中引用到的本地上传图片或附件，JSON 与 Markdown 中的 /uploads 链接已改写为相对路径。',
+      ].join('\n')),
+      jsonEntry('questions.json', payload),
+      textEntry('questions-template.md', templateText),
+      textEntry('answers.txt', answerText),
     ];
 
     for (const [localPath, zipPath] of assetMap.entries()) {
-      entries.push({ name: zipPath, data: await readFile(localPath) });
+      entries.push({ name: zipPath, filePath: localPath });
     }
 
     return {

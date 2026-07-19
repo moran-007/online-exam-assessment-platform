@@ -66,7 +66,7 @@ describe('AiSummaryTaskRunner', () => {
       usage: { promptTokens: 0, completionTokens: 0, totalTokens: 0, reported: false },
     }));
     expect(fixture.prisma.aiSummaryTask.update).toHaveBeenCalledWith(expect.objectContaining({
-      data: expect.objectContaining({ status: AiSummaryTaskStatus.FAILED }),
+      data: expect.objectContaining({ status: AiSummaryTaskStatus.FAILED, estimatedCost: 0.001 }),
     }));
   });
 
@@ -85,6 +85,30 @@ describe('AiSummaryTaskRunner', () => {
     }));
     expect(fixture.prisma.aiSummaryTask.update).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ inputTokens: 80, outputTokens: 1000 }),
+    }));
+  });
+
+  it('does not send maxTokens for a provider-default task but authorizes its estimate', async () => {
+    const fixture = dependencies();
+    Object.assign(fixture.task, {
+      requestedOutputTokens: null,
+      reservationOutputTokens: 8192,
+      outputLimitKey: 0,
+    });
+    fixture.gateway.complete.mockResolvedValue({
+      content: JSON.stringify(output()),
+      usage: { promptTokens: 10, completionTokens: 5, totalTokens: 15, reported: true },
+      durationMs: 10,
+    });
+    fixture.validator.validate.mockReturnValue(output());
+
+    await fixture.runner.run(fixture.task.id);
+
+    expect(fixture.tokenUsage.authorize).toHaveBeenCalledWith(fixture.task.providerConfig, 8192);
+    expect(fixture.gateway.complete).toHaveBeenCalledWith(expect.objectContaining({ maxTokens: undefined }));
+    expect(fixture.tokenUsage.record).toHaveBeenCalledWith(expect.objectContaining({
+      requestedOutputTokens: null,
+      reservationOutputTokens: 8192,
     }));
   });
 
@@ -164,6 +188,8 @@ describe('AiSummaryTaskRunner', () => {
         },
       },
       requestedOutputTokens: 1000,
+      reservationOutputTokens: 1000,
+      outputLimitKey: 1000,
       schemaVersion,
       modelSnapshot: 'model-a',
       correlationId: '00000000-0000-0000-0000-000000000003',
@@ -174,6 +200,7 @@ describe('AiSummaryTaskRunner', () => {
         id: '00000000-0000-0000-0000-000000000005', provider: 'qwen', enabled: true,
         baseUrl: 'https://example.com/v1', model: 'model-a', maxTokens: 1000,
         timeoutMs: 30000, monthlyTokenBudget: 10000,
+        inputCostPerMillion: 0, outputCostPerMillion: 1,
         apiKeyCiphertext: 'cipher', apiKeyIv: 'iv', apiKeyAuthTag: 'tag', apiKeyKeyVersion: 1,
       },
       promptTemplate: { systemPrompt: 'system', outputSchema: {} },

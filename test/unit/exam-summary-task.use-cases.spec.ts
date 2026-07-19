@@ -9,7 +9,7 @@ describe('ExamSummaryTaskUseCases', () => {
     const service = new ExamSummaryTaskUseCases(builder as never, coordinator as never);
     const user = { id: 'user-1' } as never;
 
-    await service.create({ examId: 'exam-1', maxTokens: 800 }, user);
+    await service.create({ examId: 'exam-1', maxTokens: 800, confirmRetry: true }, user);
 
     expect(builder.build).toHaveBeenCalledWith('exam-1', user);
     expect(coordinator.create).toHaveBeenCalledWith(expect.objectContaining({
@@ -20,6 +20,6 @@ describe('ExamSummaryTaskUseCases', () => {
       templateCode: 'exam-summary',
       schemaVersion: 'exam-summary-output/v1',
       maxTokens: 800,
-    }), user, {});
+    }), user, { confirmRetry: true });
   });
 });

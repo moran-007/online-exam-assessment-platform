@@ -5,6 +5,7 @@ import {
   ArrayMinSize,
   ArrayUnique,
   IsArray,
+  IsBoolean,
   IsDateString,
   IsInt,
   IsOptional,
@@ -51,12 +52,19 @@ export class CreateStudentSummaryTaskDto extends StudentSummaryScopeQueryDto {
   configId?: string;
 
   @ApiPropertyOptional({
-    description: '本次输出上限；不传时使用所选模型配置的输出上限',
+    description: '本次输出上限；配置与本次均为空时由供应商决定',
     minimum: MIN_STUDENT_SUMMARY_OUTPUT_TOKENS,
     maximum: MAX_AI_OUTPUT_TOKENS,
   })
   @IsOptional() @IsInt() @Min(MIN_STUDENT_SUMMARY_OUTPUT_TOKENS) @Max(MAX_AI_OUTPUT_TOKENS)
   maxTokens?: number;
+
+  @ApiPropertyOptional({
+    description: '仅重试相同失败任务时使用；true 表示用户已确认本次会再次调用供应商并记录用量',
+    default: false,
+  })
+  @IsOptional() @IsBoolean()
+  confirmRetry?: boolean;
 }
 
 export class EstimateStudentSummaryBatchDto extends StudentSummaryScopeQueryDto {
@@ -69,7 +77,7 @@ export class EstimateStudentSummaryBatchDto extends StudentSummaryScopeQueryDto 
   configId?: string;
 
   @ApiPropertyOptional({
-    description: '每个学生请求的输出上限；不传时使用所选模型配置的输出上限',
+    description: '每个学生请求的输出上限；配置与本次均为空时由供应商决定',
     minimum: MIN_STUDENT_SUMMARY_OUTPUT_TOKENS,
     maximum: MAX_AI_OUTPUT_TOKENS,
   })
@@ -79,7 +87,9 @@ export class EstimateStudentSummaryBatchDto extends StudentSummaryScopeQueryDto 
 
 export class StudentSummaryBatchEstimateDto {
   @ApiProperty() taskCount: number;
-  @ApiProperty() requestedOutputTokensPerTask: number;
+  @ApiProperty({ nullable: true }) requestedOutputTokensPerTask: number | null;
+  @ApiProperty({ description: '用量未报告时每个任务采用的公开估算预留上界' })
+  reservationOutputTokensPerTask: number;
   @ApiProperty() estimatedReservedTokens: number;
   @ApiProperty({ nullable: true }) remainingTokens: number | null;
   @ApiProperty() withinLocalBudget: boolean;

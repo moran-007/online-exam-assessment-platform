@@ -68,38 +68,40 @@ import type {
 export const listAiPresets = () => generatedData(asGenerated<AiProviderPreset[]>(aiPresets()));
 export const listAiConfigurations = () => generatedData(asGenerated<AiProviderConfig[]>(aiConfigurations()));
 export const createAiConfiguration = (body: CreateAiProviderConfig) =>
-  generatedData(asGenerated<AiProviderConfig>(aiCreate(body)));
+  generatedData(asGenerated<AiProviderConfig>(aiCreate(body as unknown as Parameters<typeof aiCreate>[0])));
 export const updateAiConfiguration = (id: string, body: UpdateAiProviderConfig) =>
-  generatedData(asGenerated<AiProviderConfig>(aiUpdate(id, body)));
+  generatedData(asGenerated<AiProviderConfig>(aiUpdate(id, body as unknown as Parameters<typeof aiUpdate>[1])));
 export const removeAiConfiguration = (id: string) => generatedData(asGenerated(aiRemove(id)));
 export const testAiConfiguration = (id: string) => generatedData(asGenerated<AiTestResult>(aiTest(id)));
 export const generateAiSummary = (body: GenerateAiSummary) =>
   generatedData(asGenerated<AiSummaryResult>(aiSummarize(body)));
 export const previewExamSummaryDataset = (examId: string) =>
   generatedData(asGenerated<ExamSummaryDatasetPreview>(aiSummaryPreview(examId)));
-export const createExamSummary = (body: Parameters<typeof aiSummaryCreate>[0]) =>
+type RetryConfirmed<T> = T & { confirmRetry?: boolean };
+
+export const createExamSummary = (body: RetryConfirmed<Parameters<typeof aiSummaryCreate>[0]>) =>
   generatedData(asGenerated<AiSummaryTask>(aiSummaryCreate(body)));
 export const previewStudentSummaryDataset = (
   studentId: string,
   params?: Parameters<typeof aiSummaryStudentPreview>[1],
 ) => generatedData(asGenerated<StudentSummaryDatasetPreview>(aiSummaryStudentPreview(studentId, params)));
-export const createStudentSummary = (body: Parameters<typeof aiSummaryCreateStudent>[0]) =>
+export const createStudentSummary = (body: RetryConfirmed<Parameters<typeof aiSummaryCreateStudent>[0]>) =>
   generatedData(asGenerated<AiSummaryTask>(aiSummaryCreateStudent(body)));
 export const previewClassSummaryDataset = (
   classId: string,
   params?: Parameters<typeof integratedSummaryPreviewClass>[1],
 ) => generatedData(asGenerated<IntegratedSummaryDatasetPreview>(integratedSummaryPreviewClass(classId, params)));
-export const createClassSummary = (body: Parameters<typeof integratedSummaryCreateClass>[0]) =>
+export const createClassSummary = (body: RetryConfirmed<Parameters<typeof integratedSummaryCreateClass>[0]>) =>
   generatedData(asGenerated<AiSummaryTask>(integratedSummaryCreateClass(body)));
 export const previewParentReportDataset = (
   studentId: string,
   params?: Parameters<typeof integratedSummaryPreviewParent>[1],
 ) => generatedData(asGenerated<IntegratedSummaryDatasetPreview>(integratedSummaryPreviewParent(studentId, params)));
-export const createParentReport = (body: Parameters<typeof integratedSummaryCreateParent>[0]) =>
+export const createParentReport = (body: RetryConfirmed<Parameters<typeof integratedSummaryCreateParent>[0]>) =>
   generatedData(asGenerated<AiSummaryTask>(integratedSummaryCreateParent(body)));
 export const previewLessonAssistantDataset = (sessionId: string) =>
   generatedData(asGenerated<IntegratedSummaryDatasetPreview>(integratedSummaryPreviewLesson(sessionId)));
-export const createLessonAssistant = (body: Parameters<typeof integratedSummaryCreateLesson>[0]) =>
+export const createLessonAssistant = (body: RetryConfirmed<Parameters<typeof integratedSummaryCreateLesson>[0]>) =>
   generatedData(asGenerated<AiSummaryTask>(integratedSummaryCreateLesson(body)));
 export const estimateStudentSummaryBatch = (body: Parameters<typeof aiSummaryEstimateStudentBatch>[0]) =>
   generatedData(asGenerated<StudentSummaryBatchEstimate>(aiSummaryEstimateStudentBatch(body)));

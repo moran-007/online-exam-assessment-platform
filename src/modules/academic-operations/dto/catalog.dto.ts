@@ -1,4 +1,5 @@
 import { Type } from 'class-transformer';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { IsBoolean, IsEnum, IsInt, IsNumber, IsOptional, IsString, IsUUID, MaxLength, Min } from 'class-validator';
 import { CourseUnitStatus } from '@prisma/client';
 import { PaginationQueryDto } from '../../../common/dto/pagination-query.dto';
@@ -57,9 +58,8 @@ export class SaveCourseUnitDto {
   @MaxLength(128)
   code: string;
 
-  @IsOptional()
   @IsUUID()
-  courseId?: string;
+  courseId: string;
 
   @IsUUID()
   lessonTypeId: string;
@@ -96,4 +96,28 @@ export class SaveCourseUnitDto {
   @IsOptional()
   @IsEnum(CourseUnitStatus)
   status?: CourseUnitStatus;
+}
+
+export class CourseUnitResponseDto {
+  @ApiProperty({ format: 'uuid' }) id: string;
+  @ApiProperty() code: string;
+  @ApiProperty({ format: 'uuid', nullable: true }) courseId: string | null;
+  @ApiProperty({ description: '仅历史迁移的无课程归属单元为 true' }) legacyUnscoped: boolean;
+  @ApiProperty({ format: 'uuid' }) lessonTypeId: string;
+  @ApiPropertyOptional({ nullable: true }) category?: string | null;
+  @ApiPropertyOptional({ nullable: true }) stage?: string | null;
+  @ApiProperty() unitNo: number;
+  @ApiProperty() name: string;
+  @ApiProperty() defaultHours: number;
+  @ApiPropertyOptional({ nullable: true }) teachingContent?: string | null;
+  @ApiProperty({ enum: CourseUnitStatus }) status: CourseUnitStatus;
+  @ApiPropertyOptional() courseName?: string;
+  @ApiPropertyOptional() lessonTypeName?: string;
+}
+
+export class CourseUnitPageResponseDto {
+  @ApiProperty({ type: () => [CourseUnitResponseDto] }) items: CourseUnitResponseDto[];
+  @ApiProperty() page: number;
+  @ApiProperty() pageSize: number;
+  @ApiProperty() total: number;
 }

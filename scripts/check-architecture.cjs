@@ -41,6 +41,12 @@ for (const file of filesUnder(join(root, 'src/modules'), ['.operations.ts', '.us
   if (lines > 550) failures.push(`use-case file exceeds 550 lines: ${relative(root, file)} (${lines})`);
 }
 
+for (const builder of ['src/modules/ai/datasets/student-summary-dataset.builder.ts']) {
+  const path = join(root, builder);
+  const lines = readFileSync(path, 'utf8').split(/\r?\n/).length;
+  if (lines > 500) failures.push(`dataset builder exceeds 500 lines: ${builder} (${lines})`);
+}
+
 const frontendFiles = filesUnder(join(root, 'frontend/src'), ['.vue', '.js', '.ts'])
   .filter((file) => !file.includes(`${join('api', 'generated')}`))
   .filter((file) => !file.endsWith('.d.ts'));
@@ -91,6 +97,12 @@ for (const routeView of [
   if (lines > 100) failures.push(`P1 route view is not an orchestration shell: ${routeView} (${lines})`);
 }
 
+for (const routeView of ['PaperAnswerView.vue', 'PublicQuestionView.vue']) {
+  const path = join(root, 'frontend/src/views', routeView);
+  const lines = readFileSync(path, 'utf8').split(/\r?\n/).length;
+  if (lines > 10) failures.push(`answer route view is not a minimal orchestration shell: ${routeView} (${lines})`);
+}
+
 for (const domain of ['questions', 'exams', 'hydro', 'exports', 'papers', 'ai']) {
   const componentDirectory = join(root, 'frontend/src/features', domain, 'components');
   for (const file of filesUnder(componentDirectory, ['.vue'])) {
@@ -109,6 +121,9 @@ for (const coordinator of [
   'frontend/src/features/exams/composables/useStatisticsPage.ts',
   'frontend/src/features/exports/composables/useExportPage.ts',
   'frontend/src/features/hydro/composables/useExternalAccountPage.ts',
+  'frontend/src/features/papers/composables/usePaperAnswerPage.js',
+  'frontend/src/features/questions/composables/usePublicQuestionPage.js',
+  'frontend/src/features/academic-operations/composables/useAcademicOperations.ts',
 ]) {
   const path = join(root, coordinator);
   const lines = readFileSync(path, 'utf8').split(/\r?\n/).length;

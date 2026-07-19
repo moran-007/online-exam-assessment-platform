@@ -1,7 +1,11 @@
 import { Injectable } from '@nestjs/common';
 import { AiSummaryType, Prisma } from '@prisma/client';
 import { RequestUser } from '../../common/interfaces/request-user.interface';
-import { AiSummaryTaskCoordinator, type SummaryTaskOptions } from './ai-summary-task.coordinator';
+import {
+  AiSummaryTaskCoordinator,
+  type SummaryTaskOptions,
+  withRetryConfirmation,
+} from './ai-summary-task.coordinator';
 import { MIN_STUDENT_SUMMARY_OUTPUT_TOKENS } from './ai-summary-limits';
 import { StudentSummaryDatasetBuilder } from './datasets/student-summary-dataset.builder';
 import { CreateStudentSummaryTaskDto } from './dto/student-summary.dto';
@@ -30,7 +34,7 @@ export class StudentSummaryTaskUseCases {
       minOutputTokens: MIN_STUDENT_SUMMARY_OUTPUT_TOKENS,
       configId: dto.configId,
       maxTokens: dto.maxTokens,
-    }, user, options);
+    }, user, withRetryConfirmation(options, dto.confirmRetry));
   }
 
   private scope(dto: CreateStudentSummaryTaskDto): Prisma.InputJsonObject {

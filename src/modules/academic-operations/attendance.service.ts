@@ -167,13 +167,24 @@ export class AttendanceService {
     const result = await this.serializable(async (tx) => {
       const current = await tx.attendanceRecord.findUnique({
         where: { id: attendanceId },
-        include: { session: { select: { classId: true } } },
+        include: {
+          session: {
+            select: {
+              classId: true,
+              lessonType: { select: { countInStatistics: true } },
+            },
+          },
+        },
       });
       if (!current) throw new NotFoundException('考勤记录不存在');
       if (!current.confirmedAt) throw new ConflictException('尚未确认的考勤无需更正');
       await this.dataScope.assertAcademicClassAccessible(actor, current.session.classId);
 
-      const nextDeduct = new Prisma.Decimal(dto.deductHours);
+      const nextDeduct = this.correctedDeduct(
+        dto.status,
+        dto.deductHours,
+        current.session.lessonType.countInStatistics,
+      );
       if (current.status === dto.status && current.deductHours.equals(nextDeduct)) {
         return { id: current.id, version: current.version, unchanged: true };
       }
@@ -296,6 +307,14 @@ export class AttendanceService {
   ) {
     if (!countInStatistics || !BILLABLE_STATUSES.has(status)) return 0;
     return requested ?? Number(sessionHours);
+  }
+
+  private correctedDeduct(status: AttendanceStatus, requested: number, countInStatistics: boolean) {
+    const amount = new Prisma.Decimal(requested);
+    if ((!countInStatistics || !BILLABLE_STATUSES.has(status)) && !amount.isZero()) {
+      throw new BadRequestException('当前考勤状态不计课时，扣减课时必须为 0');
+    }
+    return amount;
   }
 
   private consumeKey(attendanceId: string, version: number) {

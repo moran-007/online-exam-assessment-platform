@@ -1,12 +1,13 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { AiSummaryTaskStatus, AiSummaryType, Prisma } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
 import { RequestUser } from '../../common/interfaces/request-user.interface';
 import { MetricsService } from '../../observability/metrics.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { AiProviderCapabilityRegistry } from './ai-provider-capability.registry';
 import { AiProviderConfigAccessService } from './ai-provider-config-access.service';
 import { AiSummaryTaskRunner } from './ai-summary-task.runner';
-import { resolveOutputTokenLimit } from './ai-summary-limits';
+import { resolveOutputTokenPolicy } from './ai-summary-limits';
 import { AiTokenUsageService } from './ai-token-usage.service';
 import type { SupportedSummaryDataset } from './datasets/summary-dataset';
 import { createSummaryDatasetInputHash } from './summary-input-hash';
@@ -26,13 +27,22 @@ export type SummaryTaskDefinition = {
 export type SummaryTaskOptions = {
   generationKey?: string;
   sourceSummaryId?: string;
+  confirmRetry?: boolean;
 };
+
+export const AI_SUMMARY_RETRY_CONFIRMATION_REQUIRED = '上一次相同 AI 总结任务调用失败，再次调用供应商前必须明确确认';
+export const AI_SUMMARY_RETRY_CONFIRMATION_REQUIRED_CODE = 40910;
+
+export function withRetryConfirmation<T extends SummaryTaskOptions>(options: T, confirmed?: boolean): T & SummaryTaskOptions {
+  return confirmed === undefined ? options : { ...options, confirmRetry: confirmed };
+}
 
 @Injectable()
 export class AiSummaryTaskCoordinator {
   constructor(
     private readonly prisma: PrismaService,
     private readonly configAccess: AiProviderConfigAccessService,
+    private readonly capabilities: AiProviderCapabilityRegistry,
     private readonly runner: AiSummaryTaskRunner,
     private readonly tokenUsage: AiTokenUsageService,
     private readonly metrics: MetricsService,
@@ -43,9 +53,11 @@ export class AiSummaryTaskCoordinator {
       this.configAccess.resolve(user, definition.configId),
       this.activeTemplate(definition.type, definition.templateCode),
     ]);
-    const requestedOutputTokens = resolveOutputTokenLimit(
+    const capability = await this.capabilities.resolve(config.provider, config.model);
+    const outputPolicy = resolveOutputTokenPolicy(
       definition.maxTokens,
       config.maxTokens,
+      capability.maxOutputTokens,
       definition.minOutputTokens,
     );
     const identity = {
@@ -58,11 +70,14 @@ export class AiSummaryTaskCoordinator {
       providerConfigId: config.id,
       modelSnapshot: config.model,
       generationKey: options.generationKey ?? 'initial',
-      requestedOutputTokens,
+      requestedOutputTokens: outputPolicy.requestLimit,
+      reservationOutputTokens: outputPolicy.reservationLimit,
+      outputLimitKey: outputPolicy.requestLimit ?? 0,
     };
     let task = await this.reusable(identity);
     if (!task) task = await this.createOrRead(identity, definition, template.id, user.id, options);
     if (!task) throw new Error('无法创建或读取 AI 总结任务');
+    this.assertFailedRetryConfirmed(task.status, options.confirmRetry);
 
     const cacheHit = task.status === AiSummaryTaskStatus.SUCCEEDED;
     await this.prisma.aiSummaryCacheEvent.create({
@@ -118,7 +133,8 @@ export class AiSummaryTaskCoordinator {
   }
 
   private reusable(identity: SummaryTaskIdentity) {
-    return this.prisma.aiSummaryTask.findFirst({ where: identity, include: TASK_INCLUDE });
+    const { reservationOutputTokens: _reservationOutputTokens, ...requestIdentity } = identity;
+    return this.prisma.aiSummaryTask.findFirst({ where: requestIdentity, include: TASK_INCLUDE });
   }
 
   private async present(task: SummaryTaskWithRelations, cacheHit: boolean) {
@@ -130,7 +146,7 @@ export class AiSummaryTaskCoordinator {
       }),
     ]);
     const reservedTokens = usageEvent && !usageEvent.usageReported
-      ? Math.max(usageEvent.requestedOutputTokens, usageEvent.totalTokens)
+      ? usageEvent.reservationOutputTokens
       : 0;
     return {
       id: task.id,
@@ -160,6 +176,14 @@ export class AiSummaryTaskCoordinator {
   private uniqueConflict(error: unknown) {
     return error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002';
   }
+
+  private assertFailedRetryConfirmed(status: AiSummaryTaskStatus, confirmed?: boolean) {
+    if (status !== AiSummaryTaskStatus.FAILED || confirmed === true) return;
+    throw new ConflictException({
+      code: AI_SUMMARY_RETRY_CONFIRMATION_REQUIRED_CODE,
+      message: AI_SUMMARY_RETRY_CONFIRMATION_REQUIRED,
+    });
+  }
 }
 
 const TASK_INCLUDE = { providerConfig: true, promptTemplate: true, summary: true } as const;
@@ -174,7 +198,9 @@ type SummaryTaskIdentity = {
   providerConfigId: string;
   modelSnapshot: string;
   generationKey: string;
-  requestedOutputTokens: number;
+  requestedOutputTokens: number | null;
+  reservationOutputTokens: number;
+  outputLimitKey: number;
 };
 
 export type SummaryTaskWithRelations = Prisma.AiSummaryTaskGetPayload<{ include: typeof TASK_INCLUDE }>;

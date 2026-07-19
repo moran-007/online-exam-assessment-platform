@@ -39,9 +39,9 @@ export class CreateAiProviderConfigDto {
   @IsOptional() @IsInt() @Min(3000) @Max(120000)
   timeoutMs?: number;
 
-  @ApiPropertyOptional({ default: 1000, minimum: 1, maximum: 8192 })
+  @ApiPropertyOptional({ nullable: true, minimum: 1, maximum: 8192, description: '留空时不设置配置级输出上限' })
   @IsOptional() @IsInt() @Min(1) @Max(8192)
-  maxTokens?: number;
+  maxTokens?: number | null;
 
   @ApiPropertyOptional({ description: '本地月度 Token 预算；不等同于供应商账户余额', minimum: 1000 })
   @IsOptional() @IsInt() @Min(1000)
@@ -73,8 +73,9 @@ export class UpdateAiProviderConfigDto {
   isDefault?: boolean;
   @ApiPropertyOptional() @IsOptional() @IsInt() @Min(3000) @Max(120000)
   timeoutMs?: number;
-  @ApiPropertyOptional() @IsOptional() @IsInt() @Min(1) @Max(8192)
-  maxTokens?: number;
+  @ApiPropertyOptional({ nullable: true, description: '设为 null 可清除配置级输出上限' })
+  @IsOptional() @IsInt() @Min(1) @Max(8192)
+  maxTokens?: number | null;
   @ApiPropertyOptional({ nullable: true, minimum: 1000 }) @IsOptional() @IsInt() @Min(1000)
   monthlyTokenBudget?: number | null;
   @ApiPropertyOptional({ minimum: 0 }) @IsOptional() @IsNumber() @Min(0)
@@ -97,7 +98,7 @@ export class GenerateAiSummaryDto {
   instruction?: string;
 
   @ApiPropertyOptional({
-    description: '本次输出上限；不传时使用所选模型配置的输出上限',
+    description: '本次输出上限；不传时仅使用显式配置上限，二者均为空则由供应商决定',
     minimum: 1,
     maximum: MAX_AI_OUTPUT_TOKENS,
   })
@@ -126,7 +127,7 @@ export class AiTokenQuotaDto {
   @ApiProperty({ type: String, format: 'date-time' }) periodEnd: Date;
   @ApiProperty({ nullable: true }) budgetTokens: number | null;
   @ApiProperty() usedTokens: number;
-  @ApiProperty({ description: '供应商未报告用量时，按请求输出上限保守预留的 Token' }) reservedTokens: number;
+  @ApiProperty({ description: '供应商未报告用量时，按公开估算上界保守预留的 Token' }) reservedTokens: number;
   @ApiProperty({ nullable: true }) remainingTokens: number | null;
   @ApiProperty() unreportedCalls: number;
   @ApiProperty() usageComplete: boolean;
@@ -145,7 +146,8 @@ export class AiProviderConfigResponseDto {
   @ApiProperty() enabled: boolean;
   @ApiProperty() isDefault: boolean;
   @ApiProperty() timeoutMs: number;
-  @ApiProperty() maxTokens: number;
+  @ApiProperty({ nullable: true, description: '配置级输出上限；null 表示不向供应商设置该限制' })
+  maxTokens: number | null;
   @ApiProperty({ nullable: true }) monthlyTokenBudget: number | null;
   @ApiProperty() inputCostPerMillion: number;
   @ApiProperty() outputCostPerMillion: number;
@@ -177,7 +179,8 @@ export class AiSummaryResultDto {
   @ApiProperty() summary: string;
   @ApiProperty() provider: string;
   @ApiProperty() model: string;
-  @ApiProperty({ description: '本次请求实际采用的输出 Token 上限' }) outputLimitTokens: number;
+  @ApiProperty({ nullable: true, description: '本次发送给供应商的输出 Token 上限；null 表示未显式限制' })
+  outputLimitTokens: number | null;
   @ApiProperty({ type: () => AiUsageDto }) usage: AiUsageDto;
   @ApiProperty({ type: () => AiTokenQuotaDto }) tokenQuota: AiTokenQuotaDto;
   @ApiProperty() durationMs: number;

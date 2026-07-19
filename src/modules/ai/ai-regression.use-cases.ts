@@ -11,8 +11,8 @@ import { PrismaService } from '../prisma/prisma.service';
 import { AiProviderCapabilityRegistry } from './ai-provider-capability.registry';
 import { AiProviderConfigAccessService } from './ai-provider-config-access.service';
 import { AiProviderCallException, AiProviderGateway } from './ai-provider.gateway';
-import { thinkingModeFor } from './ai-provider-request.policy';
-import { MAX_AI_OUTPUT_TOKENS } from './ai-summary-limits';
+import { providerRequestPolicyFor } from './ai-provider-request.policy';
+import { resolveOutputTokenPolicy } from './ai-summary-limits';
 import { AiTokenUsage, AiTokenUsageService } from './ai-token-usage.service';
 import { assertSummaryDataset } from './datasets/dataset-validator';
 import type { SupportedSummaryDataset } from './datasets/summary-dataset';
@@ -68,10 +68,10 @@ export class AiRegressionUseCases {
       },
     });
     const capability = await this.capabilities.resolve(config.provider, config.model);
-    const requestedOutputTokens = Math.min(
+    const outputPolicy = resolveOutputTokenPolicy(
+      undefined,
       config.maxTokens,
-      capability.maxOutputTokens ?? MAX_AI_OUTPUT_TOKENS,
-      MAX_AI_OUTPUT_TOKENS,
+      capability.maxOutputTokens,
     );
     let passedCases = 0;
     let inputTokens = 0;
@@ -79,23 +79,25 @@ export class AiRegressionUseCases {
     let sanitizedError: string | null = null;
     for (const fixture of fixtures) {
       let usage: AiTokenUsage = { promptTokens: 0, completionTokens: 0, totalTokens: 0, reported: false };
+      let recordUsage = false;
       try {
         const dataset = fixture.inputSnapshotJson as unknown as SupportedSummaryDataset;
         assertSummaryDataset(dataset);
         const prompt = buildSummaryPrompt(dataset);
-        await this.tokenUsage.authorize(config, requestedOutputTokens);
+        await this.tokenUsage.authorize(config, outputPolicy.reservationLimit);
         const result = await this.gateway.complete({
           baseUrl: config.baseUrl,
           apiKey: this.decrypt(config),
           model: config.model,
           systemPrompt: template.systemPrompt,
           userPrompt: prompt.userPrompt,
-          maxTokens: requestedOutputTokens,
+          maxTokens: outputPolicy.requestLimit ?? undefined,
           timeoutMs: config.timeoutMs,
           responseFormat: responseFormatFor(capability, template.outputSchema, prompt.schemaName),
-          thinking: thinkingModeFor(config.provider),
+          ...providerRequestPolicyFor(config.provider, config.baseUrl, config.model),
         });
         usage = result.usage;
+        recordUsage = true;
         this.validator.validate(
           parseSummaryJson(result.content, this.schemaVersion(summaryType)),
           dataset.evidenceIndex,
@@ -103,18 +105,24 @@ export class AiRegressionUseCases {
         passedCases += 1;
       } catch (error) {
         if (error instanceof AiProviderCallException && error.usage) usage = error.usage;
+        if (error instanceof AiProviderCallException) {
+          recordUsage ||= error.usageMayBeUnreported || Boolean(error.usage);
+        }
         sanitizedError ??= this.error(error);
       } finally {
         inputTokens += usage.promptTokens;
         outputTokens += usage.completionTokens;
-        await this.tokenUsage.record({
-          config,
-          operation: 'model-regression',
-          correlationId: `${run.id}:${fixture.id}`,
-          requestedOutputTokens,
-          usage,
-          userId: user.id,
-        }).catch(() => undefined);
+        if (recordUsage) {
+          await this.tokenUsage.record({
+            config,
+            operation: 'model-regression',
+            correlationId: `${run.id}:${fixture.id}`,
+            requestedOutputTokens: outputPolicy.requestLimit,
+            reservationOutputTokens: outputPolicy.reservationLimit,
+            usage,
+            userId: user.id,
+          }).catch(() => undefined);
+        }
       }
     }
     const updated = await this.prisma.aiModelRegressionRun.update({

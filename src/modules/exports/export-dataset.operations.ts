@@ -1,27 +1,8 @@
-/* eslint-disable @typescript-eslint/no-unused-vars */
-import { BadRequestException, ForbiddenException, Injectable, NotFoundException, OnModuleInit } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { ExportStatus, MasteryStatus, Prisma, QuestionStatus, UserType, WrongQuestionSourceType } from '@prisma/client';
-import {
-  AlignmentType,
-  Document,
-  HeadingLevel,
-  Packer,
-  Paragraph,
-  TextRun,
-} from 'docx';
-import PDFDocument = require('pdfkit');
-import { existsSync } from 'node:fs';
-import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises';
-import { basename, extname, isAbsolute, join, relative, resolve } from 'node:path';
-import { toPagination } from '../../common/dto/pagination-query.dto';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { MasteryStatus, Prisma, QuestionStatus } from '@prisma/client';
 import { toApiEnum } from '../../common/utils/enum-normalizer';
 import { RequestUser } from '../../common/interfaces/request-user.interface';
-import { AuditService } from '../audit/audit.service';
-import { DataScopeService } from '../data-scope/data-scope.service';
-import { PrismaService } from '../prisma/prisma.service';
 import { CreateExportDto } from './dto/create-export.dto';
-import { QueryExportDto } from './dto/query-export.dto';
 
 type ExportQuestion = {
   sourceId?: string;
@@ -56,10 +37,6 @@ type DocumentExportContent = {
   template?: string;
 };
 
-type MarkdownSegment =
-  | { type: 'text'; value: string }
-  | { type: 'image'; alt: string; src: string };
-
 type QuestionExportEntity = Prisma.QuestionGetPayload<{
   include: {
     course: true;
@@ -70,57 +47,57 @@ type QuestionExportEntity = Prisma.QuestionGetPayload<{
   };
 }>;
 
-type FullArchivePaper = Prisma.PaperGetPayload<{
+type WrongQuestionExportEntity = Prisma.WrongQuestionGetPayload<{
   include: {
-    course: true;
-    _count: { select: { sections: true; questions: true; exams: true } };
+    question: { include: { course: true; options: true; answer: true } };
   };
 }>;
 
-type ZipEntry = {
-  name: string;
-  data: Buffer;
-  date?: Date;
-};
 import { ExportsContext } from './exports.context';
 import { exportQuestionFromEntity, exportQuestionFromSnapshot } from './export-access.operations';
 import { documentTemplateLabel, formatAnswer, loadUsers } from './export-format.operations';
-export async function examRows(ctx: ExportsContext, dto: CreateExportDto, user: RequestUser) {
+import { cursorBatches, prismaCursorPage } from './export-pagination.operations';
+export async function* examRows(ctx: ExportsContext, dto: CreateExportDto, user: RequestUser) {
     if (!dto.examId) throw new BadRequestException('导出考试成绩需要选择考试');
     await ctx.dataScope.assertExamAccessible(user, dto.examId);
-    const attempts = await ctx.prisma.examAttempt.findMany({
+    const counters = new Map<string, number>();
+    let rank = 0;
+    const batches = cursorBatches((cursor, take) => ctx.prisma.examAttempt.findMany({
       where: { examId: dto.examId, submittedAt: { not: null } },
       include: { exam: true },
-      orderBy: [{ totalScore: 'desc' }, { submittedAt: 'asc' }],
-    });
-    const users = await loadUsers(ctx, attempts.map((attempt) => attempt.userId));
-    const counters = new Map<string, number>();
-    return attempts.map((attempt, index) => {
-      const next = (counters.get(attempt.userId) ?? 0) + 1;
-      counters.set(attempt.userId, next);
-      const user = users.get(attempt.userId);
-      return {
-        rank: index + 1,
-        exam: attempt.exam.name,
-        student: user?.realName ?? user?.username ?? attempt.userId,
-        username: user?.username ?? '',
-        attemptNo: next,
-        totalScore: Number(attempt.totalScore),
-        objectiveScore: Number(attempt.objectiveScore),
-        subjectiveScore: Number(attempt.subjectiveScore),
-        judgeScore: Number(attempt.judgeScore),
-        status: toApiEnum(attempt.status),
-        submittedAt: attempt.submittedAt?.toISOString() ?? '',
-      };
-    });
+      orderBy: [{ totalScore: 'desc' }, { submittedAt: 'asc' }, { id: 'asc' }],
+      ...prismaCursorPage(cursor, take),
+    }));
+    for await (const attempts of batches) {
+      const users = await loadUsers(ctx, attempts.map((attempt) => attempt.userId));
+      for (const attempt of attempts) {
+        const next = (counters.get(attempt.userId) ?? 0) + 1;
+        counters.set(attempt.userId, next);
+        const student = users.get(attempt.userId);
+        rank += 1;
+        yield {
+          rank,
+          exam: attempt.exam.name,
+          student: student?.realName ?? student?.username ?? attempt.userId,
+          username: student?.username ?? '',
+          attemptNo: next,
+          totalScore: Number(attempt.totalScore),
+          objectiveScore: Number(attempt.objectiveScore),
+          subjectiveScore: Number(attempt.subjectiveScore),
+          judgeScore: Number(attempt.judgeScore),
+          status: toApiEnum(attempt.status),
+          submittedAt: attempt.submittedAt?.toISOString() ?? '',
+        };
+      }
+    }
   }
 
-export async function gradingRows(ctx: ExportsContext, dto: CreateExportDto, user: RequestUser) {
+export async function* gradingRows(ctx: ExportsContext, dto: CreateExportDto, user: RequestUser) {
     const examScope = await ctx.dataScope.examWhere(user, dto.classId);
     if (dto.examId) {
       await ctx.dataScope.assertExamAccessible(user, dto.examId);
     }
-    const records = await ctx.prisma.answerRecord.findMany({
+    const batches = cursorBatches((cursor, take) => ctx.prisma.answerRecord.findMany({
       where: {
         attempt: {
           examId: dto.examId,
@@ -132,32 +109,42 @@ export async function gradingRows(ctx: ExportsContext, dto: CreateExportDto, use
         question: { select: { title: true, type: true } },
         attempt: { include: { exam: true } },
       },
-      orderBy: { updatedAt: 'desc' },
-    });
-    const users = await loadUsers(ctx, records.map((record) => record.attempt.userId));
-    return records.map((record) => {
-      const user = users.get(record.attempt.userId);
-      return {
-        exam: record.attempt.exam.name,
-        student: user?.realName ?? user?.username ?? record.attempt.userId,
-        username: user?.username ?? '',
-        question: record.question.title,
-        questionType: toApiEnum(record.question.type),
-        answerStatus: toApiEnum(record.status),
-        score: Number(record.score),
-        manualComment: record.manualComment ?? '',
-        gradedAt: record.gradedAt?.toISOString() ?? '',
-      };
-    });
+      orderBy: [{ updatedAt: 'desc' }, { id: 'asc' }],
+      ...prismaCursorPage(cursor, take),
+    }));
+    for await (const records of batches) {
+      const users = await loadUsers(ctx, records.map((record) => record.attempt.userId));
+      for (const record of records) {
+        const student = users.get(record.attempt.userId);
+        yield {
+          exam: record.attempt.exam.name,
+          student: student?.realName ?? student?.username ?? record.attempt.userId,
+          username: student?.username ?? '',
+          question: record.question.title,
+          questionType: toApiEnum(record.question.type),
+          answerStatus: toApiEnum(record.status),
+          score: Number(record.score),
+          manualComment: record.manualComment ?? '',
+          gradedAt: record.gradedAt?.toISOString() ?? '',
+        };
+      }
+    }
   }
 
-export async function questionRows(ctx: ExportsContext, dto: CreateExportDto) {
-    const questions = await loadQuestionExportItems(ctx, dto);
-    return questions.map((question) => questionRow(ctx, question, dto));
+export async function* questionRows(ctx: ExportsContext, dto: CreateExportDto) {
+    for await (const questions of questionExportBatches(ctx, dto)) {
+      for (const question of questions) yield questionRow(ctx, question, dto);
+    }
   }
 
 export async function loadQuestionExportItems(ctx: ExportsContext, dto: CreateExportDto): Promise<QuestionExportEntity[]> {
-    return ctx.prisma.question.findMany({
+    const items: QuestionExportEntity[] = [];
+    for await (const batch of questionExportBatches(ctx, dto)) items.push(...batch);
+    return items;
+  }
+
+export function questionExportBatches(ctx: ExportsContext, dto: CreateExportDto) {
+    return cursorBatches((cursor, take) => ctx.prisma.question.findMany({
       where: {
         deletedAt: null,
         courseId: dto.courseId,
@@ -170,8 +157,9 @@ export async function loadQuestionExportItems(ctx: ExportsContext, dto: CreateEx
         tags: { include: { tag: true } },
         knowledgePoints: { include: { knowledgePoint: true } },
       },
-      orderBy: { createdAt: 'desc' },
-    });
+      orderBy: [{ createdAt: 'desc' }, { id: 'asc' }],
+      ...prismaCursorPage(cursor, take),
+    }));
   }
 
 export function questionRow(ctx: ExportsContext, question: QuestionExportEntity, dto: CreateExportDto) {
@@ -181,21 +169,26 @@ export function questionRow(ctx: ExportsContext, question: QuestionExportEntity,
     });
   }
 
-export async function paperRows(ctx: ExportsContext, dto: CreateExportDto) {
-    const papers = await ctx.prisma.paper.findMany({
+export async function* paperRows(ctx: ExportsContext, dto: CreateExportDto) {
+    const batches = cursorBatches((cursor, take) => ctx.prisma.paper.findMany({
       where: { deletedAt: null, courseId: dto.courseId },
       include: { course: true, _count: { select: { questions: true } } },
-      orderBy: { createdAt: 'desc' },
-    });
-    return papers.map((paper) => ({
-      name: paper.name,
-      course: paper.course.name,
-      questionCount: paper._count.questions,
-      totalScore: Number(paper.totalScore),
-      durationMinutes: paper.durationMinutes,
-      status: toApiEnum(paper.status),
-      createdAt: paper.createdAt.toISOString(),
+      orderBy: [{ createdAt: 'desc' }, { id: 'asc' }],
+      ...prismaCursorPage(cursor, take),
     }));
+    for await (const papers of batches) {
+      for (const paper of papers) {
+        yield {
+          name: paper.name,
+          course: paper.course.name,
+          questionCount: paper._count.questions,
+          totalScore: Number(paper.totalScore),
+          durationMinutes: paper.durationMinutes,
+          status: toApiEnum(paper.status),
+          createdAt: paper.createdAt.toISOString(),
+        };
+      }
+    }
   }
 
 export async function paperDocumentRows(ctx: ExportsContext, dto: CreateExportDto) {
@@ -267,18 +260,31 @@ export function questionTransferRow(ctx: ExportsContext,
     };
   }
 
-export async function wrongQuestionRows(ctx: ExportsContext, dto: CreateExportDto, userId: string) {
-    const content = await wrongQuestionDocumentContent(ctx, dto, userId);
-    return content.questions.map((question, index) => ({
-      no: index + 1,
-      title: question.title,
-      type: question.type,
-      score: question.score,
-      wrongCount: question.wrongCount ?? 0,
-      lastWrongAt: question.lastWrongAt?.toISOString() ?? '',
-      answer: formatAnswer(ctx, question.answer, question.options),
-      analysis: question.analysis ?? '',
-    }));
+export async function* wrongQuestionRows(ctx: ExportsContext, _dto: CreateExportDto, userId: string) {
+    if (!userId) throw new BadRequestException('导出错题需要登录学生账号');
+    let index = 0;
+    for await (const items of wrongQuestionBatches(ctx, userId)) {
+      for (const item of items) {
+        index += 1;
+        const options = item.question.options.map((option) => ({
+          id: option.id,
+          label: option.optionKey,
+          content: option.content,
+          isCorrect: option.isCorrect,
+        }));
+        const answer = (item.question.answer?.answerJson ?? item.correctAnswerJson ?? {}) as Record<string, unknown>;
+        yield {
+          no: index,
+          title: item.question.title,
+          type: toApiEnum(item.question.type),
+          score: Number(item.question.defaultScore),
+          wrongCount: item.wrongCount,
+          lastWrongAt: item.lastWrongAt.toISOString(),
+          answer: formatAnswer(ctx, answer, options),
+          analysis: item.question.analysis ?? '',
+        };
+      }
+    }
   }
 
 export async function paperDocumentContent(ctx: ExportsContext, dto: CreateExportDto): Promise<DocumentExportContent> {
@@ -287,20 +293,23 @@ export async function paperDocumentContent(ctx: ExportsContext, dto: CreateExpor
       where: { id: dto.paperId, deletedAt: null },
       include: {
         course: true,
-        sections: { orderBy: { sortOrder: 'asc' }, include: { questions: { orderBy: { sortOrder: 'asc' } } } },
-        questions: { where: { sectionId: null }, orderBy: { sortOrder: 'asc' } },
+        sections: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] },
       },
     });
     if (!paper) throw new NotFoundException('试卷不存在');
 
     const questions: ExportQuestion[] = [];
     for (const section of paper.sections) {
-      for (const question of section.questions) {
-        questions.push(exportQuestionFromSnapshot(ctx, question, section.title));
+      for await (const batch of paperQuestionBatches(ctx, paper.id, section.id)) {
+        for (const question of batch) {
+          questions.push(exportQuestionFromSnapshot(ctx, question, section.title));
+        }
       }
     }
-    for (const question of paper.questions) {
-      questions.push(exportQuestionFromSnapshot(ctx, question, '未分区题目'));
+    for await (const batch of paperQuestionBatches(ctx, paper.id, null)) {
+      for (const question of batch) {
+        questions.push(exportQuestionFromSnapshot(ctx, question, '未分区题目'));
+      }
     }
 
     return {
@@ -314,25 +323,18 @@ export async function paperDocumentContent(ctx: ExportsContext, dto: CreateExpor
     };
   }
 
+function paperQuestionBatches(ctx: ExportsContext, paperId: string, sectionId: string | null) {
+  return cursorBatches((cursor, take) => ctx.prisma.paperQuestion.findMany({
+    where: { paperId, sectionId },
+    orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
+    ...prismaCursorPage(cursor, take),
+  }));
+}
+
 export async function wrongQuestionDocumentContent(ctx: ExportsContext, dto: CreateExportDto, userId: string): Promise<DocumentExportContent> {
     if (!userId) throw new BadRequestException('导出错题需要登录学生账号');
-    const items = await ctx.prisma.wrongQuestion.findMany({
-      where: {
-        studentId: userId,
-        masteryStatus: { in: [MasteryStatus.UNMASTERED, MasteryStatus.REVIEWING] },
-        question: { deletedAt: null, status: QuestionStatus.PUBLISHED },
-      },
-      include: {
-        question: {
-          include: {
-            course: true,
-            options: { orderBy: { sortOrder: 'asc' } },
-            answer: true,
-          },
-        },
-      },
-      orderBy: [{ wrongCount: 'desc' }, { lastWrongAt: 'desc' }],
-    });
+    const items: WrongQuestionExportEntity[] = [];
+    for await (const batch of wrongQuestionBatches(ctx, userId)) items.push(...batch);
 
     return {
       title: '个人错题导出',
@@ -361,6 +363,27 @@ export async function wrongQuestionDocumentContent(ctx: ExportsContext, dto: Cre
     };
   }
 
+function wrongQuestionBatches(ctx: ExportsContext, userId: string) {
+  return cursorBatches((cursor, take) => ctx.prisma.wrongQuestion.findMany({
+    where: {
+      studentId: userId,
+      masteryStatus: { in: [MasteryStatus.UNMASTERED, MasteryStatus.REVIEWING] },
+      question: { deletedAt: null, status: QuestionStatus.PUBLISHED },
+    },
+    include: {
+      question: {
+        include: {
+          course: true,
+          options: { orderBy: { sortOrder: 'asc' } },
+          answer: true,
+        },
+      },
+    },
+    orderBy: [{ wrongCount: 'desc' }, { lastWrongAt: 'desc' }, { id: 'asc' }],
+    ...prismaCursorPage(cursor, take),
+  }));
+}
+
 export async function questionDocumentContent(ctx: ExportsContext, dto: CreateExportDto): Promise<DocumentExportContent> {
     const questions = await loadQuestionExportItems(ctx, dto);
     if (!questions.length) {
@@ -379,20 +402,25 @@ export async function questionDocumentContent(ctx: ExportsContext, dto: CreateEx
     };
   }
 
-export async function classRows(ctx: ExportsContext, dto: CreateExportDto, user: RequestUser) {
+export async function* classRows(ctx: ExportsContext, dto: CreateExportDto, user: RequestUser) {
     const classWhere = await ctx.dataScope.classWhere(user, dto.classId);
-    const classes = await ctx.prisma.classGroup.findMany({
+    const batches = cursorBatches((cursor, take) => ctx.prisma.classGroup.findMany({
       where: { ...classWhere, deletedAt: null, courseId: dto.courseId },
       include: { course: true, _count: { select: { students: true, teachers: true } } },
-      orderBy: [{ sortOrder: 'asc' }, { createdAt: 'desc' }],
-    });
-    return classes.map((item) => ({
-      name: item.name,
-      code: item.code,
-      course: item.course?.name ?? '',
-      status: item.status,
-      students: item._count.students,
-      teachers: item._count.teachers,
-      createdAt: item.createdAt.toISOString(),
+      orderBy: [{ sortOrder: 'asc' }, { createdAt: 'desc' }, { id: 'asc' }],
+      ...prismaCursorPage(cursor, take),
     }));
+    for await (const classes of batches) {
+      for (const item of classes) {
+        yield {
+          name: item.name,
+          code: item.code,
+          course: item.course?.name ?? '',
+          status: item.status,
+          students: item._count.students,
+          teachers: item._count.teachers,
+          createdAt: item.createdAt.toISOString(),
+        };
+      }
+    }
   }

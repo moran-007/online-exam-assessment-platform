@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsInt, IsObject, IsOptional, IsUUID, Max, Min } from 'class-validator';
+import { IsBoolean, IsInt, IsObject, IsOptional, IsUUID, Max, Min } from 'class-validator';
 import { AiEvidenceRefDto } from './ai-summary.dto';
 import {
   MAX_EXAM_SUMMARY_OUTPUT_TOKENS,
@@ -19,12 +19,20 @@ export class RegenerateAiSummaryDto {
 
   @ApiProperty({
     required: false,
-    description: '本次输出上限；不传时使用所选模型配置的输出上限',
+    description: '本次输出上限；不传时仅使用显式配置上限，二者均为空则由供应商决定',
     minimum: MIN_EXAM_SUMMARY_OUTPUT_TOKENS,
     maximum: MAX_EXAM_SUMMARY_OUTPUT_TOKENS,
   })
   @IsOptional() @IsInt() @Min(MIN_EXAM_SUMMARY_OUTPUT_TOKENS) @Max(MAX_EXAM_SUMMARY_OUTPUT_TOKENS)
   maxTokens?: number;
+
+  @ApiProperty({
+    required: false,
+    description: 'true 表示用户已确认重新生成会再次调用供应商并记录用量',
+    default: false,
+  })
+  @IsOptional() @IsBoolean()
+  confirmRetry?: boolean;
 }
 
 export class AiSummaryLifecycleTaskDto {
@@ -36,7 +44,7 @@ export class AiSummaryLifecycleTaskDto {
   @ApiProperty() inputHash: string;
   @ApiProperty() inputTokens: number;
   @ApiProperty() outputTokens: number;
-  @ApiProperty() requestedOutputTokens: number;
+  @ApiProperty({ nullable: true }) requestedOutputTokens: number | null;
   @ApiProperty() model: string;
   @ApiProperty({ nullable: true }) sanitizedError: string | null;
   @ApiProperty({ nullable: true, format: 'uuid' }) summaryId: string | null;

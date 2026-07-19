@@ -15,8 +15,12 @@ export interface AiSummaryTaskUsageDto {
      * @nullable
      */
   reported: boolean | null;
-  requestedOutputTokens: number;
-  /** 未报告用量时按请求上限保守预留的 Token */
+  /**
+     * 发送给供应商的显式输出上限；null 表示未设置
+     * @nullable
+     */
+  requestedOutputTokens: number | null;
+  /** 未报告用量时按公开估算上界保守预留的 Token */
   reservedTokens: number;
   tokenQuota: AiTokenQuotaDto;
 }

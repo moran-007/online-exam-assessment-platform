@@ -1,19 +1,21 @@
+import type {
+  AiProviderConfigResponseDto,
+  AiSummaryResultDto,
+  AiSummaryTaskResponseDto,
+  CreateAiProviderConfigDto,
+  StudentSummaryBatchEstimateDto,
+  UpdateAiProviderConfigDto,
+  RegenerateAiSummaryDto,
+} from '../../../api/generated/models';
+
 export type {
-  AiProviderConfigResponseDto as AiProviderConfig,
   AiProviderPresetDto as AiProviderPreset,
-  AiSummaryResultDto as AiSummaryResult,
   AiTestResultDto as AiTestResult,
   AiTokenQuotaDto,
-  CreateAiProviderConfigDto as CreateAiProviderConfig,
   GenerateAiSummaryDto as GenerateAiSummary,
-  UpdateAiProviderConfigDto as UpdateAiProviderConfig,
   AiSummaryLifecycleRecordDto as AiSummaryLifecycleRecord,
   ExamSummaryDatasetPreviewDto as ExamSummaryDatasetPreview,
   StudentSummaryDatasetPreviewDto as StudentSummaryDatasetPreview,
-  StudentSummaryBatchEstimateDto as StudentSummaryBatchEstimate,
-  AiSummaryTaskResponseDto as AiSummaryTask,
-  AiSummaryTaskResponseDto as ExamSummaryTask,
-  RegenerateAiSummaryDto as RegenerateAiSummary,
   PublishedAiSummaryDto as PublishedAiSummary,
   PublishedAiSummaryDto as StudentPublishedAiSummary,
   IntegratedSummaryDatasetPreviewDto as IntegratedSummaryDatasetPreview,
@@ -22,6 +24,20 @@ export type {
   AiFeedbackRecordDto as AiFeedbackRecord,
   AiRegressionRunDto as AiRegressionRun,
 } from '../../../api/generated/models';
+
+export type AiProviderConfig = Omit<AiProviderConfigResponseDto, 'maxTokens'> & { maxTokens: number | null };
+export type AiSummaryResult = Omit<AiSummaryResultDto, 'outputLimitTokens'> & { outputLimitTokens: number | null };
+export type CreateAiProviderConfig = Omit<CreateAiProviderConfigDto, 'maxTokens'> & { maxTokens?: number | null };
+export type UpdateAiProviderConfig = Omit<UpdateAiProviderConfigDto, 'maxTokens'> & { maxTokens?: number | null };
+export type RegenerateAiSummary = RegenerateAiSummaryDto & { confirmRetry?: boolean };
+export type AiSummaryTask = Omit<AiSummaryTaskResponseDto, 'usage'> & {
+  usage: Omit<AiSummaryTaskResponseDto['usage'], 'requestedOutputTokens'> & { requestedOutputTokens: number | null };
+};
+export type ExamSummaryTask = AiSummaryTask;
+export type StudentSummaryBatchEstimate = Omit<StudentSummaryBatchEstimateDto, 'requestedOutputTokensPerTask'> & {
+  requestedOutputTokensPerTask: number | null;
+  reservationOutputTokensPerTask: number;
+};
 
 export type AiSummaryClaim = { text: string; evidenceRefs: string[] };
 export type AiStructuredSummaryContent = {

@@ -142,6 +142,7 @@ async function applySnapshot(tx: Prisma.TransactionClient, snapshot: SourceSnaps
       update: {},
       create: {
         code: `worker01-unit-${source.id}`,
+        legacyUnscoped: true,
         lessonTypeId,
         category: source.category,
         stage: source.stage,

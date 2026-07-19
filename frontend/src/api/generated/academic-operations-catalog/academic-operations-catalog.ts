@@ -7,8 +7,11 @@
  */
 import type {
   ApiErrorResponse,
+  LessonCatalogCourseUnits200,
   LessonCatalogCourseUnitsParams,
+  LessonCatalogCreateCourseUnit201,
   LessonCatalogLessonTypesParams,
+  LessonCatalogUpdateCourseUnit200,
   SaveCourseUnitDto,
   SaveLessonTypeDto
 } from '../models';
@@ -16,7 +19,7 @@ import type {
 import { apiMutator } from '../../generated-mutator';
 
 export type lessonCatalogCourseUnitsResponse200 = {
-  data: void
+  data: LessonCatalogCourseUnits200
   status: 200
 }
 
@@ -92,7 +95,7 @@ export const lessonCatalogCourseUnits = async (params?: LessonCatalogCourseUnits
 
 
 export type lessonCatalogCreateCourseUnitResponse201 = {
-  data: void
+  data: LessonCatalogCreateCourseUnit201
   status: 201
 }
 
@@ -161,7 +164,7 @@ export const lessonCatalogCreateCourseUnit = async (saveCourseUnitDto: SaveCours
 
 
 export type lessonCatalogUpdateCourseUnitResponse200 = {
-  data: void
+  data: LessonCatalogUpdateCourseUnit200
   status: 200
 }
 

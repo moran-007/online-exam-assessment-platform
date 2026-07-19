@@ -20,10 +20,12 @@ export interface CreateAiProviderConfigDto {
   inputCostPerMillion?: number;
   isDefault?: boolean;
   /**
+     * 留空时不设置配置级输出上限
      * @minimum 1
      * @maximum 8192
+     * @nullable
      */
-  maxTokens?: number;
+  maxTokens?: number | null;
   /** @maxLength 160 */
   model: string;
   /**

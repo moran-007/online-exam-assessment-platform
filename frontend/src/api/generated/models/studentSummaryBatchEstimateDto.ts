@@ -14,7 +14,10 @@ export interface StudentSummaryBatchEstimateDto {
   model: string;
   /** @nullable */
   remainingTokens: number | null;
-  requestedOutputTokensPerTask: number;
+  /** @nullable */
+  requestedOutputTokensPerTask: number | null;
+  /** 用量未报告时每个任务采用的公开估算预留上界 */
+  reservationOutputTokensPerTask: number;
   taskCount: number;
   withinLocalBudget: boolean;
 }

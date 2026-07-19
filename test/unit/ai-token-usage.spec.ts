@@ -42,11 +42,13 @@ describe('AiTokenUsageService', () => {
       config,
       operation: 'exam_summary',
       requestedOutputTokens: 1000,
+      reservationOutputTokens: 1000,
       usage: { promptTokens: 10, completionTokens: 3, totalTokens: 13, reported: true },
       userId: '00000000-0000-0000-0000-000000000002',
     });
     expect(create).toHaveBeenCalledWith({ data: expect.objectContaining({
       requestedOutputTokens: 1000,
+      reservationOutputTokens: 1000,
       inputTokens: 10,
       outputTokens: 3,
       totalTokens: 13,
@@ -80,7 +82,7 @@ describe('AiTokenUsageService', () => {
     const service = new AiTokenUsageService({
       aiUsageEvent: { groupBy: jest.fn().mockResolvedValue([{
         providerConfigId: config.id, usageReported: false,
-        _sum: { totalTokens: 0, requestedOutputTokens: 400 }, _count: { _all: 2 },
+        _sum: { totalTokens: 0, reservationOutputTokens: 400 }, _count: { _all: 2 },
       }]) },
     } as never, metrics as never);
     await expect(service.quota(config)).resolves.toMatchObject({
@@ -88,5 +90,24 @@ describe('AiTokenUsageService', () => {
     });
     await expect(service.authorize(config, 600)).resolves.toMatchObject({ remainingTokens: 600 });
     await expect(service.authorize(config, 601)).rejects.toThrow('预算不足');
+  });
+
+  it('stores no supplier limit while retaining a separate public reservation estimate', async () => {
+    const create = jest.fn().mockResolvedValue({});
+    const service = new AiTokenUsageService({
+      aiUsageEvent: { create, groupBy: jest.fn().mockResolvedValue([]) },
+    } as never, metrics as never);
+    await service.record({
+      config,
+      operation: 'exam_summary',
+      requestedOutputTokens: null,
+      reservationOutputTokens: 8192,
+      usage: { promptTokens: 0, completionTokens: 0, totalTokens: 0, reported: false },
+      userId: '00000000-0000-0000-0000-000000000002',
+    });
+    expect(create).toHaveBeenCalledWith({ data: expect.objectContaining({
+      requestedOutputTokens: null,
+      reservationOutputTokens: 8192,
+    }) });
   });
 });

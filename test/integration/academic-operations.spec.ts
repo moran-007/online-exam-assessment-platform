@@ -2,6 +2,7 @@ import { INestApplication } from '@nestjs/common';
 import {
   AttendanceStatus,
   ClassTeacherRole,
+  CourseUnitStatus,
   LessonHourLedgerType,
   PrismaClient,
   UserType,
@@ -21,6 +22,8 @@ describe('academic operations', () => {
   let studentToken = '';
   let parentToken = '';
   let classId = '';
+  let courseId = '';
+  let otherCourseId = '';
   let studentId = '';
   let lessonTypeId = '';
 
@@ -35,7 +38,15 @@ describe('academic operations', () => {
       prisma.user.create({ data: { username: 'ops_parent', passwordHash, userType: UserType.PARENT } }),
     ]);
     studentId = student.id;
-    const classGroup = await prisma.classGroup.create({ data: { name: 'Operations Class', code: 'ops_class' } });
+    const [course, otherCourse] = await Promise.all([
+      prisma.course.create({ data: { name: 'Operations Course', code: 'ops_course' } }),
+      prisma.course.create({ data: { name: 'Other Course', code: 'ops_other_course' } }),
+    ]);
+    courseId = course.id;
+    otherCourseId = otherCourse.id;
+    const classGroup = await prisma.classGroup.create({
+      data: { name: 'Operations Class', code: 'ops_class', courseId },
+    });
     classId = classGroup.id;
     await prisma.classTeacher.create({ data: { classId, teacherId: teacher.id, role: ClassTeacherRole.LEAD } });
     await prisma.classStudent.create({ data: { classId, studentId } });
@@ -117,6 +128,136 @@ describe('academic operations', () => {
     expect(session.startsAt.toISOString()).toBe('2026-07-20T10:00:00.000Z');
   });
 
+  it('requires new course units to be scoped and rejects cross-course scheduling changes', async () => {
+    await request(app.getHttpServer())
+      .post('/api/v1/course-unit-templates')
+      .auth(adminToken, { type: 'bearer' })
+      .send({ code: 'missing-course', lessonTypeId, name: 'Missing course', defaultHours: 1 })
+      .expect(400);
+
+    const unit = await api('post', '/api/v1/course-unit-templates', adminToken, {
+      code: 'ops-unit', courseId, lessonTypeId, name: 'Operations Unit', defaultHours: 1, status: 'ACTIVE',
+    });
+    expect(unit).toMatchObject({ courseId, courseName: 'Operations Course', legacyUnscoped: false });
+    const foreignUnit = await api('post', '/api/v1/course-unit-templates', adminToken, {
+      code: 'foreign-unit', courseId: otherCourseId, lessonTypeId, name: 'Foreign Unit', defaultHours: 1,
+      status: 'ACTIVE',
+    });
+
+    const schedulePayload = {
+      classId,
+      lessonTypeId,
+      unitTemplateId: foreignUnit.id,
+      weekday: 2,
+      startMinute: 600,
+      endMinute: 660,
+      effectiveFrom: '2026-07-21',
+      effectiveTo: '2026-07-21',
+      timezone: 'Asia/Shanghai',
+      lessonHours: 1,
+    };
+    await expectApiError('post', '/api/v1/schedule-rules', teacherToken, schedulePayload, 400, '课程单元与班级所属课程不一致');
+    const validRule = await api('post', '/api/v1/schedule-rules', teacherToken, {
+      ...schedulePayload,
+      unitTemplateId: unit.id,
+    });
+    await expectApiError(
+      'patch', `/api/v1/schedule-rules/${validRule.id}`, teacherToken, schedulePayload, 400,
+      '课程单元与班级所属课程不一致',
+    );
+    await expectApiError('post', '/api/v1/lesson-sessions', teacherToken, {
+      classId,
+      lessonTypeId,
+      unitTemplateId: foreignUnit.id,
+      title: '跨课程课次',
+      startsAt: '2026-07-23T08:00:00.000Z',
+      endsAt: '2026-07-23T09:00:00.000Z',
+      timezone: 'Asia/Shanghai',
+      lessonHours: 1,
+    }, 400, '课程单元与班级所属课程不一致');
+
+    const source = await api('post', '/api/v1/lesson-sessions', teacherToken, {
+      classId,
+      lessonTypeId,
+      unitTemplateId: unit.id,
+      title: '课程归属校验课次',
+      startsAt: '2026-07-23T10:00:00.000Z',
+      endsAt: '2026-07-23T11:00:00.000Z',
+      timezone: 'Asia/Shanghai',
+      lessonHours: 1,
+    });
+    await prisma.courseUnitTemplate.update({ where: { id: unit.id }, data: { courseId: otherCourseId } });
+    await expectApiError('post', `/api/v1/lesson-sessions/${source.id}/reschedule`, teacherToken, {
+      startsAt: '2026-07-23T12:00:00.000Z', endsAt: '2026-07-23T13:00:00.000Z', reason: '校验调课',
+    }, 400, '课程单元与班级所属课程不一致');
+    await expectApiError('post', `/api/v1/lesson-sessions/${source.id}/makeup`, teacherToken, {
+      startsAt: '2026-07-24T12:00:00.000Z', endsAt: '2026-07-24T13:00:00.000Z', reason: '校验补课',
+    }, 400, '课程单元与班级所属课程不一致');
+    await prisma.courseUnitTemplate.update({ where: { id: unit.id }, data: { courseId } });
+  });
+
+  it('rejects unavailable scheduling catalogs while preserving unchanged historical references', async () => {
+    const lessonType = await api('post', '/api/v1/lesson-types', adminToken, {
+      name: '目录状态校验课型', defaultHours: 1, countInStatistics: true, active: true,
+    });
+    const unit = await api('post', '/api/v1/course-unit-templates', adminToken, {
+      code: 'catalog-state-unit', courseId, lessonTypeId: lessonType.id,
+      name: '目录状态校验单元', defaultHours: 1, status: CourseUnitStatus.ACTIVE,
+    });
+    const otherUnit = await api('post', '/api/v1/course-unit-templates', adminToken, {
+      code: 'catalog-state-other-unit', courseId, lessonTypeId: lessonType.id,
+      name: '另一个目录状态校验单元', defaultHours: 1, status: CourseUnitStatus.DISABLED,
+    });
+    const rulePayload = {
+      classId,
+      lessonTypeId: lessonType.id,
+      unitTemplateId: unit.id,
+      weekday: 3,
+      startMinute: 600,
+      endMinute: 660,
+      effectiveFrom: '2026-07-22',
+      effectiveTo: '2026-07-22',
+      timezone: 'Asia/Shanghai',
+      lessonHours: 1,
+    };
+    const rule = await api('post', '/api/v1/schedule-rules', teacherToken, rulePayload);
+
+    await Promise.all([
+      prisma.lessonType.update({ where: { id: lessonType.id }, data: { active: false } }),
+      prisma.courseUnitTemplate.update({ where: { id: unit.id }, data: { status: CourseUnitStatus.DISABLED } }),
+    ]);
+    const retained = await api('patch', `/api/v1/schedule-rules/${rule.id}`, teacherToken, {
+      ...rulePayload,
+      classroom: '历史规则保留原引用',
+    });
+    expect(retained).toMatchObject({ id: rule.id, lessonTypeId: lessonType.id, unitTemplateId: unit.id });
+    await expectApiError('post', '/api/v1/schedule-rules', teacherToken, rulePayload, 400, '课型已停用');
+    await expectApiError('post', '/api/v1/lesson-sessions', teacherToken, {
+      classId,
+      lessonTypeId: lessonType.id,
+      title: '停用课型临时课次',
+      startsAt: '2026-07-25T08:00:00.000Z',
+      endsAt: '2026-07-25T09:00:00.000Z',
+      lessonHours: 1,
+    }, 400, '课型已停用');
+
+    await prisma.lessonType.update({ where: { id: lessonType.id }, data: { active: true } });
+    await expectApiError('post', '/api/v1/schedule-rules', teacherToken, rulePayload, 400, '课程单元已禁用或归档');
+    await expectApiError('patch', `/api/v1/schedule-rules/${rule.id}`, teacherToken, {
+      ...rulePayload,
+      unitTemplateId: otherUnit.id,
+    }, 400, '课程单元已禁用或归档');
+    await expectApiError('post', '/api/v1/lesson-sessions', teacherToken, {
+      classId,
+      lessonTypeId: lessonType.id,
+      unitTemplateId: unit.id,
+      title: '禁用单元临时课次',
+      startsAt: '2026-07-25T10:00:00.000Z',
+      endsAt: '2026-07-25T11:00:00.000Z',
+      lessonHours: 1,
+    }, 400, '课程单元已禁用或归档');
+  });
+
   it('keeps reschedule, cancellation, and makeup history traceable', async () => {
     const source = await api('post', '/api/v1/lesson-sessions', teacherToken, {
       classId,
@@ -184,6 +325,12 @@ describe('academic operations', () => {
     const attendance = await prisma.attendanceRecord.findUniqueOrThrow({
       where: { sessionId_studentId: { sessionId: session.id, studentId } },
     });
+    await expectApiError('patch', `/api/v1/attendance-records/${attendance.id}/correct`, teacherToken, {
+      status: AttendanceStatus.LEAVE,
+      deductHours: 1,
+      reason: '非计费状态不得扣课',
+    }, 400, '当前考勤状态不计课时');
+    expect(await balance()).toBe(9);
     await api('patch', `/api/v1/attendance-records/${attendance.id}/correct`, teacherToken, {
       status: AttendanceStatus.LEAVE,
       deductHours: 0,
@@ -212,6 +359,24 @@ describe('academic operations', () => {
     expect(report.items[0]).toMatchObject({ studentId, difference: 0, passed: true });
   });
 
+  it('blocks course archival while academic references remain', async () => {
+    await prisma.lessonHourLedger.create({
+      data: {
+        studentId,
+        courseId,
+        classId,
+        type: LessonHourLedgerType.GIFT,
+        amount: 1,
+        idempotencyKey: 'course-archive-reference',
+      },
+    });
+    const response = await expectApiError(
+      'delete', `/api/v1/courses/${courseId}`, adminToken, undefined, 400, '活动班级',
+    );
+    expect(response.body.message).toContain('课程单元');
+    expect(response.body.message).toContain('课时台账');
+  });
+
   async function balance() {
     const aggregate = await prisma.lessonHourLedger.aggregate({ where: { studentId }, _sum: { amount: true } });
     return Number(aggregate._sum.amount ?? 0);
@@ -233,6 +398,21 @@ describe('academic operations', () => {
       if (result.status >= 400) throw new Error(`${method.toUpperCase()} ${path}: ${result.status} ${JSON.stringify(result.body)}`);
     });
     return response.body.data;
+  }
+
+  async function expectApiError(
+    method: 'post' | 'patch' | 'delete',
+    path: string,
+    tokenValue: string,
+    body: object | undefined,
+    status: number,
+    message: string,
+  ) {
+    let call = request(app.getHttpServer())[method](path).auth(tokenValue, { type: 'bearer' });
+    if (body !== undefined) call = call.send(body);
+    const response = await call.expect(status);
+    expect(response.body.message).toContain(message);
+    return response;
   }
 });
 

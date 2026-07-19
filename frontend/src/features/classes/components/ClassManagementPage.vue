@@ -281,9 +281,13 @@ async function estimateAiBatch() {
     });
     const remaining = estimate.remainingTokens === null ? '本地预算不限' : `${estimate.remainingTokens} Token`;
     const budgetState = estimate.withinLocalBudget ? '当前本地预算可覆盖' : '当前本地预算不足';
+    const requestLimit = estimate.requestedOutputTokensPerTask === null
+      ? '每个请求不向供应商发送输出上限'
+      : `每个请求上限 ${estimate.requestedOutputTokensPerTask} Token`;
     await ElMessageBox.confirm(
-      `共 ${estimate.taskCount} 个任务，每个请求上限 ${estimate.requestedOutputTokensPerTask} Token，` +
-      `最坏情况预留 ${estimate.estimatedReservedTokens} Token；剩余 ${remaining}，${budgetState}。` +
+      `共 ${estimate.taskCount} 个任务，${requestLimit}；用量未报告时每个任务按 ` +
+      `${estimate.reservationOutputTokensPerTask} Token 估算，最坏情况预留 ${estimate.estimatedReservedTokens} Token；` +
+      `剩余 ${remaining}，${budgetState}。` +
       '确认本次预算？当前首版不会自动批量调用模型，请逐人生成。',
       '确认 AI 批量预算',
       { type: estimate.withinLocalBudget ? 'warning' : 'error', confirmButtonText: '确认预算' },

@@ -23,7 +23,7 @@
 
     <section class="panel operations-panel">
       <el-tabs v-model="activeTab" class="page-tabs">
-        <el-tab-pane label="排课日历" name="calendar">
+        <el-tab-pane v-if="canReadSchedule" label="排课日历" name="calendar">
           <div class="tab-toolbar">
             <span class="muted">当前范围共 {{ sessions.length }} 节课</span>
             <div v-if="canManageSchedule">
@@ -42,7 +42,7 @@
             <el-table-column label="操作" width="360" fixed="right">
               <template #default="{ row }">
                 <el-button v-if="canManageLessonRecords && row.status === 'PLANNED'" link type="primary" data-testid="open-lesson-record" @click="openLessonRecordRow(row)">教学记录</el-button>
-                <el-button v-if="row.status === 'PLANNED'" link type="primary" aria-label="打开考勤" @click="openAttendanceRow(row)">考勤</el-button>
+                <el-button v-if="canReadAttendance && row.status === 'PLANNED'" link type="primary" aria-label="打开考勤" @click="openAttendanceRow(row)">考勤</el-button>
                 <template v-if="canManageSchedule">
                   <el-button v-if="row.status === 'PLANNED'" link type="warning" aria-label="调课" @click="openSessionChangeRow(row, 'reschedule')">调课</el-button>
                   <el-button v-if="row.status === 'PLANNED'" link type="danger" aria-label="取消课次" @click="cancelScheduledSessionRow(row)">取消</el-button>
@@ -53,7 +53,7 @@
           </el-table>
         </el-tab-pane>
 
-        <el-tab-pane label="考勤确认" name="attendance">
+        <el-tab-pane v-if="canReadAttendance" label="考勤确认" name="attendance">
           <div class="tab-toolbar">
             <el-select v-model="selectedSessionId" filterable placeholder="选择课次" style="width: 420px" @change="loadAttendance">
               <el-option v-for="item in sessions" :key="item.id" :label="`${formatTime(item.startsAt)} · ${item.classGroup.name} · ${item.title}`" :value="item.id" />
@@ -72,14 +72,14 @@
               <el-table-column prop="studentName" label="学生" min-width="160" />
               <el-table-column label="考勤状态" min-width="180">
                 <template #default="{ row }">
-                  <el-select v-if="!row.confirmedAt && canConfirmAttendance" v-model="row.draftStatus" style="width: 150px">
+                  <el-select v-if="!row.confirmedAt && canConfirmAttendance" v-model="row.draftStatus" style="width: 150px" @change="normalizeAttendanceDeductRow(row)">
                     <el-option v-for="item in attendanceOptions" :key="item.value" :label="item.label" :value="item.value" />
                   </el-select>
                   <el-tag v-else>{{ attendanceStatus(row.status) }}</el-tag>
                 </template>
               </el-table-column>
               <el-table-column label="扣减课时" width="160">
-                <template #default="{ row }"><el-input-number v-if="!row.confirmedAt && canConfirmAttendance" v-model="row.draftDeductHours" :min="0" :step="0.5" /><span v-else>{{ row.deductHours }}</span></template>
+                <template #default="{ row }"><el-input-number v-if="!row.confirmedAt && canConfirmAttendance" v-model="row.draftDeductHours" :min="0" :step="0.5" :disabled="!canDeductForStatus(row.draftStatus)" /><span v-else>{{ row.deductHours }}</span></template>
               </el-table-column>
               <el-table-column label="确认状态" min-width="180"><template #default="{ row }"><span v-if="row.confirmedAt">{{ formatTime(row.confirmedAt) }} · v{{ row.version }}</span><span v-else class="muted">待确认</span></template></el-table-column>
               <el-table-column label="历史" width="100"><template #default="{ row }"><el-tag v-if="row.legacyBaseline" type="info">迁移基线</el-tag><span v-else>{{ row.revisionCount }} 次更正</span></template></el-table-column>
@@ -88,7 +88,7 @@
           </template>
         </el-tab-pane>
 
-        <el-tab-pane label="课时台账" name="ledger">
+        <el-tab-pane v-if="canReadLessonHours" label="课时台账" name="ledger">
           <div class="tab-toolbar">
             <span class="muted">余额 = 全部台账金额之和，不保存可漂移的独立余额。</span>
             <div><el-button v-if="canReconcile" data-testid="reconcile-hours" @click="runReconciliation">全量重算核对</el-button><el-button v-if="canAdjustHours" type="primary" @click="openAdjustment()">登记课时变动</el-button></div>
@@ -111,35 +111,37 @@
           </div>
         </el-tab-pane>
 
-        <el-tab-pane v-if="canManageSchedule" label="排课规则" name="rules">
-          <div class="tab-toolbar"><span class="muted">规则按本地星期与时区生成，生成键保证重复执行不新增重复课次。</span><el-button type="primary" @click="openRule">新增规则</el-button></div>
-          <el-table :data="rules" height="calc(100% - 52px)">
+        <el-tab-pane v-if="canReadSchedule" label="排课规则" name="rules">
+          <div class="tab-toolbar"><span class="muted">规则按本地星期与时区生成，生成键保证重复执行不新增重复课次。</span><el-button v-if="canManageSchedule" data-testid="create-rule" type="primary" @click="openRule()">新增规则</el-button></div>
+          <el-table :data="rules" height="calc(100% - 52px)" data-testid="schedule-rule-table">
             <el-table-column prop="classGroup.name" label="班级" min-width="150" />
             <el-table-column label="星期 / 时间" min-width="170"><template #default="{ row }">周{{ weekday(row.weekday) }} · {{ minuteText(row.startMinute) }}-{{ minuteText(row.endMinute) }}</template></el-table-column>
             <el-table-column prop="lessonType.name" label="课型" min-width="130" />
             <el-table-column prop="unitTemplate.name" label="课程单元" min-width="180"><template #default="{ row }">{{ row.unitTemplate?.name || '-' }}</template></el-table-column>
             <el-table-column label="有效期" min-width="210"><template #default="{ row }">{{ dateText(row.effectiveFrom) }} 至 {{ row.effectiveTo ? dateText(row.effectiveTo) : '长期' }}</template></el-table-column>
-            <el-table-column prop="status" label="状态" width="100" />
+            <el-table-column label="状态" width="100"><template #default="{ row }"><el-tag :type="catalogStatusType(row.status)">{{ catalogStatus(row.status) }}</el-tag></template></el-table-column>
+            <el-table-column v-if="canManageSchedule" label="操作" width="90" fixed="right"><template #default="{ row }"><el-button link type="primary" aria-label="编辑排课规则" @click="openRuleRow(row)">编辑</el-button></template></el-table-column>
           </el-table>
         </el-tab-pane>
 
-        <el-tab-pane v-if="canManageCatalog" label="课型与课程单元" name="catalog">
+        <el-tab-pane v-if="canReadCatalog" label="课型与课程单元" name="catalog">
           <div class="catalog-grid">
-            <div class="catalog-section"><div class="tab-toolbar"><strong>课型</strong><el-button type="primary" @click="openLessonType">新增课型</el-button></div><el-table :data="lessonTypes" height="calc(100% - 52px)"><el-table-column prop="name" label="名称" /><el-table-column prop="defaultHours" label="默认课时" width="100" /><el-table-column label="计入统计" width="100"><template #default="{ row }"><el-tag :type="row.countInStatistics ? 'success' : 'info'">{{ row.countInStatistics ? '是' : '否' }}</el-tag></template></el-table-column></el-table></div>
-            <div class="catalog-section"><div class="tab-toolbar"><strong>课程单元模板</strong><el-button type="primary" @click="openUnit">新增单元</el-button></div><el-table :data="units" height="calc(100% - 52px)"><el-table-column prop="code" label="编码" min-width="130" /><el-table-column prop="name" label="名称" min-width="180" /><el-table-column prop="lessonTypeName" label="课型" width="120" /><el-table-column prop="defaultHours" label="课时" width="80" /></el-table></div>
+            <div v-if="canReadLessonTypes" class="catalog-section"><div class="tab-toolbar"><strong>课型</strong><el-button v-if="canManageLessonTypes" data-testid="create-lesson-type" type="primary" @click="openLessonType()">新增课型</el-button></div><el-table :data="lessonTypes" height="calc(100% - 52px)" data-testid="lesson-type-table"><el-table-column prop="name" label="名称" /><el-table-column prop="defaultHours" label="默认课时" width="100" /><el-table-column label="状态" width="90"><template #default="{ row }"><el-tag :type="row.active ? 'success' : 'info'">{{ row.active ? '启用' : '停用' }}</el-tag></template></el-table-column><el-table-column v-if="canManageLessonTypes" label="操作" width="80"><template #default="{ row }"><el-button link type="primary" aria-label="编辑课型" @click="openLessonTypeRow(row)">编辑</el-button></template></el-table-column></el-table></div>
+            <div v-if="canReadCourseUnits" class="catalog-section"><div class="tab-toolbar"><strong>课程单元模板</strong><el-button v-if="canManageCourseUnits" data-testid="create-course-unit" type="primary" @click="openUnit()">新增单元</el-button></div><el-table :data="units" height="calc(100% - 52px)" data-testid="course-unit-table"><el-table-column prop="code" label="编码" min-width="130" /><el-table-column prop="name" label="名称" min-width="150" /><el-table-column prop="courseName" label="课程" min-width="130"><template #default="{ row }">{{ row.courseName || '历史未归属' }}</template></el-table-column><el-table-column prop="lessonTypeName" label="课型" width="110" /><el-table-column label="状态" width="90"><template #default="{ row }"><el-tag :type="catalogStatusType(row.status)">{{ catalogStatus(row.status) }}</el-tag></template></el-table-column><el-table-column v-if="canManageCourseUnits" label="操作" width="80"><template #default="{ row }"><el-button link type="primary" aria-label="编辑课程单元" @click="openUnitRow(row)">编辑</el-button></template></el-table-column></el-table></div>
           </div>
         </el-tab-pane>
       </el-tabs>
     </section>
 
-    <el-dialog v-model="ruleVisible" title="新增排课规则" width="680px" destroy-on-close>
+    <el-dialog v-model="ruleVisible" :title="ruleEditingId ? '编辑排课规则' : '新增排课规则'" width="680px" destroy-on-close>
       <el-form :model="ruleForm" label-width="96px">
         <el-form-item label="班级"><el-select v-model="ruleForm.classId" style="width:100%"><el-option v-for="item in classes" :key="item.id" :label="item.name" :value="item.id" /></el-select></el-form-item>
         <el-form-item label="课型"><el-select v-model="ruleForm.lessonTypeId" style="width:100%"><el-option v-for="item in lessonTypes" :key="item.id" :label="item.name" :value="item.id" /></el-select></el-form-item>
-        <el-form-item label="课程单元"><el-select v-model="ruleForm.unitTemplateId" clearable style="width:100%"><el-option v-for="item in units" :key="item.id" :label="item.name" :value="item.id" /></el-select></el-form-item>
+        <el-form-item label="课程单元"><el-select v-model="ruleForm.unitTemplateId" clearable style="width:100%"><el-option v-for="item in unitsForClass(ruleForm.classId, ruleForm.unitTemplateId)" :key="item.id" :label="item.name" :value="item.id" /></el-select></el-form-item>
         <div class="form-row"><el-form-item label="星期"><el-select v-model="ruleForm.weekday"><el-option v-for="index in 7" :key="index - 1" :label="`周${weekday(index - 1)}`" :value="index - 1" /></el-select></el-form-item><el-form-item label="开始"><el-time-select v-model="ruleForm.startTime" start="06:00" step="00:15" end="23:45" /></el-form-item><el-form-item label="结束"><el-time-select v-model="ruleForm.endTime" start="06:15" step="00:15" end="24:00" /></el-form-item></div>
         <div class="form-row"><el-form-item label="生效日期"><el-date-picker v-model="ruleForm.effectiveFrom" value-format="YYYY-MM-DD" /></el-form-item><el-form-item label="结束日期"><el-date-picker v-model="ruleForm.effectiveTo" value-format="YYYY-MM-DD" /></el-form-item></div>
         <div class="form-row"><el-form-item label="扣减课时"><el-input-number v-model="ruleForm.lessonHours" :min="0" :step="0.5" /></el-form-item><el-form-item label="教室"><el-input v-model="ruleForm.classroom" /></el-form-item></div>
+        <el-form-item label="规则状态"><el-select v-model="ruleForm.status" style="width:100%"><el-option label="启用" value="ACTIVE" /><el-option label="暂停" value="PAUSED" /><el-option label="归档" value="ARCHIVED" /></el-select></el-form-item>
       </el-form><template #footer><el-button @click="ruleVisible=false">取消</el-button><el-button type="primary" @click="submitRule">保存规则</el-button></template>
     </el-dialog>
 
@@ -148,7 +150,7 @@
     </el-dialog>
 
     <el-dialog v-model="sessionVisible" title="新增临时课次" width="640px" destroy-on-close>
-      <el-form :model="sessionForm" label-width="90px"><el-form-item label="班级"><el-select v-model="sessionForm.classId" style="width:100%"><el-option v-for="item in classes" :key="item.id" :label="item.name" :value="item.id" /></el-select></el-form-item><el-form-item label="课型"><el-select v-model="sessionForm.lessonTypeId" style="width:100%"><el-option v-for="item in lessonTypes" :key="item.id" :label="item.name" :value="item.id" /></el-select></el-form-item><el-form-item label="课程单元"><el-select v-model="sessionForm.unitTemplateId" clearable style="width:100%"><el-option v-for="item in units" :key="item.id" :label="item.name" :value="item.id" /></el-select></el-form-item><el-form-item label="标题"><el-input v-model="sessionForm.title" /></el-form-item><div class="form-row"><el-form-item label="开始"><el-date-picker v-model="sessionForm.startsAt" type="datetime" value-format="YYYY-MM-DDTHH:mm:ssZ" /></el-form-item><el-form-item label="结束"><el-date-picker v-model="sessionForm.endsAt" type="datetime" value-format="YYYY-MM-DDTHH:mm:ssZ" /></el-form-item></div><div class="form-row"><el-form-item label="课时"><el-input-number v-model="sessionForm.lessonHours" :min="0" :step="0.5" /></el-form-item><el-form-item label="教室"><el-input v-model="sessionForm.classroom" /></el-form-item></div></el-form><template #footer><el-button @click="sessionVisible=false">取消</el-button><el-button type="primary" @click="submitSession">保存课次</el-button></template>
+      <el-form :model="sessionForm" label-width="90px"><el-form-item label="班级"><el-select v-model="sessionForm.classId" style="width:100%"><el-option v-for="item in classes" :key="item.id" :label="item.name" :value="item.id" /></el-select></el-form-item><el-form-item label="课型"><el-select v-model="sessionForm.lessonTypeId" style="width:100%"><el-option v-for="item in lessonTypes" :key="item.id" :label="item.name" :value="item.id" /></el-select></el-form-item><el-form-item label="课程单元"><el-select v-model="sessionForm.unitTemplateId" clearable style="width:100%"><el-option v-for="item in unitsForClass(sessionForm.classId, sessionForm.unitTemplateId)" :key="item.id" :label="item.name" :value="item.id" /></el-select></el-form-item><el-form-item label="标题"><el-input v-model="sessionForm.title" /></el-form-item><div class="form-row"><el-form-item label="开始"><el-date-picker v-model="sessionForm.startsAt" type="datetime" value-format="YYYY-MM-DDTHH:mm:ssZ" /></el-form-item><el-form-item label="结束"><el-date-picker v-model="sessionForm.endsAt" type="datetime" value-format="YYYY-MM-DDTHH:mm:ssZ" /></el-form-item></div><div class="form-row"><el-form-item label="课时"><el-input-number v-model="sessionForm.lessonHours" :min="0" :step="0.5" /></el-form-item><el-form-item label="教室"><el-input v-model="sessionForm.classroom" /></el-form-item></div></el-form><template #footer><el-button @click="sessionVisible=false">取消</el-button><el-button type="primary" @click="submitSession">保存课次</el-button></template>
     </el-dialog>
 
     <el-dialog v-model="sessionChangeVisible" :title="sessionChangeMode === 'reschedule' ? '调整上课安排' : '创建补课课次'" width="680px" destroy-on-close>
@@ -164,13 +166,13 @@
       <template #footer><el-button @click="sessionChangeVisible=false">返回</el-button><el-button data-testid="submit-session-change" type="primary" :loading="saving" @click="submitSessionChange">确认变更</el-button></template>
     </el-dialog>
 
-    <el-dialog v-model="correctionVisible" title="更正考勤" width="520px" destroy-on-close><el-form :model="correctionForm" label-width="90px"><el-form-item label="状态"><el-select v-model="correctionForm.status" style="width:100%"><el-option v-for="item in attendanceOptions" :key="item.value" :label="item.label" :value="item.value" /></el-select></el-form-item><el-form-item label="扣减课时"><el-input-number v-model="correctionForm.deductHours" :min="0" :step="0.5" /></el-form-item><el-form-item label="更正原因"><el-input v-model="correctionForm.reason" type="textarea" :rows="3" /></el-form-item></el-form><template #footer><el-button @click="correctionVisible=false">取消</el-button><el-button data-testid="submit-correction" type="warning" @click="submitCorrection">追加冲正并更正</el-button></template></el-dialog>
+    <el-dialog v-model="correctionVisible" title="更正考勤" width="520px" destroy-on-close><el-form :model="correctionForm" label-width="90px"><el-form-item label="状态"><el-select v-model="correctionForm.status" style="width:100%" @change="normalizeCorrectionDeduct"><el-option v-for="item in attendanceOptions" :key="item.value" :label="item.label" :value="item.value" /></el-select></el-form-item><el-form-item label="扣减课时"><el-input-number v-model="correctionForm.deductHours" :min="0" :step="0.5" :disabled="!canDeductForStatus(correctionForm.status)" /></el-form-item><el-form-item label="更正原因"><el-input v-model="correctionForm.reason" type="textarea" :rows="3" /></el-form-item></el-form><template #footer><el-button @click="correctionVisible=false">取消</el-button><el-button data-testid="submit-correction" type="warning" @click="submitCorrection">追加冲正并更正</el-button></template></el-dialog>
 
     <el-dialog v-model="adjustmentVisible" title="登记课时变动" width="540px" destroy-on-close><el-form :model="adjustmentForm" label-width="90px"><el-form-item label="学生"><el-select v-model="adjustmentForm.studentId" filterable style="width:100%"><el-option v-for="item in balances" :key="item.studentId" :label="`${item.studentName}（余额 ${item.balance}）`" :value="item.studentId" /></el-select></el-form-item><el-form-item label="类型"><el-select v-model="adjustmentForm.type" style="width:100%"><el-option label="购买" value="PURCHASE" /><el-option label="赠送" value="GIFT" /><el-option label="退款" value="REFUND" /><el-option label="人工调整" value="MANUAL_ADJUSTMENT" /></el-select></el-form-item><el-form-item label="课时数量"><el-input-number v-model="adjustmentForm.amount" :step="0.5" /></el-form-item><el-form-item label="说明"><el-input v-model="adjustmentForm.note" /></el-form-item></el-form><template #footer><el-button @click="adjustmentVisible=false">取消</el-button><el-button type="primary" @click="submitAdjustment">写入台账</el-button></template></el-dialog>
 
-    <el-dialog v-model="lessonTypeVisible" title="新增课型" width="520px" destroy-on-close><el-form :model="lessonTypeForm" label-width="100px"><el-form-item label="名称"><el-input v-model="lessonTypeForm.name" /></el-form-item><el-form-item label="默认课时"><el-input-number v-model="lessonTypeForm.defaultHours" :min="0" :step="0.5" /></el-form-item><el-form-item label="计入统计"><el-switch v-model="lessonTypeForm.countInStatistics" /></el-form-item><el-form-item label="说明"><el-input v-model="lessonTypeForm.description" type="textarea" /></el-form-item></el-form><template #footer><el-button @click="lessonTypeVisible=false">取消</el-button><el-button type="primary" @click="submitLessonType">保存课型</el-button></template></el-dialog>
+    <el-dialog v-model="lessonTypeVisible" :title="lessonTypeEditingId ? '编辑课型' : '新增课型'" width="520px" destroy-on-close><el-form :model="lessonTypeForm" label-width="100px"><el-form-item label="名称"><el-input v-model="lessonTypeForm.name" /></el-form-item><el-form-item label="默认课时"><el-input-number v-model="lessonTypeForm.defaultHours" :min="0" :step="0.5" /></el-form-item><el-form-item label="计入统计"><el-switch v-model="lessonTypeForm.countInStatistics" /></el-form-item><el-form-item label="启用"><el-switch v-model="lessonTypeForm.active" /></el-form-item><el-form-item label="说明"><el-input v-model="lessonTypeForm.description" type="textarea" /></el-form-item></el-form><template #footer><el-button @click="lessonTypeVisible=false">取消</el-button><el-button type="primary" @click="submitLessonType">保存课型</el-button></template></el-dialog>
 
-    <el-dialog v-model="unitVisible" title="新增课程单元" width="620px" destroy-on-close><el-form :model="unitForm" label-width="100px"><el-form-item label="编码"><el-input v-model="unitForm.code" /></el-form-item><el-form-item label="名称"><el-input v-model="unitForm.name" /></el-form-item><el-form-item label="课型"><el-select v-model="unitForm.lessonTypeId" style="width:100%"><el-option v-for="item in lessonTypes" :key="item.id" :label="item.name" :value="item.id" /></el-select></el-form-item><div class="form-row"><el-form-item label="分类"><el-input v-model="unitForm.category" /></el-form-item><el-form-item label="阶段"><el-input v-model="unitForm.stage" /></el-form-item></div><div class="form-row"><el-form-item label="序号"><el-input-number v-model="unitForm.unitNo" :min="0" /></el-form-item><el-form-item label="默认课时"><el-input-number v-model="unitForm.defaultHours" :min="0" :step="0.5" /></el-form-item></div><el-form-item label="教学内容"><el-input v-model="unitForm.teachingContent" type="textarea" :rows="3" /></el-form-item></el-form><template #footer><el-button @click="unitVisible=false">取消</el-button><el-button type="primary" @click="submitUnit">保存单元</el-button></template></el-dialog>
+    <el-dialog v-model="unitVisible" :title="unitEditingId ? '编辑课程单元' : '新增课程单元'" width="620px" destroy-on-close><el-form :model="unitForm" label-width="100px"><el-form-item label="所属课程"><el-select v-model="unitForm.courseId" filterable style="width:100%"><el-option v-for="item in courses" :key="item.id" :label="item.name" :value="item.id" /></el-select></el-form-item><el-form-item label="编码"><el-input v-model="unitForm.code" /></el-form-item><el-form-item label="名称"><el-input v-model="unitForm.name" /></el-form-item><el-form-item label="课型"><el-select v-model="unitForm.lessonTypeId" style="width:100%"><el-option v-for="item in lessonTypes" :key="item.id" :label="item.name" :value="item.id" /></el-select></el-form-item><div class="form-row"><el-form-item label="分类"><el-input v-model="unitForm.category" /></el-form-item><el-form-item label="阶段"><el-input v-model="unitForm.stage" /></el-form-item></div><div class="form-row"><el-form-item label="序号"><el-input-number v-model="unitForm.unitNo" :min="0" /></el-form-item><el-form-item label="默认课时"><el-input-number v-model="unitForm.defaultHours" :min="0" :step="0.5" /></el-form-item></div><el-form-item label="状态"><el-select v-model="unitForm.status" style="width:100%"><el-option label="启用" value="ACTIVE" /><el-option label="停用" value="DISABLED" /><el-option label="归档" value="ARCHIVED" /></el-select></el-form-item><el-form-item label="教学内容"><el-input v-model="unitForm.teachingContent" type="textarea" :rows="3" /></el-form-item></el-form><template #footer><el-button @click="unitVisible=false">取消</el-button><el-button type="primary" @click="submitUnit">保存单元</el-button></template></el-dialog>
     <LessonRecordDrawer v-model="lessonRecordVisible" :session-id="lessonRecordSessionId" @changed="load" />
   </div>
 </template>
@@ -190,15 +192,18 @@ const attendanceOptions = [
 
 const {
   activeTab, adjustmentForm, adjustmentVisible, attendance, balances, canAdjustHours,
-  canConfirmAttendance, canCorrectAttendance, canManageCatalog, canManageLessonRecords, canManageSchedule, canReconcile,
-  cancelScheduledSession, classes, correctionForm, correctionVisible, dateRange, generateForm, generateVisible, ledger,
-  lessonTypeForm, lessonTypeVisible, lessonTypes, loading, openAdjustment, openAttendance,
-  openCorrection, openGenerate, openLessonType, openRule, openSession, openSessionChange, openUnit, reconciliation,
-  ruleForm, ruleVisible, rules, saving, selectedClassId, selectedSessionId, sessionChangeForm,
+  canConfirmAttendance, canCorrectAttendance, canManageCourseUnits, canManageLessonRecords,
+  canManageLessonTypes, canManageSchedule, canReadAttendance, canReadCatalog, canReadCourseUnits,
+  canReadLessonHours, canReadLessonTypes, canReadSchedule, canReconcile, cancelScheduledSession, classes, correctionForm,
+  correctionVisible, courses, dateRange, generateForm, generateVisible, ledger, lessonTypeEditingId,
+  lessonTypeForm, lessonTypeVisible, lessonTypes, loading, normalizeAttendanceDeduct, normalizeCorrectionDeduct,
+  openAdjustment, openAttendance, openCorrection, openGenerate, openLessonType, openRule, openSession,
+  openSessionChange, openUnit, reconciliation, ruleEditingId, ruleForm, ruleVisible, rules, saving,
+  selectedClassId, selectedSessionId, sessionChangeForm,
   sessionChangeMode, sessionChangeSource, sessionChangeVisible, sessionForm, sessionVisible, sessions,
   submitAdjustment, submitAttendance, submitCorrection, submitGenerate, submitLessonType, submitRule,
-  submitSession, submitSessionChange, submitUnit, unitForm, unitVisible, units, load,
-  loadAttendance, runReconciliation,
+  submitSession, submitSessionChange, submitUnit, unitEditingId, unitForm, unitVisible, units,
+  unitsForClass, load, loadAttendance, runReconciliation,
 } = useAcademicOperations();
 
 const openAttendanceRow = (row: unknown) => openAttendance(row as AcademicOperationRecord);
@@ -206,6 +211,10 @@ const openCorrectionRow = (row: unknown) => openCorrection(row as AcademicOperat
 const openAdjustmentRow = (row: unknown) => openAdjustment(row as AcademicOperationRecord);
 const cancelScheduledSessionRow = (row: unknown) => cancelScheduledSession(row as AcademicOperationRecord);
 const openSessionChangeRow = (row: unknown, mode: 'reschedule' | 'makeup') => openSessionChange(row as AcademicOperationRecord, mode);
+const normalizeAttendanceDeductRow = (row: unknown) => normalizeAttendanceDeduct(row as AcademicOperationRecord);
+const openLessonTypeRow = (row: unknown) => openLessonType(row as AcademicOperationRecord);
+const openRuleRow = (row: unknown) => openRule(row as AcademicOperationRecord);
+const openUnitRow = (row: unknown) => openUnit(row as AcademicOperationRecord);
 const lessonRecordVisible = ref(false);
 const lessonRecordSessionId = ref('');
 const openLessonRecord = (row: AcademicOperationRecord) => {
@@ -223,6 +232,9 @@ const formatClock = (value: string) => value ? new Date(value).toLocaleTimeStrin
 const dateText = (value: string) => String(value || '').slice(0, 10);
 const weekday = (value: number) => ['日', '一', '二', '三', '四', '五', '六'][value] || '-';
 const minuteText = (value: number) => `${String(Math.floor(value / 60)).padStart(2, '0')}:${String(value % 60).padStart(2, '0')}`;
+const canDeductForStatus = (value: string) => ['PRESENT', 'LATE', 'MAKEUP'].includes(value);
+const catalogStatus = (value: string) => ({ ACTIVE: '启用', PAUSED: '暂停', DISABLED: '停用', ARCHIVED: '归档' }[value] || value);
+const catalogStatusType = (value: string): 'success' | 'warning' | 'info' => ({ ACTIVE: 'success', PAUSED: 'warning' }[value] || 'info') as 'success' | 'warning' | 'info';
 </script>
 
 <style scoped>

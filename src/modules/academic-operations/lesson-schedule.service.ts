@@ -1,5 +1,5 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
-import { LessonSessionKind, LessonSessionStatus, Prisma, ScheduleRuleStatus } from '@prisma/client';
+import { CourseUnitStatus, LessonSessionKind, LessonSessionStatus, Prisma, ScheduleRuleStatus } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
 import { toPagination } from '../../common/dto/pagination-query.dto';
 import { RequestUser } from '../../common/interfaces/request-user.interface';
@@ -25,6 +25,11 @@ const sessionInclude = {
   unitTemplate: { select: { name: true } },
   _count: { select: { attendance: true } },
 } as const;
+
+type ReferenceValidationOptions = {
+  retainInactiveLessonTypeId?: string;
+  retainUnavailableUnitTemplateId?: string;
+};
 
 @Injectable()
 export class LessonScheduleService {
@@ -69,7 +74,10 @@ export class LessonScheduleService {
     if (!current) throw new NotFoundException('排课规则不存在');
     await Promise.all([
       this.dataScope.assertAcademicClassAccessible(actor, current.classId),
-      this.validateRule(dto, actor),
+      this.validateRule(dto, actor, {
+        retainInactiveLessonTypeId: current.lessonTypeId,
+        retainUnavailableUnitTemplateId: current.unitTemplateId ?? undefined,
+      }),
     ]);
     const item = await this.prisma.classScheduleRule.update({
       where: { id },
@@ -97,12 +105,18 @@ export class LessonScheduleService {
         effectiveFrom: { lte: to },
         OR: [{ effectiveTo: null }, { effectiveTo: { gte: from } }],
       },
-      include: { classGroup: { select: { name: true } }, unitTemplate: { select: { name: true } } },
+      include: {
+        classGroup: { select: { name: true, courseId: true } },
+        lessonType: { select: { id: true, active: true } },
+        unitTemplate: { select: { id: true, name: true, courseId: true, legacyUnscoped: true, status: true } },
+      },
     });
     if (dto.ruleId && rules.length === 0) throw new NotFoundException('可用排课规则不存在');
 
     const rows: Prisma.LessonSessionCreateManyInput[] = [];
     for (const rule of rules) {
+      this.assertCatalogAvailability(rule.lessonType, rule.unitTemplate);
+      this.assertUnitCourseScope(rule.classGroup.courseId, rule.unitTemplate);
       const ruleFrom = rule.effectiveFrom > from ? rule.effectiveFrom : from;
       const ruleTo = rule.effectiveTo && rule.effectiveTo < to ? rule.effectiveTo : to;
       for (let day = ruleFrom; day <= ruleTo; day = addUtcDays(day, 1)) {
@@ -199,6 +213,15 @@ export class LessonScheduleService {
     const startsAt = new Date(dto.startsAt);
     const endsAt = new Date(dto.endsAt);
     this.assertTimeRange(startsAt, endsAt);
+    await this.validateSessionReferences({
+      classId: source.classId,
+      teacherId: dto.teacherId ?? source.teacherId ?? undefined,
+      lessonTypeId: source.lessonTypeId,
+      unitTemplateId: source.unitTemplateId ?? undefined,
+    }, actor, {
+      retainInactiveLessonTypeId: source.lessonTypeId,
+      retainUnavailableUnitTemplateId: source.unitTemplateId ?? undefined,
+    });
     const key = `reschedule:${source.id}:${startsAt.toISOString()}`;
     const item = await this.prisma.$transaction(async (tx) => {
       const existing = await tx.lessonSession.findUnique({ where: { generationKey: key }, include: sessionInclude });
@@ -248,6 +271,15 @@ export class LessonScheduleService {
     const startsAt = new Date(dto.startsAt);
     const endsAt = new Date(dto.endsAt);
     this.assertTimeRange(startsAt, endsAt);
+    await this.validateSessionReferences({
+      classId: source.classId,
+      teacherId: dto.teacherId ?? source.teacherId ?? undefined,
+      lessonTypeId: source.lessonTypeId,
+      unitTemplateId: source.unitTemplateId ?? undefined,
+    }, actor, {
+      retainInactiveLessonTypeId: source.lessonTypeId,
+      retainUnavailableUnitTemplateId: source.unitTemplateId ?? undefined,
+    });
     const key = `makeup:${source.id}:${startsAt.toISOString()}`;
     const item = await this.prisma.lessonSession.upsert({
       where: { generationKey: key },
@@ -275,32 +307,72 @@ export class LessonScheduleService {
     return this.sessionView(item);
   }
 
-  private async validateRule(dto: SaveScheduleRuleDto, actor: RequestUser) {
+  private async validateRule(
+    dto: SaveScheduleRuleDto,
+    actor: RequestUser,
+    options: ReferenceValidationOptions = {},
+  ) {
     if (dto.endMinute <= dto.startMinute) throw new BadRequestException('结束时间必须晚于开始时间');
     const from = this.safeDate(dto.effectiveFrom);
     const to = dto.effectiveTo ? this.safeDate(dto.effectiveTo) : undefined;
     if (to && to < from) throw new BadRequestException('规则结束日期不能早于开始日期');
-    await this.validateSessionReferences(dto, actor);
+    await this.validateSessionReferences(dto, actor, options);
   }
 
   private async validateSessionReferences(
     dto: Pick<SaveScheduleRuleDto, 'classId' | 'teacherId' | 'lessonTypeId' | 'unitTemplateId'>,
     actor: RequestUser,
+    options: ReferenceValidationOptions = {},
   ) {
     await this.dataScope.assertAcademicClassAccessible(actor, dto.classId);
-    const [lessonType, unit, teacher] = await Promise.all([
-      this.prisma.lessonType.findUnique({ where: { id: dto.lessonTypeId }, select: { id: true } }),
+    const [classGroup, lessonType, unit, teacher] = await Promise.all([
+      this.prisma.classGroup.findFirst({
+        where: { id: dto.classId, deletedAt: null },
+        select: { courseId: true },
+      }),
+      this.prisma.lessonType.findUnique({ where: { id: dto.lessonTypeId }, select: { id: true, active: true } }),
       dto.unitTemplateId
-        ? this.prisma.courseUnitTemplate.findUnique({ where: { id: dto.unitTemplateId }, select: { lessonTypeId: true } })
+        ? this.prisma.courseUnitTemplate.findUnique({
+            where: { id: dto.unitTemplateId },
+            select: { id: true, lessonTypeId: true, courseId: true, legacyUnscoped: true, status: true },
+          })
         : Promise.resolve(null),
       dto.teacherId
         ? this.prisma.classTeacher.findFirst({ where: { classId: dto.classId, teacherId: dto.teacherId, status: 'ACTIVE' }, select: { id: true } })
         : Promise.resolve({ id: 'none' }),
     ]);
+    if (!classGroup) throw new BadRequestException('班级不存在');
     if (!lessonType) throw new BadRequestException('课型不存在');
     if (dto.unitTemplateId && !unit) throw new BadRequestException('课程单元不存在');
+    this.assertCatalogAvailability(lessonType, unit, options);
     if (unit && unit.lessonTypeId !== dto.lessonTypeId) throw new BadRequestException('课程单元与课型不一致');
+    this.assertUnitCourseScope(classGroup.courseId, unit);
     if (!teacher) throw new BadRequestException('教师未在该班级任教');
+  }
+
+  private assertCatalogAvailability(
+    lessonType: { id: string; active: boolean },
+    unit: { id: string; status: CourseUnitStatus } | null,
+    options: ReferenceValidationOptions = {},
+  ) {
+    if (!lessonType.active && lessonType.id !== options.retainInactiveLessonTypeId) {
+      throw new BadRequestException('课型已停用，不能用于新排课');
+    }
+    if (unit && unit.status !== CourseUnitStatus.ACTIVE && unit.id !== options.retainUnavailableUnitTemplateId) {
+      throw new BadRequestException('课程单元已禁用或归档，不能用于新排课');
+    }
+  }
+
+  private assertUnitCourseScope(
+    classCourseId: string | null,
+    unit: { courseId: string | null; legacyUnscoped: boolean } | null,
+  ) {
+    if (!unit) return;
+    if (unit.courseId === null && unit.legacyUnscoped) return;
+    if (!classCourseId) throw new BadRequestException('班级未关联课程，不能使用课程单元');
+    if (unit.courseId !== classCourseId) {
+      throw new BadRequestException('课程单元与班级所属课程不一致');
+    }
   }
 
   private async sessionForWrite(id: string, actor: RequestUser) {

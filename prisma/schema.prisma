@@ -704,6 +704,7 @@ model CourseUnitTemplate {
   id              String           @id @default(uuid()) @db.Uuid
   code            String           @unique @db.VarChar(128)
   courseId        String?          @map("course_id") @db.Uuid
+  legacyUnscoped  Boolean          @default(false) @map("legacy_unscoped")
   lessonTypeId    String           @map("lesson_type_id") @db.Uuid
   category        String?          @db.VarChar(96)
   stage           String?          @db.VarChar(96)
@@ -2070,7 +2071,7 @@ model AiProviderConfig {
   enabled              Boolean               @default(true)
   isDefault            Boolean               @default(false) @map("is_default")
   timeoutMs            Int                   @default(30000) @map("timeout_ms")
-  maxTokens            Int                   @default(800) @map("max_tokens")
+  maxTokens            Int?                  @map("max_tokens")
   monthlyTokenBudget   Int?                  @map("monthly_token_budget")
   inputCostPerMillion  Decimal               @default(0) @map("input_cost_per_million") @db.Decimal(12, 4)
   outputCostPerMillion Decimal               @default(0) @map("output_cost_per_million") @db.Decimal(12, 4)
@@ -2094,17 +2095,18 @@ model AiProviderConfig {
 }
 
 model AiUsageEvent {
-  id                    String   @id @default(uuid()) @db.Uuid
-  providerConfigId      String   @map("provider_config_id") @db.Uuid
-  operation             String   @db.VarChar(64)
-  correlationId         String   @unique @map("correlation_id") @db.VarChar(64)
-  requestedOutputTokens Int      @map("requested_output_tokens")
-  inputTokens           Int      @map("input_tokens")
-  outputTokens          Int      @map("output_tokens")
-  totalTokens           Int      @map("total_tokens")
-  usageReported         Boolean  @default(false) @map("usage_reported")
-  createdBy             String   @map("created_by") @db.Uuid
-  createdAt             DateTime @default(now()) @map("created_at")
+  id                      String   @id @default(uuid()) @db.Uuid
+  providerConfigId        String   @map("provider_config_id") @db.Uuid
+  operation               String   @db.VarChar(64)
+  correlationId           String   @unique @map("correlation_id") @db.VarChar(64)
+  requestedOutputTokens   Int?     @map("requested_output_tokens")
+  reservationOutputTokens Int      @map("reservation_output_tokens")
+  inputTokens             Int      @map("input_tokens")
+  outputTokens            Int      @map("output_tokens")
+  totalTokens             Int      @map("total_tokens")
+  usageReported           Boolean  @default(false) @map("usage_reported")
+  createdBy               String   @map("created_by") @db.Uuid
+  createdAt               DateTime @default(now()) @map("created_at")
 
   providerConfig AiProviderConfig @relation(fields: [providerConfigId], references: [id], onDelete: Restrict)
 
@@ -2155,39 +2157,41 @@ model AiSummaryPromptTemplate {
 }
 
 model AiSummaryTask {
-  id                    String              @id @default(uuid()) @db.Uuid
-  type                  AiSummaryType
-  subjectId             String              @map("subject_id") @db.Uuid
-  scopeJson             Json                @map("scope_json")
-  inputSnapshotJson     Json                @map("input_snapshot_json")
-  inputHash             String              @map("input_hash") @db.VarChar(64)
-  datasetVersion        String              @map("dataset_version") @db.VarChar(32)
-  promptTemplateId      String              @map("prompt_template_id") @db.Uuid
-  promptVersion         Int                 @map("prompt_version")
-  schemaVersion         String              @map("schema_version") @db.VarChar(32)
-  providerConfigId      String              @map("provider_config_id") @db.Uuid
-  modelSnapshot         String              @map("model_snapshot") @db.VarChar(160)
-  generationKey         String              @default("initial") @map("generation_key") @db.VarChar(64)
-  requestedOutputTokens Int                 @default(1000) @map("requested_output_tokens")
-  status                AiSummaryTaskStatus @default(PENDING)
-  attemptCount          Int                 @default(0) @map("attempt_count")
-  correlationId         String              @unique @map("correlation_id") @db.VarChar(64)
-  inputTokens           Int                 @default(0) @map("input_tokens")
-  outputTokens          Int                 @default(0) @map("output_tokens")
-  estimatedCost         Decimal             @default(0) @map("estimated_cost") @db.Decimal(18, 6)
-  createdBy             String              @map("created_by") @db.Uuid
-  startedAt             DateTime?           @map("started_at")
-  finishedAt            DateTime?           @map("finished_at")
-  sanitizedError        String?             @map("sanitized_error") @db.VarChar(500)
-  createdAt             DateTime            @default(now()) @map("created_at")
-  updatedAt             DateTime            @updatedAt @map("updated_at")
+  id                      String              @id @default(uuid()) @db.Uuid
+  type                    AiSummaryType
+  subjectId               String              @map("subject_id") @db.Uuid
+  scopeJson               Json                @map("scope_json")
+  inputSnapshotJson       Json                @map("input_snapshot_json")
+  inputHash               String              @map("input_hash") @db.VarChar(64)
+  datasetVersion          String              @map("dataset_version") @db.VarChar(32)
+  promptTemplateId        String              @map("prompt_template_id") @db.Uuid
+  promptVersion           Int                 @map("prompt_version")
+  schemaVersion           String              @map("schema_version") @db.VarChar(32)
+  providerConfigId        String              @map("provider_config_id") @db.Uuid
+  modelSnapshot           String              @map("model_snapshot") @db.VarChar(160)
+  generationKey           String              @default("initial") @map("generation_key") @db.VarChar(64)
+  requestedOutputTokens   Int?                @map("requested_output_tokens")
+  reservationOutputTokens Int                 @map("reservation_output_tokens")
+  outputLimitKey          Int                 @default(0) @map("output_limit_key")
+  status                  AiSummaryTaskStatus @default(PENDING)
+  attemptCount            Int                 @default(0) @map("attempt_count")
+  correlationId           String              @unique @map("correlation_id") @db.VarChar(64)
+  inputTokens             Int                 @default(0) @map("input_tokens")
+  outputTokens            Int                 @default(0) @map("output_tokens")
+  estimatedCost           Decimal             @default(0) @map("estimated_cost") @db.Decimal(18, 6)
+  createdBy               String              @map("created_by") @db.Uuid
+  startedAt               DateTime?           @map("started_at")
+  finishedAt              DateTime?           @map("finished_at")
+  sanitizedError          String?             @map("sanitized_error") @db.VarChar(500)
+  createdAt               DateTime            @default(now()) @map("created_at")
+  updatedAt               DateTime            @updatedAt @map("updated_at")
 
   providerConfig AiProviderConfig        @relation(fields: [providerConfigId], references: [id], onDelete: Restrict)
   promptTemplate AiSummaryPromptTemplate @relation(fields: [promptTemplateId], references: [id], onDelete: Restrict)
   summary        AiSummary?
   cacheEvents    AiSummaryCacheEvent[]
 
-  @@unique([type, subjectId, inputHash, datasetVersion, promptVersion, schemaVersion, providerConfigId, modelSnapshot, generationKey, requestedOutputTokens], map: "ai_summary_tasks_idempotency_key")
+  @@unique([type, subjectId, inputHash, datasetVersion, promptVersion, schemaVersion, providerConfigId, modelSnapshot, generationKey, outputLimitKey], map: "ai_summary_tasks_idempotency_key")
   @@index([status, createdAt])
   @@index([type, subjectId, createdAt])
   @@index([createdBy, createdAt])

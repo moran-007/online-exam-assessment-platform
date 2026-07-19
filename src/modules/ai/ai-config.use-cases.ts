@@ -5,9 +5,9 @@ import { RequestUser } from '../../common/interfaces/request-user.interface';
 import { CredentialCipherService } from '../../security/credential-cipher.service';
 import { AuditService } from '../audit/audit.service';
 import { PrismaService } from '../prisma/prisma.service';
-import { AiProviderGateway } from './ai-provider.gateway';
+import { AiProviderCallException, AiProviderGateway } from './ai-provider.gateway';
 import { AiProviderConfigAccessService } from './ai-provider-config-access.service';
-import { thinkingModeFor } from './ai-provider-request.policy';
+import { providerRequestPolicyFor } from './ai-provider-request.policy';
 import { AI_PROVIDER_PRESETS } from './ai-provider.presets';
 import { AiTokenQuota, AiTokenUsageService } from './ai-token-usage.service';
 import { CreateAiProviderConfigDto, UpdateAiProviderConfigDto } from './dto/ai.dto';
@@ -50,7 +50,7 @@ export class AiConfigUseCases {
       enabled: dto.enabled ?? true,
       isDefault: dto.isDefault ?? false,
       timeoutMs: dto.timeoutMs ?? 30_000,
-      maxTokens: dto.maxTokens ?? 1000,
+      maxTokens: dto.maxTokens ?? null,
       monthlyTokenBudget: dto.monthlyTokenBudget,
       inputCostPerMillion: dto.inputCostPerMillion ?? 0,
       outputCostPerMillion: dto.outputCostPerMillion ?? 0,
@@ -125,10 +125,11 @@ export class AiConfigUseCases {
         maxTokens: requestedOutputTokens,
         timeoutMs: config.timeoutMs,
         allowEmptyContent: true,
-        thinking: thinkingModeFor(config.provider),
+        ...providerRequestPolicyFor(config.provider, config.baseUrl, config.model),
       });
       const tokenQuota = await this.tokenUsage.record({
-        config, operation: 'connection_test', requestedOutputTokens, usage: result.usage, userId: user.id,
+        config, operation: 'connection_test', requestedOutputTokens,
+        reservationOutputTokens: requestedOutputTokens, usage: result.usage, userId: user.id,
       });
       await this.prisma.aiProviderConfig.update({ where: { id }, data: { lastTestStatus: 'success', lastTestMessage: '连接成功', lastTestAt: new Date() } });
       await this.audit.log({ userId: user.id, action: 'ai:config-test', module: 'ai', targetType: 'ai_provider_config', targetId: id, afterData: { success: true, durationMs: result.durationMs, ...result.usage } });
@@ -141,6 +142,7 @@ export class AiConfigUseCases {
         tokenQuota,
       };
     } catch (error) {
+      await this.recordFailedTestUsage(error, config, requestedOutputTokens, user.id);
       const message = error instanceof Error ? error.message.slice(0, 280) : '连接失败';
       await this.prisma.aiProviderConfig.update({ where: { id }, data: { lastTestStatus: 'failed', lastTestMessage: message, lastTestAt: new Date() } });
       await this.audit.log({ userId: user.id, action: 'ai:config-test', module: 'ai', targetType: 'ai_provider_config', targetId: id, afterData: { success: false, durationMs: Date.now() - startedAt } });
@@ -155,6 +157,24 @@ export class AiConfigUseCases {
   }
 
   private purpose(id: string) { return `ai-provider:${id}`; }
+
+  private async recordFailedTestUsage(
+    error: unknown,
+    config: AiProviderConfig,
+    requestedOutputTokens: number,
+    userId: string,
+  ) {
+    if (!(error instanceof AiProviderCallException)
+      || (!error.usageMayBeUnreported && !error.usage)) return;
+    await this.tokenUsage.record({
+      config,
+      operation: 'connection_test',
+      requestedOutputTokens,
+      reservationOutputTokens: requestedOutputTokens,
+      usage: error.usage ?? { promptTokens: 0, completionTokens: 0, totalTokens: 0, reported: false },
+      userId,
+    }).catch(() => undefined);
+  }
 
   private format(row: AiProviderConfig, user: RequestUser, tokenQuota?: AiTokenQuota) {
     return {

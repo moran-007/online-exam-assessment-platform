@@ -69,7 +69,7 @@
         <el-button :disabled="!active" :loading="working" @click="regenerate">重新生成</el-button>
         <span v-if="lastTask" class="muted">
           最近一次历史{{ lastTask.cacheHit ? '缓存命中' : '模型调用' }} · {{ usageLabel(lastTask) }}
-          <template v-if="limitChanged(lastTask)"> · 当前设置 {{ effectiveOutputLimit }} Token</template>
+          <template v-if="limitChanged(lastTask)"> · 当前设置 {{ effectiveOutputLimit === null ? '未显式限制' : `${effectiveOutputLimit} Token` }}</template>
           · 剩余 {{ quota(lastTask) }}
         </span>
       </div>
@@ -225,22 +225,28 @@ function quota(task: AiSummaryTask) {
 }
 
 function usageLabel(task: AiSummaryTask) {
-  const limit = `请求上限 ${task.usage.requestedOutputTokens} Token`;
-  if (task.usage.reported === false) return `${limit} / 用量未报告 / 已预留 ${task.usage.reservedTokens} Token`;
+  const limit = task.usage.requestedOutputTokens === null
+    ? '未显式设置供应商输出上限'
+    : `请求上限 ${task.usage.requestedOutputTokens} Token`;
+  if (task.usage.reported === false) return `${limit} / 用量未报告 / 估算预留 ${task.usage.reservedTokens} Token`;
   if (task.usage.reported === null) return `${limit} / 未发起或未记录模型用量`;
   return `${limit} / 输入 ${task.usage.inputTokens} / 输出 ${task.usage.outputTokens} Token`;
 }
 
 function usageDescription(task: AiSummaryTask) {
   if (task.usage.reported === false) {
-    const current = limitChanged(task) ? ` 当前设置为 ${effectiveOutputLimit.value} Token，历史预留不会被改写。` : '';
-    return `供应商未返回准确 Token 用量，系统已按该次历史请求上限保守预留 ${task.usage.reservedTokens} Token。${current}`;
+    const currentLimit = effectiveOutputLimit.value === null ? '未显式限制' : `${effectiveOutputLimit.value} Token`;
+    const current = limitChanged(task) ? ` 当前设置为${currentLimit}，历史预留不会被改写。` : '';
+    const basis = task.usage.requestedOutputTokens === null
+      ? '本次未向供应商发送输出上限；该估算上界仅用于本地记账，并未限制模型输出。'
+      : `本次供应商请求上限为 ${task.usage.requestedOutputTokens} Token。`;
+    return `供应商未返回准确 Token 用量，系统已估算预留 ${task.usage.reservedTokens} Token。${basis}${current}`;
   }
   return task.usage.reported === null ? '本次失败发生在模型用量形成之前，没有新增 Token 记录。' : '';
 }
 
 function limitChanged(task: AiSummaryTask) {
-  return effectiveOutputLimit.value !== null && task.usage.requestedOutputTokens !== effectiveOutputLimit.value;
+  return task.usage.requestedOutputTokens !== effectiveOutputLimit.value;
 }
 </script>
 

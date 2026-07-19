@@ -1,7 +1,11 @@
 import { Injectable } from '@nestjs/common';
 import { AiSummaryType, Prisma } from '@prisma/client';
 import { RequestUser } from '../../common/interfaces/request-user.interface';
-import { AiSummaryTaskCoordinator, SummaryTaskOptions } from './ai-summary-task.coordinator';
+import {
+  AiSummaryTaskCoordinator,
+  SummaryTaskOptions,
+  withRetryConfirmation,
+} from './ai-summary-task.coordinator';
 import { ClassSummaryDatasetBuilder, ClassSummaryScopeInput } from './datasets/class-summary-dataset.builder';
 import { LessonAssistantDatasetBuilder } from './datasets/lesson-assistant-dataset.builder';
 import { ParentReportDatasetBuilder, ParentReportScopeInput } from './datasets/parent-report-dataset.builder';
@@ -48,7 +52,7 @@ export class IntegratedSummaryUseCases {
       minOutputTokens: MIN_INTEGRATED_OUTPUT_TOKENS,
       configId: dto.configId,
       maxTokens: dto.maxTokens,
-    }, user, options);
+    }, user, withRetryConfirmation(options, dto.confirmRetry));
   }
 
   async previewParent(input: ParentReportScopeInput, user: RequestUser) {
@@ -71,7 +75,7 @@ export class IntegratedSummaryUseCases {
       minOutputTokens: MIN_INTEGRATED_OUTPUT_TOKENS,
       configId: dto.configId,
       maxTokens: dto.maxTokens,
-    }, user, options);
+    }, user, withRetryConfirmation(options, dto.confirmRetry));
   }
 
   async previewLesson(sessionId: string, user: RequestUser) {
@@ -94,7 +98,7 @@ export class IntegratedSummaryUseCases {
       minOutputTokens: MIN_INTEGRATED_OUTPUT_TOKENS,
       configId: dto.configId,
       maxTokens: dto.maxTokens,
-    }, user, options);
+    }, user, withRetryConfirmation(options, dto.confirmRetry));
   }
 
   private preview(dataset: Parameters<typeof createSummaryDatasetInputHash>[0]) {

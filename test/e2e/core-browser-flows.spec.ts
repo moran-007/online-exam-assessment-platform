@@ -1,12 +1,23 @@
 import '../setup-env';
 import { expect, test, type APIRequestContext, type Locator, type Page } from '@playwright/test';
-import { PermissionType, PrismaClient, UserType } from '@prisma/client';
+import {
+  AiSummaryType,
+  AnswerRecordStatus,
+  AttemptStatus,
+  PermissionType,
+  Prisma,
+  PrismaClient,
+  UserType,
+} from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
+import { Workbook } from 'exceljs';
 import { mkdir, rm } from 'node:fs/promises';
+import { EXAM_SUMMARY_OUTPUT_SCHEMA } from '../../src/modules/ai/schemas/summary-output.schema';
 import { createScratchProjectBuffer } from '../helpers/scratch-project';
 
 const prisma = new PrismaClient();
 const password = '123456';
+const exportExamName = 'E2E export fixture exam';
 const apiBaseUrl = process.env.E2E_API_BASE_URL || 'http://127.0.0.1:3100/api/v1';
 let examId = '';
 let materialExamId = '';
@@ -24,6 +35,9 @@ test.beforeAll(async ({ request }) => {
       { username: 'e2e_teacher', passwordHash, realName: 'E2E Teacher', userType: UserType.TEACHER },
       { username: 'e2e_student', passwordHash, realName: 'E2E Student', userType: UserType.STUDENT },
       { username: 'e2e_parent', passwordHash, realName: 'E2E Parent', phone: '13900000009', userType: UserType.PARENT },
+      { username: 'e2e_schedule_reader', passwordHash, realName: 'E2E Schedule Reader', userType: UserType.STUDENT },
+      { username: 'e2e_ledger_reader', passwordHash, realName: 'E2E Ledger Reader', userType: UserType.STUDENT },
+      { username: 'e2e_catalog_reader', passwordHash, realName: 'E2E Catalog Reader', userType: UserType.STUDENT },
     ],
   });
   const permissionRows = await Promise.all([
@@ -55,6 +69,9 @@ test.beforeAll(async ({ request }) => {
     prisma.role.create({ data: { name: 'E2E Teacher', code: 'teacher' } }),
     prisma.role.create({ data: { name: 'E2E Student', code: 'student' } }),
     prisma.role.create({ data: { name: 'E2E Parent', code: 'parent' } }),
+    prisma.role.create({ data: { name: 'E2E Schedule Reader', code: 'e2e_schedule_reader' } }),
+    prisma.role.create({ data: { name: 'E2E Ledger Reader', code: 'e2e_ledger_reader' } }),
+    prisma.role.create({ data: { name: 'E2E Catalog Reader', code: 'e2e_catalog_reader' } }),
   ]);
   const readCodes = new Set([
     'academic-profile:read', 'schedule:read', 'attendance:read', 'lesson-hour:read',
@@ -63,7 +80,7 @@ test.beforeAll(async ({ request }) => {
   ]);
   const studentWriteCodes = new Set(['scratch-work:save', 'scratch-work:submit']);
   await prisma.rolePermission.createMany({
-    data: roleRows.flatMap((role) => permissionRows
+    data: roleRows.slice(0, 3).flatMap((role) => permissionRows
       .filter((permission) => role.code === 'teacher' || readCodes.has(permission.code) || (
         role.code === 'student' && studentWriteCodes.has(permission.code)
       ))
@@ -79,16 +96,32 @@ test.beforeAll(async ({ request }) => {
       roleId: roleRows.find((role) => role.code === user.userType.toLowerCase())!.id,
     })),
   });
+  const partialRolePermissions = [
+    ['e2e_schedule_reader', ['schedule:read']],
+    ['e2e_ledger_reader', ['lesson-hour:read']],
+    ['e2e_catalog_reader', ['lesson-type:read', 'course-unit:read']],
+  ] as const;
+  await prisma.rolePermission.createMany({
+    data: partialRolePermissions.flatMap(([roleCode, codes]) => codes.map((code) => ({
+      roleId: roleRows.find((role) => role.code === roleCode)!.id,
+      permissionId: permissionRows.find((permission) => permission.code === code)!.id,
+    }))),
+  });
+  const partialUsers = await prisma.user.findMany({
+    where: { username: { in: partialRolePermissions.map(([code]) => code) } },
+    select: { id: true, username: true },
+  });
+  await prisma.userRole.createMany({
+    data: partialUsers.map((user) => ({
+      userId: user.id,
+      roleId: roleRows.find((role) => role.code === user.username)!.id,
+    })),
+  });
 
   const login = await api(request, 'post', '/auth/login', undefined, {
     username: 'e2e_admin', password, rememberMe: false,
   });
   const token = login.accessToken as string;
-  await api(request, 'post', '/ai/configurations', token, {
-    name: 'E2E Summary Model', provider: 'custom', baseUrl: 'https://e2e.invalid/v1',
-    model: 'e2e-summary-model', apiKey: 'e2e-only-key', enabled: true, isDefault: true,
-    maxTokens: 1000, monthlyTokenBudget: 10000,
-  });
   const course = await api(request, 'post', '/courses', token, {
     name: 'E2E Browser Course', code: 'e2e_browser_course', description: 'Playwright fixture', sortOrder: 1,
   });
@@ -96,7 +129,11 @@ test.beforeAll(async ({ request }) => {
     name: 'E2E Browser Class', courseId: course.id, code: 'e2e_browser_class', status: 'active',
   });
   classId = classGroup.id;
-  const student = await prisma.user.findUniqueOrThrow({ where: { username: 'e2e_student' } });
+  const [admin, student] = await Promise.all([
+    prisma.user.findUniqueOrThrow({ where: { username: 'e2e_admin' } }),
+    prisma.user.findUniqueOrThrow({ where: { username: 'e2e_student' } }),
+  ]);
+  await seedExamSummaryPrompt(admin.id);
   await api(request, 'post', `/classes/${classId}/students`, token, { userIds: [student.id] });
   operationsDate = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
   const operationsType = await api(request, 'post', '/lesson-types', token, {
@@ -163,6 +200,13 @@ test.beforeAll(async ({ request }) => {
     questionId: question.id, score: 5, sortOrder: 1,
   });
   await api(request, 'post', `/papers/${paper.id}/publish`, token);
+  await seedExportExamFixture(request, token, {
+    adminId: admin.id,
+    courseId: course.id,
+    paperId: paper.id,
+    questionId: question.id,
+    studentId: student.id,
+  });
   const exam = await api(request, 'post', '/exams', token, {
     paperId: paper.id,
     name: 'E2E forced-end exam',
@@ -304,7 +348,7 @@ test('public visitors and teachers load their lazy feature routes', async ({ bro
   await teacherContext.close();
 });
 
-test('question and paper exports download files that match their declared formats', async ({ page }) => {
+test('question, paper, result, and grading exports download usable files', async ({ page }) => {
   await login(page, 'e2e_admin');
   await page.goto('/questions');
   await expect(page.getByRole('heading', { name: '题库管理' })).toBeVisible();
@@ -350,6 +394,37 @@ test('question and paper exports download files that match their declared format
   const paperBuffer = downloadedPaper.body;
   expect(paperBuffer.subarray(0, 5).toString('ascii')).toBe('%PDF-');
   expect(paperBuffer.includes(Buffer.from('%%EOF'))).toBe(true);
+
+  await page.getByRole('tab', { name: '成绩 / 考试导出' }).click();
+  await page.getByPlaceholder('搜索考试').fill(exportExamName);
+  await page.getByRole('button', { name: '查询' }).click();
+  const examRow = page.locator('.question-list-table tbody tr').filter({ hasText: exportExamName }).first();
+  await expect(examRow).toBeVisible();
+  await examRow.getByRole('button', { name: '导出' }).click();
+  await page.getByRole('menuitem', { name: '成绩 Excel' }).click();
+  const resultTaskRow = page.locator('.export-record-panel tbody tr').filter({ hasText: '考试成绩' }).first();
+  await expect(resultTaskRow).toContainText('成功', { timeout: 20_000 });
+  const downloadedResults = await captureExportDownload(page, () =>
+    resultTaskRow.getByRole('button', { name: '下载' }).click(),
+  );
+  expect(downloadedResults.headers['content-disposition']).toMatch(/\.xlsx/i);
+  const workbook = new Workbook();
+  await workbook.xlsx.load(Uint8Array.from(downloadedResults.body).buffer);
+  const resultText = workbook.worksheets[0].getSheetValues().flat(2).join(' | ');
+  expect(resultText).toContain(exportExamName);
+  expect(resultText).toContain('E2E Student');
+
+  await examRow.getByRole('button', { name: '导出' }).click();
+  await page.getByRole('menuitem', { name: '批改记录 CSV' }).click();
+  const gradingTaskRow = page.locator('.export-record-panel tbody tr').filter({ hasText: '批改记录' }).first();
+  await expect(gradingTaskRow).toContainText('成功', { timeout: 20_000 });
+  const downloadedGrading = await captureExportDownload(page, () =>
+    gradingTaskRow.getByRole('button', { name: '下载' }).click(),
+  );
+  expect(downloadedGrading.headers['content-disposition']).toMatch(/\.csv/i);
+  const gradingText = downloadedGrading.body.toString('utf8').replace(/^\uFEFF/, '');
+  expect(gradingText).toContain(exportExamName);
+  expect(gradingText).toContain('E2E Student');
 });
 
 test('privileged users can open AI settings while students are denied', async ({ browser }) => {
@@ -359,12 +434,10 @@ test('privileged users can open AI settings while students are denied', async ({
   const studentPage = await studentContext.newPage();
 
   await login(adminPage, 'e2e_admin');
-  await adminPage.goto('/ai-settings');
-  await expect(adminPage.getByRole('heading', { name: 'AI 模型配置' })).toBeVisible();
-  await expect(adminPage.locator('.ai-preset-card')).toHaveCount(9);
-  await adminPage.getByRole('button', { name: /^DeepSeek / }).click();
-  await expect(adminPage.getByRole('dialog', { name: '新增 AI 配置' })).toBeVisible();
-  await expect(adminPage.getByLabel('Base URL')).toHaveValue('https://api.deepseek.com');
+  await ensureE2eAiConfigurations(adminPage);
+  const defaultConfigRow = adminPage.getByRole('row', { name: /E2E Default Model/ });
+  await defaultConfigRow.getByRole('button', { name: '测试' }).click();
+  await expect(defaultConfigRow).toContainText('连接成功');
   await adminPage.goto('/classes');
   await expect(adminPage.getByRole('heading', { name: '班级管理' })).toBeVisible();
   await expect(adminPage.getByRole('button', { name: '新增班级' })).toBeVisible();
@@ -382,7 +455,7 @@ test('privileged users can open AI settings while students are denied', async ({
   await adminPage.getByRole('button', { name: 'AI 批量预算' }).click();
   const budgetDialog = adminPage.getByText('确认 AI 批量预算', { exact: true });
   await expect(budgetDialog).toBeVisible();
-  await expect(adminPage.getByText(/共 1 个任务.*最坏情况预留 1000 Token/)).toBeVisible();
+  await expect(adminPage.getByText(/共 1 个任务.*最坏情况预留 \d+ Token/)).toBeVisible();
   await adminPage.locator('.el-message-box__btns .el-button--primary').click();
   await expect(adminPage.getByText('批量预算已确认，可按需逐人生成')).toBeVisible();
   await adminPage.goto('/users');
@@ -399,6 +472,47 @@ test('privileged users can open AI settings while students are denied', async ({
 
   await adminContext.close();
   await studentContext.close();
+});
+
+test('teaching operations honors independent read permissions without forbidden requests', async ({ browser }) => {
+  const cases = [
+    {
+      username: 'e2e_schedule_reader',
+      visible: ['排课日历', '排课规则'],
+      hidden: ['考勤确认', '课时台账', '课型与课程单元'],
+    },
+    {
+      username: 'e2e_ledger_reader',
+      visible: ['课时台账'],
+      hidden: ['排课日历', '考勤确认', '排课规则', '课型与课程单元'],
+    },
+    {
+      username: 'e2e_catalog_reader',
+      visible: ['课型与课程单元'],
+      hidden: ['排课日历', '考勤确认', '课时台账', '排课规则'],
+    },
+  ];
+  for (const item of cases) {
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    const forbidden: string[] = [];
+    page.on('response', (response) => {
+      if (response.status() === 403 && response.url().includes('/api/v1/')) forbidden.push(response.url());
+    });
+    await login(page, item.username);
+    await page.goto('/teaching-operations');
+    await expect(page.getByRole('heading', { name: '教学运营' })).toBeVisible();
+    for (const tab of item.visible) await expect(page.getByRole('tab', { name: tab })).toBeVisible();
+    for (const tab of item.hidden) await expect(page.getByRole('tab', { name: tab })).toHaveCount(0);
+    if (item.username === 'e2e_catalog_reader') {
+      await expect(page.getByTestId('lesson-type-table')).toBeVisible();
+      await expect(page.getByTestId('course-unit-table')).toBeVisible();
+      await expect(page.getByTestId('create-lesson-type')).toHaveCount(0);
+      await expect(page.getByTestId('create-course-unit')).toHaveCount(0);
+    }
+    expect(forbidden).toEqual([]);
+    await context.close();
+  }
 });
 
 test('course and nested knowledge items support create, view, edit, and delete through clicks', async ({ page }) => {
@@ -557,7 +671,83 @@ test('academic profiles, parent scope and Gate C are operable through browser cl
   await studentContext.close();
 });
 
-test('Gate D completes reschedule, lesson material change, attendance, reversal, and learner visibility through clicks', async ({ browser }) => {
+test('academic catalog and schedule rules support create, edit, disable, and archive through clicks', async ({ page }) => {
+  const suffix = Date.now();
+  const typeName = `E2E 课型 ${suffix}`;
+  const editedTypeName = `${typeName} 已停用`;
+  const unitName = `E2E 课程单元 ${suffix}`;
+  const editedUnitName = `${unitName} 已归档`;
+
+  await login(page, 'e2e_admin');
+  await page.goto('/teaching-operations');
+  await page.getByRole('tab', { name: '课型与课程单元' }).click();
+  const lessonTypeTable = page.getByTestId('lesson-type-table');
+  const courseUnitTable = page.getByTestId('course-unit-table');
+
+  await page.getByTestId('create-lesson-type').click();
+  const typeDialog = page.getByRole('dialog', { name: '新增课型' });
+  await formInput(typeDialog, '名称').fill(typeName);
+  await formInput(typeDialog, '默认课时').fill('1.5');
+  await typeDialog.getByRole('button', { name: '保存课型' }).click();
+  let typeRow = lessonTypeTable.getByRole('row', { name: new RegExp(typeName) });
+  await expect(typeRow).toContainText('启用');
+
+  await page.getByTestId('create-course-unit').click();
+  const unitDialog = page.getByRole('dialog', { name: '新增课程单元' });
+  await selectFormOption(page, unitDialog, '所属课程', 'E2E Browser Course');
+  await formInput(unitDialog, '编码').fill(`e2e_unit_${suffix}`);
+  await formInput(unitDialog, '名称').fill(unitName);
+  await selectFormOption(page, unitDialog, '课型', typeName);
+  await unitDialog.getByRole('button', { name: '保存单元' }).click();
+  let unitRow = courseUnitTable.getByRole('row', { name: new RegExp(unitName) });
+  await expect(unitRow).toContainText('E2E Browser Course');
+
+  await unitRow.getByRole('button', { name: '编辑课程单元' }).click();
+  const editUnitDialog = page.getByRole('dialog', { name: '编辑课程单元' });
+  await formInput(editUnitDialog, '名称').fill(editedUnitName);
+  await selectFormOption(page, editUnitDialog, '状态', '归档');
+  await editUnitDialog.getByRole('button', { name: '保存单元' }).click();
+  unitRow = courseUnitTable.getByRole('row', { name: new RegExp(editedUnitName) });
+  await expect(unitRow).toContainText('归档');
+
+  await typeRow.getByRole('button', { name: '编辑课型' }).click();
+  const editTypeDialog = page.getByRole('dialog', { name: '编辑课型' });
+  await formInput(editTypeDialog, '名称').fill(editedTypeName);
+  await editTypeDialog.locator('.el-form-item').filter({ hasText: '启用' }).locator('.el-switch').click();
+  await editTypeDialog.getByRole('button', { name: '保存课型' }).click();
+  typeRow = lessonTypeTable.getByRole('row', { name: new RegExp(editedTypeName) });
+  await expect(typeRow).toContainText('停用');
+
+  await page.getByRole('tab', { name: '排课规则' }).click();
+  const ruleTable = page.getByTestId('schedule-rule-table');
+  await page.getByTestId('create-rule').click();
+  const createRuleDialog = page.getByRole('dialog', { name: '新增排课规则' });
+  await selectFormOption(page, createRuleDialog, '班级', 'E2E Browser Class');
+  await selectFormOption(page, createRuleDialog, '课型', 'E2E 计费正课');
+  await createRuleDialog.getByRole('button', { name: '保存规则' }).click();
+
+  const ruleRow = ruleTable.getByRole('row')
+    .filter({ hasText: 'E2E Browser Class' })
+    .filter({ hasText: '18:00-20:00' });
+  await expect(ruleRow).toContainText('启用');
+  await ruleRow.getByRole('button', { name: '编辑排课规则' }).click();
+  const ruleDialog = page.getByRole('dialog', { name: '编辑排课规则' });
+  await selectFormOption(page, ruleDialog, '规则状态', '暂停');
+  await ruleDialog.getByRole('button', { name: '保存规则' }).click();
+  await expect(ruleRow).toContainText('暂停');
+
+  await ruleRow.getByRole('button', { name: '编辑排课规则' }).click();
+  await selectFormOption(page, page.getByRole('dialog', { name: '编辑排课规则' }), '规则状态', '启用');
+  await page.getByRole('dialog', { name: '编辑排课规则' }).getByRole('button', { name: '保存规则' }).click();
+  await expect(ruleRow).toContainText('启用');
+
+  await ruleRow.getByRole('button', { name: '编辑排课规则' }).click();
+  await selectFormOption(page, page.getByRole('dialog', { name: '编辑排课规则' }), '规则状态', '归档');
+  await page.getByRole('dialog', { name: '编辑排课规则' }).getByRole('button', { name: '保存规则' }).click();
+  await expect(ruleRow).toContainText('归档');
+});
+
+test('Gate D completes reschedule, makeup, cancellation, material change, attendance, reversal, and learner visibility through clicks', async ({ browser }) => {
   test.setTimeout(120_000);
   const adminContext = await browser.newContext();
   const studentContext = await browser.newContext();
@@ -596,7 +786,9 @@ test('Gate D completes reschedule, lesson material change, attendance, reversal,
   const correctionDialog = adminPage.getByRole('dialog', { name: '更正考勤' });
   await correctionDialog.locator('.el-select').click();
   await adminPage.locator('.el-select-dropdown__item:visible', { hasText: '请假' }).click();
-  await correctionDialog.locator('.el-input-number input').fill('0');
+  const correctionDeductInput = correctionDialog.locator('.el-input-number input');
+  await expect(correctionDeductInput).toHaveValue('0');
+  await expect(correctionDeductInput).toBeDisabled();
   await correctionDialog.locator('textarea').fill('浏览器验收：核实为已请假');
   await correctionDialog.getByTestId('submit-correction').click();
   const correctionConfirm = adminPage.getByRole('dialog', { name: '确认更正' });
@@ -612,6 +804,11 @@ test('Gate D completes reschedule, lesson material change, attendance, reversal,
   await login(studentPage, 'e2e_student');
   await studentPage.goto('/teaching-operations');
   await expect(studentPage.getByRole('heading', { name: '教学运营' })).toBeVisible();
+  await expect(studentPage.getByRole('tab', { name: '排课规则' })).toBeVisible();
+  await expect(studentPage.getByRole('tab', { name: '课型与课程单元' })).toHaveCount(0);
+  await studentPage.getByRole('tab', { name: '排课规则' }).click();
+  await expect(studentPage.getByTestId('schedule-rule-table')).toBeVisible();
+  await expect(studentPage.getByTestId('create-rule')).toHaveCount(0);
   await studentPage.getByRole('tab', { name: '课时台账' }).click();
   await expect(studentPage.getByTestId('balance-table').getByRole('row', { name: /E2E Student/ })).toContainText('5');
   await expect(studentPage.getByRole('button', { name: '登记课时变动' })).toHaveCount(0);
@@ -648,6 +845,7 @@ test('material context keeps child answers independent and rubric grading is ava
   await expect(studentPage).toHaveURL(/\/student\/attempts\/.+\/result$/, { timeout: 20_000 });
 
   await login(adminPage, 'e2e_admin');
+  await ensureE2eAiConfigurations(adminPage);
   await adminPage.goto('/grading');
   await adminPage.locator('.grading-filters .el-select').first().click();
   const examOption = adminPage.locator('.el-select-dropdown__item:visible', { hasText: 'E2E material rubric exam' });
@@ -675,10 +873,32 @@ test('material context keeps child answers independent and rubric grading is ava
   await expect(aiDialog).toBeVisible();
   await expect(aiDialog.getByText('统计预览始终来自确定性查询')).toBeVisible();
   await expect(aiDialog.getByText('本次输出上限（可选）')).toBeVisible();
+  await aiDialog.locator('.ai-summary-toolbar .el-select').click();
+  await adminPage.locator('.el-select-dropdown__item:visible', { hasText: 'E2E Manual Model' }).click();
   await expect(aiDialog.getByPlaceholder('自动')).toHaveValue('');
-  await expect(aiDialog.getByText('自动使用配置上限 1000 Token')).toBeVisible();
   await expect(aiDialog.getByText('尚未生成总结')).toBeVisible();
   await expect(aiDialog.getByText('模型调用')).toHaveCount(0);
+  await aiDialog.getByRole('button', { name: '生成/复用草稿' }).click();
+  await expect(adminPage.getByText('考试草稿已生成')).toBeVisible();
+  await expect(aiDialog.getByText('v1', { exact: false })).toBeVisible();
+  const headline = aiDialog.getByLabel('核心结论');
+  await expect(headline).toHaveValue('E2E 模型生成的可审核结论');
+  await headline.fill('浏览器人工编辑后的总结结论');
+  await aiDialog.getByRole('button', { name: '保存编辑' }).click();
+  await expect(adminPage.getByText('草稿已保存，旧审核状态已清除')).toBeVisible();
+  await aiDialog.getByRole('button', { name: '审核通过' }).click();
+  await expect(adminPage.getByText('人工审核已通过')).toBeVisible();
+  await aiDialog.getByRole('button', { name: '发布' }).click();
+  await adminPage.getByRole('dialog', { name: '确认发布' }).locator('.el-message-box__btns .el-button--primary').click();
+  await expect(adminPage.getByText('考试已发布')).toBeVisible();
+
+  await studentPage.goto('/learning-portal?tab=summaries');
+  await expect(studentPage.getByText('浏览器人工编辑后的总结结论', { exact: true })).toBeVisible();
+  await aiDialog.getByRole('button', { name: '撤回' }).click();
+  await adminPage.getByRole('dialog', { name: '确认撤回' }).locator('.el-message-box__btns .el-button--primary').click();
+  await expect(adminPage.getByText('考试已撤回')).toBeVisible();
+  await studentPage.reload();
+  await expect(studentPage.getByText('浏览器人工编辑后的总结结论', { exact: true })).toHaveCount(0);
   await mkdir('output/playwright', { recursive: true });
   await aiDialog.screenshot({ path: 'output/playwright/ai-exam-summary-dialog.png' });
   await admin.close();
@@ -849,11 +1069,44 @@ test('Stage 8 Scratch classroom runs teacher, student and parent clicks without 
   await parentContext.close();
 });
 
+async function createE2eAiConfiguration(page: Page, options: {
+  presetName: RegExp;
+  name: string;
+  scope: 'system' | 'personal';
+  isDefault: boolean;
+}) {
+  await page.getByRole('button', { name: options.presetName }).click();
+  const dialog = page.getByRole('dialog', { name: '新增 AI 配置' });
+  await expect(dialog).toBeVisible();
+  await dialog.getByLabel('配置名称').fill(options.name);
+  await dialog.getByLabel('API Key').fill(`e2e-only-${options.name.toLowerCase().replace(/\s+/g, '-')}`);
+  if (options.scope === 'personal') await dialog.getByText('仅自己', { exact: true }).click();
+  if (options.isDefault) await dialog.locator('.ai-default-switch').click();
+  await dialog.getByRole('button', { name: '保存' }).click();
+  await expect(dialog).toBeHidden();
+  await expect(page.getByRole('row', { name: new RegExp(options.name) })).toBeVisible();
+}
+
+async function ensureE2eAiConfigurations(page: Page) {
+  await page.goto('/ai-settings');
+  await expect(page.getByRole('heading', { name: 'AI 模型配置' })).toBeVisible();
+  await expect(page.locator('.ai-preset-card')).toHaveCount(9);
+  const configurations = [
+    { presetName: /^DeepSeek /, name: 'E2E Default Model', scope: 'system' as const, isDefault: true },
+    { presetName: /^阿里云百炼/, name: 'E2E Manual Model', scope: 'personal' as const, isDefault: false },
+  ];
+  for (const configuration of configurations) {
+    if (await page.getByRole('row', { name: new RegExp(configuration.name) }).count() === 0) {
+      await createE2eAiConfiguration(page, configuration);
+    }
+  }
+}
+
 async function rescheduleGeneratedLesson(page: Page) {
   const table = page.getByTestId('session-table');
-  const original = table.getByRole('row', { name: /E2E Browser Class课程/ });
-  await expect(original).toContainText('E2E Browser Class课程');
-  await original.getByRole('button', { name: '调课' }).click();
+  const originalRow = table.getByRole('row', { name: /E2E Browser Class课程/ });
+  await expect(originalRow).toContainText('E2E Browser Class课程');
+  await originalRow.getByRole('button', { name: '调课' }).click();
   const dialog = page.getByRole('dialog', { name: '调整上课安排' });
   const dateInputs = dialog.locator('.el-date-editor input');
   await dateInputs.nth(0).fill(`${operationsDate} 20:00:00`);
@@ -865,8 +1118,30 @@ async function rescheduleGeneratedLesson(page: Page) {
 
   const matchingRows = table.getByRole('row').filter({ hasText: 'E2E Browser Class课程' });
   await expect(matchingRows).toHaveCount(2);
-  await expect(matchingRows.filter({ hasText: '已调课' })).toBeVisible();
-  const replacement = matchingRows.filter({ hasText: '待上课' });
+  const rescheduledOriginal = matchingRows.filter({ hasText: '已调课' });
+  await expect(rescheduledOriginal).toBeVisible();
+  await rescheduledOriginal.getByRole('button', { name: '创建补课' }).click();
+  const makeupDialog = page.getByRole('dialog', { name: '创建补课课次' });
+  const makeupDateInputs = makeupDialog.locator('.el-date-editor input');
+  await makeupDateInputs.nth(0).fill(`${operationsDate} 22:00:00`);
+  await makeupDateInputs.nth(1).fill(`${operationsDate} 23:00:00`);
+  await formInput(makeupDialog, '教室').fill('E2E Makeup Lab');
+  await makeupDialog.locator('textarea').fill('浏览器验收：为原调课记录建立补课');
+  await makeupDialog.getByTestId('submit-session-change').click();
+  await expect(page.getByText('补课课次已创建')).toBeVisible();
+
+  const rowsAfterMakeup = table.getByRole('row').filter({ hasText: 'E2E Browser Class课程' });
+  await expect(rowsAfterMakeup).toHaveCount(3);
+  const makeup = rowsAfterMakeup.filter({ hasText: 'E2E Makeup Lab' });
+  await makeup.getByRole('button', { name: '取消课次' }).click();
+  const cancelDialog = page.getByRole('dialog', { name: '取消课次' });
+  await cancelDialog.locator('input').fill('浏览器验收：补课安排取消');
+  await cancelDialog.locator('.el-message-box__btns .el-button--primary').click();
+  await expect(page.getByText('课次已取消，可从原记录创建补课')).toBeVisible();
+  await expect(rowsAfterMakeup.filter({ hasText: 'E2E Makeup Lab' })).toContainText('已取消');
+
+  const replacement = rowsAfterMakeup.filter({ hasText: 'E2E Changed Lab' });
+  await expect(replacement).toContainText('待上课');
   await expect(replacement).toContainText('E2E Changed Lab');
   await expect(replacement).toContainText('20:00');
   return replacement;
@@ -942,6 +1217,11 @@ function formSelect(container: Locator, label: string) {
   return container.locator('.el-form-item').filter({ hasText: label }).first().locator('.el-select');
 }
 
+async function selectFormOption(page: Page, container: Locator, label: string, option: string) {
+  await formSelect(container, label).click();
+  await page.locator('.el-select-dropdown__item:visible').filter({ hasText: option }).first().click();
+}
+
 async function captureExportDownload(page: Page, clickDownload: () => Promise<void>) {
   let resolveCapture!: (value: { headers: Record<string, string>; body: Buffer }) => void;
   const capture = new Promise<{ headers: Record<string, string>; body: Buffer }>((resolve) => {
@@ -972,6 +1252,75 @@ async function api(
   const payload = await response.json();
   expect(response.ok(), `${method.toUpperCase()} ${path}: ${JSON.stringify(payload)}`).toBeTruthy();
   return payload.data;
+}
+
+async function seedExamSummaryPrompt(adminId: string) {
+  await prisma.aiSummaryPromptTemplate.create({
+    data: {
+      code: 'exam-summary',
+      summaryType: AiSummaryType.EXAM,
+      version: 1,
+      systemPrompt: '仅依据输入数据生成带证据引用的考试总结，并严格返回指定 JSON 结构。',
+      outputSchema: EXAM_SUMMARY_OUTPUT_SCHEMA as unknown as Prisma.InputJsonValue,
+      enabled: true,
+      reviewedBy: adminId,
+      createdBy: adminId,
+      changeReason: 'Playwright deterministic AI lifecycle fixture',
+    },
+  });
+}
+
+async function seedExportExamFixture(
+  request: APIRequestContext,
+  token: string,
+  fixture: { adminId: string; courseId: string; paperId: string; questionId: string; studentId: string },
+) {
+  const exam = await api(request, 'post', '/exams', token, {
+    paperId: fixture.paperId,
+    name: exportExamName,
+    courseId: fixture.courseId,
+    startTime: new Date(Date.now() - 60_000).toISOString(),
+    endTime: new Date(Date.now() + 30 * 60_000).toISOString(),
+    durationMinutes: 30,
+    attemptLimit: 1,
+    showScoreMode: 'after_submit',
+  });
+  const paperInstance = await prisma.paperInstance.create({
+    data: {
+      examId: exam.id,
+      studentId: fixture.studentId,
+      paperSnapshotJson: { schemaVersion: 'e2e-export/v1', paperId: fixture.paperId },
+      questionOrderJson: [fixture.questionId],
+      optionOrderJson: { [fixture.questionId]: ['A', 'B'] },
+    },
+  });
+  const submittedAt = new Date();
+  const attempt = await prisma.examAttempt.create({
+    data: {
+      examId: exam.id,
+      studentId: fixture.studentId,
+      userId: fixture.studentId,
+      paperInstanceId: paperInstance.id,
+      status: AttemptStatus.GRADED,
+      submittedAt,
+      objectiveScore: 5,
+      totalScore: 5,
+      durationSeconds: 60,
+    },
+  });
+  await prisma.answerRecord.create({
+    data: {
+      attemptId: attempt.id,
+      questionId: fixture.questionId,
+      answerJson: { selected: ['A'] },
+      isCorrect: true,
+      score: 5,
+      status: AnswerRecordStatus.AUTO_GRADED,
+      manualComment: 'E2E export fixture grading record',
+      gradedBy: fixture.adminId,
+      gradedAt: submittedAt,
+    },
+  });
 }
 
 async function resetDatabase() {

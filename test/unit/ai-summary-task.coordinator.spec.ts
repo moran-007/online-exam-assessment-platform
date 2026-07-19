@@ -1,5 +1,8 @@
 import { AiSummaryTaskStatus, AiSummaryType } from '@prisma/client';
-import { AiSummaryTaskCoordinator } from '../../src/modules/ai/ai-summary-task.coordinator';
+import {
+  AI_SUMMARY_RETRY_CONFIRMATION_REQUIRED_CODE,
+  AiSummaryTaskCoordinator,
+} from '../../src/modules/ai/ai-summary-task.coordinator';
 import type { SupportedSummaryDataset } from '../../src/modules/ai/datasets/summary-dataset';
 
 describe('AiSummaryTaskCoordinator', () => {
@@ -13,17 +16,32 @@ describe('AiSummaryTaskCoordinator', () => {
     expect(fixture.runner.run).not.toHaveBeenCalled();
     expect(fixture.prisma.aiSummaryTask.create).not.toHaveBeenCalled();
     expect(fixture.prisma.aiSummaryTask.findFirst).toHaveBeenCalledWith(expect.objectContaining({
-      where: expect.objectContaining({ requestedOutputTokens: 1000 }),
+      where: expect.objectContaining({ requestedOutputTokens: 1000, outputLimitKey: 1000 }),
     }));
+    expect(fixture.prisma.aiSummaryTask.findFirst.mock.calls[0][0].where)
+      .not.toHaveProperty('reservationOutputTokens');
   });
 
-  it('retries the same failed task instead of creating a duplicate', async () => {
+  it('blocks an unconfirmed retry of the same failed task without calling the model', async () => {
+    const failed = task(AiSummaryTaskStatus.FAILED);
+    const fixture = dependencies(failed);
+
+    await expect(fixture.service.create(definition(), user())).rejects.toMatchObject({
+      response: expect.objectContaining({ code: AI_SUMMARY_RETRY_CONFIRMATION_REQUIRED_CODE }),
+    });
+
+    expect(fixture.runner.run).not.toHaveBeenCalled();
+    expect(fixture.prisma.aiSummaryCacheEvent.create).not.toHaveBeenCalled();
+    expect(fixture.prisma.aiSummaryTask.create).not.toHaveBeenCalled();
+  });
+
+  it('retries the same failed task after explicit confirmation instead of creating a duplicate', async () => {
     const failed = task(AiSummaryTaskStatus.FAILED);
     const succeeded = task(AiSummaryTaskStatus.SUCCEEDED);
     const fixture = dependencies(failed);
     fixture.runner.run.mockResolvedValue(succeeded);
 
-    const result = await fixture.service.create(definition(), user());
+    const result = await fixture.service.create(definition(), user(), { confirmRetry: true });
 
     expect(fixture.runner.run).toHaveBeenCalledWith(failed.id);
     expect(fixture.prisma.aiSummaryTask.create).not.toHaveBeenCalled();
@@ -36,13 +54,14 @@ describe('AiSummaryTaskCoordinator', () => {
       aiSummaryTask: { findFirst: jest.fn().mockResolvedValue(existing), create: jest.fn() },
       aiSummaryCacheEvent: { create: jest.fn().mockResolvedValue({}) },
       aiUsageEvent: { findFirst: jest.fn().mockResolvedValue({
-        requestedOutputTokens: 1000, totalTokens: 20, usageReported: true,
+        requestedOutputTokens: 1000, reservationOutputTokens: 1000, totalTokens: 20, usageReported: true,
       }) },
     };
     const runner = { run: jest.fn() };
     const service = new AiSummaryTaskCoordinator(
       prisma as never,
       { resolve: jest.fn().mockResolvedValue(config()) } as never,
+      { resolve: jest.fn().mockResolvedValue({ maxOutputTokens: null }) } as never,
       runner as never,
       { quota: jest.fn().mockResolvedValue({ usedTokens: 20, remainingTokens: 9980 }) } as never,
       { recordAiSummary: jest.fn() } as never,
@@ -71,6 +90,7 @@ describe('AiSummaryTaskCoordinator', () => {
       schemaVersion: 'exam-summary-output/v1', providerConfigId: config().id,
       modelSnapshot: config().model, status, attemptCount: 1, inputTokens: 10, outputTokens: 10,
       requestedOutputTokens: 1000, correlationId: '00000000-0000-0000-0000-000000000007',
+      reservationOutputTokens: 1000, outputLimitKey: 1000,
       sanitizedError: null, providerConfig: config(), promptTemplate: template(),
       summary: {
         id: '00000000-0000-0000-0000-000000000006', reviewStatus: 'DRAFT',

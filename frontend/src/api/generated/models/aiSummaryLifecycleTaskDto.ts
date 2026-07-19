@@ -15,7 +15,8 @@ export interface AiSummaryLifecycleTaskDto {
   inputTokens: number;
   model: string;
   outputTokens: number;
-  requestedOutputTokens: number;
+  /** @nullable */
+  requestedOutputTokens: number | null;
   /** @nullable */
   sanitizedError: string | null;
   status: AiSummaryLifecycleTaskDtoStatus;

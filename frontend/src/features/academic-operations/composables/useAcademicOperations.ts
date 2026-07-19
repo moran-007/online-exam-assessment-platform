@@ -17,6 +17,7 @@ import {
   getAttendance,
   listBalances,
   listClasses,
+  listCourses,
   listCourseUnits,
   listLedger,
   listLessonTypes,
@@ -24,13 +25,37 @@ import {
   listSessions,
   reconcileHours,
   rescheduleSession,
+  updateCourseUnit,
+  updateLessonType,
+  updateRule,
   type AcademicOperationRecord,
 } from '../api';
+import {
+  academicTab,
+  baseRuleForm,
+  baseSessionChangeForm,
+  baseSessionForm,
+  baseUnitForm,
+  clockOfMinute,
+  compact,
+  dateOnlyValue,
+  defaultDateRange,
+  isBillableAttendance,
+  minuteOfDay,
+} from './academicOperationsHelpers';
 
 export function useAcademicOperations() {
   const route = useRoute();
   const user = getCurrentUser();
-  const canManageCatalog = hasAnyPermission(user, ['lesson-type:manage', 'course-unit:manage']);
+  const canReadSchedule = hasAnyPermission(user, ['schedule:read']);
+  const canReadAttendance = canReadSchedule && hasAnyPermission(user, ['attendance:read']);
+  const canReadLessonHours = hasAnyPermission(user, ['lesson-hour:read']);
+  const canReadLessonTypes = hasAnyPermission(user, ['lesson-type:read']);
+  const canReadCourseUnits = hasAnyPermission(user, ['course-unit:read']);
+  const canReadCourses = hasAnyPermission(user, ['course:read']);
+  const canManageLessonTypes = hasAnyPermission(user, ['lesson-type:manage']);
+  const canManageCourseUnits = hasAnyPermission(user, ['course-unit:manage']);
+  const canReadCatalog = canReadLessonTypes || canReadCourseUnits;
   const canManageSchedule = hasAnyPermission(user, ['schedule:manage']);
   const canConfirmAttendance = hasAnyPermission(user, ['attendance:confirm']);
   const canCorrectAttendance = hasAnyPermission(user, ['attendance:correct']);
@@ -39,9 +64,12 @@ export function useAcademicOperations() {
   const canManageLessonRecords = hasAnyPermission(user, ['lesson-record:manage']);
   const canReadClasses = hasAnyPermission(user, ['class:read']);
 
-  const activeTab = ref(academicTab(route.query.tab));
+  const activeTab = ref(academicTab(route.query.tab, {
+    canReadSchedule, canReadAttendance, canReadLessonHours, canReadCatalog,
+  }));
   const loading = ref(false);
   const classes = ref<AcademicOperationRecord[]>([]);
+  const courses = ref<AcademicOperationRecord[]>([]);
   const lessonTypes = ref<AcademicOperationRecord[]>([]);
   const units = ref<AcademicOperationRecord[]>([]);
   const rules = ref<AcademicOperationRecord[]>([]);
@@ -62,6 +90,9 @@ export function useAcademicOperations() {
   const sessionChangeSource = ref<AcademicOperationRecord | null>(null);
   const lessonTypeVisible = ref(false);
   const unitVisible = ref(false);
+  const ruleEditingId = ref('');
+  const lessonTypeEditingId = ref('');
+  const unitEditingId = ref('');
   const adjustmentVisible = ref(false);
   const correctionVisible = ref(false);
   const saving = ref(false);
@@ -71,7 +102,7 @@ export function useAcademicOperations() {
   const sessionForm = reactive(baseSessionForm());
   const sessionChangeForm = reactive(baseSessionChangeForm());
   const lessonTypeForm = reactive({ name: '', defaultHours: 1, countInStatistics: true, active: true, description: '' });
-  const unitForm = reactive({ code: '', lessonTypeId: '', category: '', stage: '', unitNo: 1, name: '', defaultHours: 1, teachingContent: '' });
+  const unitForm = reactive(baseUnitForm());
   const adjustmentForm = reactive({ studentId: '', type: 'PURCHASE', amount: 1, note: '' });
   const correctionForm = reactive({ id: '', status: 'LEAVE', deductHours: 0, reason: '' });
 
@@ -80,28 +111,24 @@ export function useAcademicOperations() {
   async function load() {
     loading.value = true;
     try {
-      const [sessionPage, balanceRows, ledgerPage] = await Promise.all([
-        listSessions(sessionParams()),
-        listBalances(selectedClassId.value ? { classId: selectedClassId.value } : {}),
-        listLedger(selectedClassId.value ? { classId: selectedClassId.value } : {}),
-      ]);
-      sessions.value = sessionPage.items ?? [];
-      balances.value = balanceRows;
-      ledger.value = ledgerPage.items ?? [];
-
-      if (canReadClasses) {
-        const classPage = await listClasses();
-        classes.value = classPage.items ?? [];
+      const tasks: Promise<void>[] = [];
+      if (canReadSchedule) {
+        tasks.push(listSessions(sessionParams()).then((page) => { sessions.value = page.items ?? []; }));
+        tasks.push(listRules(selectedClassId.value || undefined).then((page) => { rules.value = page.items ?? []; }));
       }
-      if (canManageSchedule || canManageCatalog) {
-        const [typePage, unitPage, rulePage] = await Promise.all([
-          listLessonTypes(), listCourseUnits(), listRules(selectedClassId.value || undefined),
-        ]);
-        lessonTypes.value = typePage.items ?? [];
-        units.value = unitPage.items ?? [];
-        rules.value = rulePage.items ?? [];
+      if (canReadLessonHours) {
+        const params = selectedClassId.value ? { classId: selectedClassId.value } : {};
+        tasks.push(listBalances(params).then((rows) => { balances.value = rows; }));
+        tasks.push(listLedger(params).then((page) => { ledger.value = page.items ?? []; }));
       }
-      if (selectedSessionId.value && sessions.value.some((item) => item.id === selectedSessionId.value)) {
+      if (canReadClasses) tasks.push(listClasses().then((page) => { classes.value = page.items ?? []; }));
+      if (canReadLessonTypes) tasks.push(listLessonTypes().then((page) => { lessonTypes.value = page.items ?? []; }));
+      if (canReadCourseUnits) tasks.push(listCourseUnits().then((page) => { units.value = page.items ?? []; }));
+      if (canReadCourses && canManageCourseUnits) {
+        tasks.push(listCourses().then((page) => { courses.value = page.items ?? []; }));
+      }
+      await Promise.all(tasks);
+      if (canReadAttendance && selectedSessionId.value && sessions.value.some((item) => item.id === selectedSessionId.value)) {
         await loadAttendance();
       }
     } finally {
@@ -110,7 +137,7 @@ export function useAcademicOperations() {
   }
 
   async function loadAttendance() {
-    if (!selectedSessionId.value) {
+    if (!canReadAttendance || !selectedSessionId.value) {
       attendance.value = null;
       return;
     }
@@ -162,6 +189,14 @@ export function useAcademicOperations() {
     correctionVisible.value = true;
   }
 
+  function normalizeAttendanceDeduct(row: AcademicOperationRecord) {
+    if (!isBillableAttendance(row.draftStatus)) row.draftDeductHours = 0;
+  }
+
+  function normalizeCorrectionDeduct() {
+    if (!isBillableAttendance(correctionForm.status)) correctionForm.deductHours = 0;
+  }
+
   async function submitCorrection() {
     if (!correctionForm.reason.trim()) {
       ElMessage.warning('请填写更正原因');
@@ -178,8 +213,21 @@ export function useAcademicOperations() {
     await Promise.all([loadAttendance(), loadHours()]);
   }
 
-  function openRule() {
-    Object.assign(ruleForm, baseRuleForm(), { classId: selectedClassId.value });
+  function openRule(row?: AcademicOperationRecord) {
+    ruleEditingId.value = row?.id ?? '';
+    Object.assign(ruleForm, row ? {
+      classId: row.classId,
+      lessonTypeId: row.lessonTypeId,
+      unitTemplateId: row.unitTemplateId ?? '',
+      weekday: row.weekday,
+      startTime: clockOfMinute(row.startMinute),
+      endTime: clockOfMinute(row.endMinute),
+      effectiveFrom: dateOnlyValue(row.effectiveFrom),
+      effectiveTo: row.effectiveTo ? dateOnlyValue(row.effectiveTo) : '',
+      lessonHours: row.lessonHours,
+      classroom: row.classroom ?? '',
+      status: row.status,
+    } : { ...baseRuleForm(), classId: selectedClassId.value });
     ruleVisible.value = true;
   }
 
@@ -188,7 +236,7 @@ export function useAcademicOperations() {
       ElMessage.warning('请完整填写班级、课型和时间');
       return;
     }
-    await createRule({
+    const body = {
       classId: ruleForm.classId,
       lessonTypeId: ruleForm.lessonTypeId,
       unitTemplateId: ruleForm.unitTemplateId || undefined,
@@ -200,7 +248,10 @@ export function useAcademicOperations() {
       timezone: 'Asia/Shanghai',
       lessonHours: Number(ruleForm.lessonHours),
       classroom: compact(ruleForm.classroom),
-    });
+      status: ruleForm.status,
+    };
+    if (ruleEditingId.value) await updateRule(ruleEditingId.value, body);
+    else await createRule(body);
     ruleVisible.value = false;
     ElMessage.success('排课规则已保存');
     await load();
@@ -302,35 +353,61 @@ export function useAcademicOperations() {
     await load();
   }
 
-  function openLessonType() {
-    Object.assign(lessonTypeForm, { name: '', defaultHours: 1, countInStatistics: true, active: true, description: '' });
+  function openLessonType(row?: AcademicOperationRecord) {
+    lessonTypeEditingId.value = row?.id ?? '';
+    Object.assign(lessonTypeForm, row ? {
+      name: row.name,
+      defaultHours: row.defaultHours,
+      countInStatistics: row.countInStatistics,
+      active: row.active,
+      description: row.description ?? '',
+    } : { name: '', defaultHours: 1, countInStatistics: true, active: true, description: '' });
     lessonTypeVisible.value = true;
   }
 
   async function submitLessonType() {
-    await createLessonType({ ...lessonTypeForm, name: lessonTypeForm.name.trim(), description: compact(lessonTypeForm.description) });
+    const body = { ...lessonTypeForm, name: lessonTypeForm.name.trim(), description: compact(lessonTypeForm.description) };
+    if (lessonTypeEditingId.value) await updateLessonType(lessonTypeEditingId.value, body);
+    else await createLessonType(body);
     lessonTypeVisible.value = false;
-    ElMessage.success('课型已创建');
+    ElMessage.success(lessonTypeEditingId.value ? '课型已更新' : '课型已创建');
     await load();
   }
 
-  function openUnit() {
-    Object.assign(unitForm, { code: '', lessonTypeId: '', category: '', stage: '', unitNo: 1, name: '', defaultHours: 1, teachingContent: '' });
+  function openUnit(row?: AcademicOperationRecord) {
+    unitEditingId.value = row?.id ?? '';
+    Object.assign(unitForm, row ? {
+      code: row.code,
+      courseId: row.courseId,
+      lessonTypeId: row.lessonTypeId,
+      category: row.category ?? '',
+      stage: row.stage ?? '',
+      unitNo: row.unitNo,
+      name: row.name,
+      defaultHours: row.defaultHours,
+      teachingContent: row.teachingContent ?? '',
+      status: row.status,
+    } : baseUnitForm());
     unitVisible.value = true;
   }
 
   async function submitUnit() {
-    await createCourseUnit({
+    if (!unitForm.courseId || !unitForm.lessonTypeId || !unitForm.code.trim() || !unitForm.name.trim()) {
+      ElMessage.warning('请完整填写课程、课型、编码和名称');
+      return;
+    }
+    const body = {
       ...unitForm,
       code: unitForm.code.trim(),
       name: unitForm.name.trim(),
       category: compact(unitForm.category),
       stage: compact(unitForm.stage),
       teachingContent: compact(unitForm.teachingContent),
-      status: 'ACTIVE',
-    });
+    };
+    if (unitEditingId.value) await updateCourseUnit(unitEditingId.value, body);
+    else await createCourseUnit(body);
     unitVisible.value = false;
-    ElMessage.success('课程单元已创建');
+    ElMessage.success(unitEditingId.value ? '课程单元已更新' : '课程单元已创建');
     await load();
   }
 
@@ -364,6 +441,7 @@ export function useAcademicOperations() {
   }
 
   async function loadHours() {
+    if (!canReadLessonHours) return;
     const params = selectedClassId.value ? { classId: selectedClassId.value } : {};
     const [balanceRows, ledgerPage] = await Promise.all([listBalances(params), listLedger(params)]);
     balances.value = balanceRows;
@@ -379,62 +457,28 @@ export function useAcademicOperations() {
     };
   }
 
+  function unitsForClass(classId: string, selectedUnitId = '') {
+    const courseId = classes.value.find((item) => item.id === classId)?.courseId;
+    return units.value.filter((item) => (
+      (item.legacyUnscoped || (courseId && item.courseId === courseId))
+      && (item.status === 'ACTIVE' || item.id === selectedUnitId)
+    ));
+  }
+
   onMounted(load);
   return {
     activeTab, adjustmentForm, adjustmentVisible, attendance, balances, canAdjustHours,
-    canConfirmAttendance, canCorrectAttendance, canManageCatalog, canManageLessonRecords, canManageSchedule, canReconcile,
-    cancelScheduledSession, classes, correctionForm, correctionVisible, dateRange, generateForm, generateVisible,
-    ledger, lessonTypeForm, lessonTypeVisible, lessonTypes, loading, openAdjustment,
-    openAttendance, openCorrection, openGenerate, openLessonType, openRule, openSession, openSessionChange, openUnit,
-    reconciliation, ruleForm, ruleVisible, rules, saving, selectedClassId, selectedSession,
+    canConfirmAttendance, canCorrectAttendance, canManageCourseUnits, canManageLessonRecords,
+    canManageLessonTypes, canManageSchedule, canReadAttendance, canReadCatalog, canReadCourseUnits,
+    canReadLessonHours, canReadLessonTypes, canReadSchedule, canReconcile,
+    cancelScheduledSession, classes, correctionForm, correctionVisible, courses, dateRange, generateForm, generateVisible,
+    ledger, lessonTypeEditingId, lessonTypeForm, lessonTypeVisible, lessonTypes, loading, openAdjustment,
+    normalizeAttendanceDeduct, normalizeCorrectionDeduct, openAttendance, openCorrection, openGenerate,
+    openLessonType, openRule, openSession, openSessionChange, openUnit,
+    reconciliation, ruleEditingId, ruleForm, ruleVisible, rules, saving, selectedClassId, selectedSession,
     selectedSessionId, sessionChangeForm, sessionChangeMode, sessionChangeSource, sessionChangeVisible,
     sessionForm, sessionVisible, sessions, submitAdjustment, submitAttendance,
     submitCorrection, submitGenerate, submitLessonType, submitRule, submitSession, submitSessionChange, submitUnit,
-    unitForm, unitVisible, units, load, loadAttendance, runReconciliation,
+    unitEditingId, unitForm, unitVisible, units, unitsForClass, load, loadAttendance, runReconciliation,
   };
-}
-
-function academicTab(value: unknown) {
-  const requested = Array.isArray(value) ? value[0] : value;
-  const key = typeof requested === 'string' ? requested : 'schedule';
-  return ({ schedule: 'calendar', calendar: 'calendar', attendance: 'attendance', ledger: 'ledger', catalog: 'catalog' } as Record<string, string>)[key] ?? 'calendar';
-}
-
-function baseRuleForm() {
-  const [from, to] = defaultDateRange();
-  return {
-    classId: '', lessonTypeId: '', unitTemplateId: '', weekday: 1, startTime: '18:00', endTime: '20:00',
-    effectiveFrom: from, effectiveTo: to, lessonHours: 1, classroom: '',
-  };
-}
-
-function baseSessionForm() {
-  return {
-    classId: '', lessonTypeId: '', unitTemplateId: '', title: '', startsAt: '', endsAt: '', lessonHours: 1, classroom: '',
-  };
-}
-
-function baseSessionChangeForm() {
-  return { startsAt: '', endsAt: '', classroom: '', reason: '' };
-}
-
-function defaultDateRange() {
-  const from = new Date();
-  const to = new Date(from);
-  to.setDate(to.getDate() + 30);
-  return [dateOnly(from), dateOnly(to)];
-}
-
-function dateOnly(date: Date) {
-  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
-  return local.toISOString().slice(0, 10);
-}
-
-function minuteOfDay(value: string) {
-  const [hour, minute] = value.split(':').map(Number);
-  return hour * 60 + minute;
-}
-
-function compact(value: string) {
-  return value.trim() || undefined;
 }

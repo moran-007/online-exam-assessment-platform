@@ -10,8 +10,8 @@
         </el-select>
         <el-button :icon="Search" @click="loadFirstPage">查询</el-button>
         <el-button :icon="Refresh" @click="load">刷新</el-button>
-        <el-button type="primary" :icon="Plus" @click="openCreateDialog">新增课程</el-button>
-        <el-button :icon="Upload" @click="openImportDialog">批量导入课程</el-button>
+        <el-button v-if="canCreateCourse" type="primary" :icon="Plus" @click="openCreateDialog">新增课程</el-button>
+        <el-button v-if="canCreateCourse && canUpdateCourse" :icon="Upload" @click="openImportDialog">批量导入课程</el-button>
       </div>
     </div>
 
@@ -39,7 +39,7 @@
         :data="items"
         height="100%"
         highlight-current-row
-        @row-click="openEditDialog"
+        @row-click="openCourseRow"
       >
         <el-table-column label="课程" min-width="300">
           <template #default="{ row }">
@@ -59,7 +59,7 @@
         <el-table-column v-if="showMediumColumns" prop="createdAt" label="创建时间" width="170">
           <template #default="{ row }">{{ formatDateTime(row.createdAt) }}</template>
         </el-table-column>
-        <el-table-column label="操作" width="100">
+        <el-table-column v-if="canUpdateCourse" label="操作" width="100">
           <template #default="{ row }">
             <div class="question-actions row-action-cell" @click.stop @mousedown.stop>
               <el-dropdown trigger="click" @command="(command) => handleCourseCommand(row, command)">
@@ -173,9 +173,14 @@
 import { computed, onMounted, reactive, ref } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { DocumentCopy, Edit, Plus, Refresh, Search, Upload, View } from '@element-plus/icons-vue';
+import { getCurrentUser } from '../api';
+import { hasAnyPermission } from '../access';
 import { createCourse, listCourses, removeCourse, updateCourse } from '../features/platform/api';
 import { useResponsiveColumns } from '../composables/useResponsiveColumns';
 
+const currentUser = getCurrentUser();
+const canCreateCourse = hasAnyPermission(currentUser, ['course:create']);
+const canUpdateCourse = hasAnyPermission(currentUser, ['course:update']);
 const items = ref([]);
 const { showMediumColumns, showLowColumns } = useResponsiveColumns();
 const keyword = ref('');
@@ -230,11 +235,13 @@ function handleCurrentChange(page) {
 }
 
 function openCreateDialog() {
+  if (!canCreateCourse) return;
   resetForm();
   formDialogVisible.value = true;
 }
 
 function openEditDialog(row) {
+  if (!canUpdateCourse) return;
   editingId.value = row.id;
   Object.assign(form, {
     name: row.name,
@@ -245,6 +252,10 @@ function openEditDialog(row) {
     status: row.status,
   });
   formDialogVisible.value = true;
+}
+
+function openCourseRow(row) {
+  if (canUpdateCourse) openEditDialog(row);
 }
 
 async function save() {
@@ -291,6 +302,7 @@ async function toggleStatus(row) {
 }
 
 function handleCourseCommand(row, command) {
+  if (!canUpdateCourse) return;
   if (command === 'edit') return openEditDialog(row);
   if (command === 'toggle') return toggleStatus(row);
   if (command === 'delete') return remove(row);
@@ -315,6 +327,7 @@ async function remove(row) {
 }
 
 function openImportDialog() {
+  if (!canCreateCourse || !canUpdateCourse) return;
   importDialogVisible.value = true;
   previewBatch(false);
 }

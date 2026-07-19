@@ -15,7 +15,7 @@ export interface EstimateStudentSummaryBatchDto {
   /** 按考试结束时间筛选 */
   from?: string;
   /**
-     * 每个学生请求的输出上限；不传时使用所选模型配置的输出上限
+     * 每个学生请求的输出上限；配置与本次均为空时由供应商决定
      * @minimum 100
      * @maximum 8192
      */

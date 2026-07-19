@@ -9,11 +9,12 @@ type AiCompletionRequest = {
   model: string;
   systemPrompt: string;
   userPrompt: string;
-  maxTokens: number;
+  maxTokens?: number;
   timeoutMs: number;
   allowEmptyContent?: boolean;
   responseFormat?: AiResponseFormat;
   thinking?: AiThinkingMode;
+  enableThinking?: boolean;
 };
 
 export type AiThinkingMode = 'enabled' | 'disabled';
@@ -83,9 +84,10 @@ export class AiProviderGateway {
             { role: 'system', content: request.systemPrompt },
             { role: 'user', content: request.userPrompt },
           ],
-          max_tokens: request.maxTokens,
+          ...(request.maxTokens === undefined ? {} : { max_tokens: request.maxTokens }),
           stream: false,
           ...(request.thinking ? { thinking: { type: request.thinking } } : {}),
+          ...(request.enableThinking === undefined ? {} : { enable_thinking: request.enableThinking }),
           ...(request.responseFormat ? { response_format: request.responseFormat } : {}),
         }),
         redirect: 'error',

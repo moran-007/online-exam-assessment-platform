@@ -9,9 +9,11 @@
 export interface CreateExamSummaryTaskDto {
   /** 不传时按个人默认、系统默认顺序自动选择 */
   configId?: string;
+  /** 仅重试相同失败任务时使用；true 表示用户已确认本次会再次调用供应商并记录用量 */
+  confirmRetry?: boolean;
   examId: string;
   /**
-     * 本次输出上限；不传时使用所选模型配置的输出上限
+     * 本次输出上限；不传时仅使用显式配置上限，二者均为空则由供应商决定
      * @minimum 100
      * @maximum 8192
      */

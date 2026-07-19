@@ -106,6 +106,7 @@ export class FusionDashboardQuery {
     const consumed = periodLedger
       .filter((entry) => consumptionTypes.has(entry.type))
       .reduce((sum, entry) => sum + Number(entry.amount), 0);
+    const countedSessions = sessions.filter((session) => this.countsAsScheduled(session.status));
 
     return {
       role: scope.role,
@@ -121,13 +122,13 @@ export class FusionDashboardQuery {
         activeWrongQuestions,
       },
       academic: {
-        scheduledLessons: sessions.filter((session) => session.status !== LessonSessionStatus.CANCELLED).length,
+        scheduledLessons: countedSessions.length,
         completedLessons: sessions.filter((session) => session.status === LessonSessionStatus.COMPLETED).length,
         publishedLessonRecords: sessions.filter((session) => session.lessonRecord?.status === LessonRecordStatus.PUBLISHED).length,
         confirmedAttendance,
         attendanceRate: ratio(attended, confirmedAttendance),
         absentCount: attendance.filter((item) => item.status === AttendanceStatus.ABSENT).length,
-        assignedLessonHours: this.sum(sessions.map((session) => session.lessonHours)),
+        assignedLessonHours: this.sum(countedSessions.map((session) => session.lessonHours)),
         consumedLessonHours: Number(Math.max(0, -consumed).toFixed(2)),
         remainingLessonHours: this.sum(allLedger.map((entry) => entry.amount)),
       },
@@ -215,7 +216,7 @@ export class FusionDashboardQuery {
     return [...groups.entries()].map(([key, items]) => ({
       teacherId: key === 'unassigned' ? null : key,
       teacherName: items[0].teacher?.realName || items[0].teacher?.username || '待安排',
-      scheduledLessons: items.filter((item) => item.status !== LessonSessionStatus.CANCELLED).length,
+      scheduledLessons: items.filter((item) => this.countsAsScheduled(item.status)).length,
       completedLessons: items.filter((item) => item.status === LessonSessionStatus.COMPLETED).length,
       completedHours: this.sum(items
         .filter((item) => item.status === LessonSessionStatus.COMPLETED)
@@ -268,6 +269,10 @@ export class FusionDashboardQuery {
 
   private sum(values: Array<Prisma.Decimal | number>) {
     return Number(values.reduce<number>((sum, value) => sum + Number(value), 0).toFixed(2));
+  }
+
+  private countsAsScheduled(status: LessonSessionStatus) {
+    return status === LessonSessionStatus.PLANNED || status === LessonSessionStatus.COMPLETED;
   }
 
   private isPrivileged(user: RequestUser) {

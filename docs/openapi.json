@@ -559,6 +559,8 @@
             "type": "string"
           },
           "maxTokens": {
+            "description": "配置级输出上限；null 表示不向供应商设置该限制",
+            "nullable": true,
             "type": "number"
           },
           "model": {
@@ -1365,6 +1367,7 @@
             "type": "number"
           },
           "requestedOutputTokens": {
+            "nullable": true,
             "type": "number"
           },
           "sanitizedError": {
@@ -1426,7 +1429,8 @@
             "type": "string"
           },
           "outputLimitTokens": {
-            "description": "本次请求实际采用的输出 Token 上限",
+            "description": "本次发送给供应商的输出 Token 上限；null 表示未显式限制",
+            "nullable": true,
             "type": "number"
           },
           "provider": {
@@ -1545,10 +1549,12 @@
             "type": "boolean"
           },
           "requestedOutputTokens": {
+            "description": "发送给供应商的显式输出上限；null 表示未设置",
+            "nullable": true,
             "type": "number"
           },
           "reservedTokens": {
-            "description": "未报告用量时按请求上限保守预留的 Token",
+            "description": "未报告用量时按公开估算上界保守预留的 Token",
             "type": "number"
           },
           "tokenQuota": {
@@ -1622,7 +1628,7 @@
             "type": "number"
           },
           "reservedTokens": {
-            "description": "供应商未报告用量时，按请求输出上限保守预留的 Token",
+            "description": "供应商未报告用量时，按公开估算上界保守预留的 Token",
             "type": "number"
           },
           "unreportedCalls": {
@@ -2261,6 +2267,103 @@
         ],
         "type": "object"
       },
+      "CourseUnitPageResponseDto": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/CourseUnitResponseDto"
+            },
+            "type": "array"
+          },
+          "page": {
+            "type": "number"
+          },
+          "pageSize": {
+            "type": "number"
+          },
+          "total": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "items",
+          "page",
+          "pageSize",
+          "total"
+        ],
+        "type": "object"
+      },
+      "CourseUnitResponseDto": {
+        "properties": {
+          "category": {
+            "nullable": true,
+            "type": "string"
+          },
+          "code": {
+            "type": "string"
+          },
+          "courseId": {
+            "format": "uuid",
+            "nullable": true,
+            "type": "string"
+          },
+          "courseName": {
+            "type": "string"
+          },
+          "defaultHours": {
+            "type": "number"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "legacyUnscoped": {
+            "description": "仅历史迁移的无课程归属单元为 true",
+            "type": "boolean"
+          },
+          "lessonTypeId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "lessonTypeName": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "stage": {
+            "nullable": true,
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "ACTIVE",
+              "DISABLED",
+              "ARCHIVED"
+            ],
+            "type": "string"
+          },
+          "teachingContent": {
+            "nullable": true,
+            "type": "string"
+          },
+          "unitNo": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "id",
+          "code",
+          "courseId",
+          "legacyUnscoped",
+          "lessonTypeId",
+          "unitNo",
+          "name",
+          "defaultHours",
+          "status"
+        ],
+        "type": "object"
+      },
       "CreateAiProviderConfigDto": {
         "properties": {
           "apiKey": {
@@ -2289,9 +2392,10 @@
             "type": "boolean"
           },
           "maxTokens": {
-            "default": 1000,
+            "description": "留空时不设置配置级输出上限",
             "maximum": 8192,
             "minimum": 1,
+            "nullable": true,
             "type": "number"
           },
           "model": {
@@ -2419,12 +2523,17 @@
             "format": "uuid",
             "type": "string"
           },
+          "confirmRetry": {
+            "default": false,
+            "description": "仅重试相同失败任务时使用；true 表示用户已确认本次会再次调用供应商并记录用量",
+            "type": "boolean"
+          },
           "from": {
             "format": "date-time",
             "type": "string"
           },
           "maxTokens": {
-            "description": "本次输出上限；不传时使用模型配置上限",
+            "description": "本次输出上限；配置与本次均为空时由供应商决定",
             "maximum": 8192,
             "minimum": 1,
             "type": "number"
@@ -2530,12 +2639,17 @@
             "format": "uuid",
             "type": "string"
           },
+          "confirmRetry": {
+            "default": false,
+            "description": "仅重试相同失败任务时使用；true 表示用户已确认本次会再次调用供应商并记录用量",
+            "type": "boolean"
+          },
           "examId": {
             "format": "uuid",
             "type": "string"
           },
           "maxTokens": {
-            "description": "本次输出上限；不传时使用所选模型配置的输出上限",
+            "description": "本次输出上限；不传时仅使用显式配置上限，二者均为空则由供应商决定",
             "maximum": 8192,
             "minimum": 100,
             "type": "number"
@@ -2687,12 +2801,17 @@
             "format": "uuid",
             "type": "string"
           },
+          "confirmRetry": {
+            "default": false,
+            "description": "仅重试相同失败任务时使用；true 表示用户已确认本次会再次调用供应商并记录用量",
+            "type": "boolean"
+          },
           "from": {
             "format": "date-time",
             "type": "string"
           },
           "maxTokens": {
-            "description": "本次输出上限；不传时使用模型配置上限",
+            "description": "本次输出上限；配置与本次均为空时由供应商决定",
             "maximum": 8192,
             "minimum": 1,
             "type": "number"
@@ -2848,12 +2967,17 @@
             "format": "uuid",
             "type": "string"
           },
+          "confirmRetry": {
+            "default": false,
+            "description": "仅重试相同失败任务时使用；true 表示用户已确认本次会再次调用供应商并记录用量",
+            "type": "boolean"
+          },
           "from": {
             "format": "date-time",
             "type": "string"
           },
           "maxTokens": {
-            "description": "本次输出上限；不传时使用模型配置上限",
+            "description": "本次输出上限；配置与本次均为空时由供应商决定",
             "maximum": 8192,
             "minimum": 1,
             "type": "number"
@@ -3156,6 +3280,11 @@
             "format": "uuid",
             "type": "string"
           },
+          "confirmRetry": {
+            "default": false,
+            "description": "仅重试相同失败任务时使用；true 表示用户已确认本次会再次调用供应商并记录用量",
+            "type": "boolean"
+          },
           "courseId": {
             "format": "uuid",
             "type": "string"
@@ -3174,7 +3303,7 @@
             "type": "string"
           },
           "maxTokens": {
-            "description": "本次输出上限；不传时使用所选模型配置的输出上限",
+            "description": "本次输出上限；配置与本次均为空时由供应商决定",
             "maximum": 8192,
             "minimum": 100,
             "type": "number"
@@ -3270,7 +3399,7 @@
             "type": "string"
           },
           "maxTokens": {
-            "description": "每个学生请求的输出上限；不传时使用所选模型配置的输出上限",
+            "description": "每个学生请求的输出上限；配置与本次均为空时由供应商决定",
             "maximum": 8192,
             "minimum": 100,
             "type": "number"
@@ -3728,7 +3857,7 @@
             "type": "string"
           },
           "maxTokens": {
-            "description": "本次输出上限；不传时使用所选模型配置的输出上限",
+            "description": "本次输出上限；不传时仅使用显式配置上限，二者均为空则由供应商决定",
             "maximum": 8192,
             "minimum": 1,
             "type": "number"
@@ -4837,8 +4966,13 @@
             "format": "uuid",
             "type": "string"
           },
+          "confirmRetry": {
+            "default": false,
+            "description": "true 表示用户已确认重新生成会再次调用供应商并记录用量",
+            "type": "boolean"
+          },
           "maxTokens": {
-            "description": "本次输出上限；不传时使用所选模型配置的输出上限",
+            "description": "本次输出上限；不传时仅使用显式配置上限，二者均为空则由供应商决定",
             "maximum": 8192,
             "minimum": 100,
             "type": "number"
@@ -5122,6 +5256,7 @@
         },
         "required": [
           "code",
+          "courseId",
           "lessonTypeId",
           "name",
           "defaultHours"
@@ -5615,6 +5750,11 @@
             "type": "number"
           },
           "requestedOutputTokensPerTask": {
+            "nullable": true,
+            "type": "number"
+          },
+          "reservationOutputTokensPerTask": {
+            "description": "用量未报告时每个任务采用的公开估算预留上界",
             "type": "number"
           },
           "taskCount": {
@@ -5627,6 +5767,7 @@
         "required": [
           "taskCount",
           "requestedOutputTokensPerTask",
+          "reservationOutputTokensPerTask",
           "estimatedReservedTokens",
           "remainingTokens",
           "withinLocalBudget",
@@ -5853,8 +5994,10 @@
             "type": "boolean"
           },
           "maxTokens": {
+            "description": "设为 null 可清除配置级输出上限",
             "maximum": 8192,
             "minimum": 1,
+            "nullable": true,
             "type": "number"
           },
           "model": {
@@ -8321,7 +8464,7 @@
             "$ref": "#/components/responses/ApiError"
           },
           "409": {
-            "$ref": "#/components/responses/ApiError"
+            "description": "相同任务上次失败；必须由用户确认后以 confirmRetry=true 重试"
           },
           "429": {
             "$ref": "#/components/responses/ApiError"
@@ -8488,7 +8631,7 @@
             "$ref": "#/components/responses/ApiError"
           },
           "409": {
-            "$ref": "#/components/responses/ApiError"
+            "description": "相同任务上次失败；必须由用户确认后以 confirmRetry=true 重试"
           },
           "429": {
             "$ref": "#/components/responses/ApiError"
@@ -8637,7 +8780,7 @@
             "$ref": "#/components/responses/ApiError"
           },
           "409": {
-            "$ref": "#/components/responses/ApiError"
+            "description": "相同任务上次失败；必须由用户确认后以 confirmRetry=true 重试"
           },
           "429": {
             "$ref": "#/components/responses/ApiError"
@@ -8786,7 +8929,7 @@
             "$ref": "#/components/responses/ApiError"
           },
           "409": {
-            "$ref": "#/components/responses/ApiError"
+            "description": "相同任务上次失败；必须由用户确认后以 confirmRetry=true 重试"
           },
           "429": {
             "$ref": "#/components/responses/ApiError"
@@ -8953,7 +9096,7 @@
             "$ref": "#/components/responses/ApiError"
           },
           "409": {
-            "$ref": "#/components/responses/ApiError"
+            "description": "相同任务上次失败；必须由用户确认后以 confirmRetry=true 重试"
           },
           "429": {
             "$ref": "#/components/responses/ApiError"
@@ -11123,6 +11266,31 @@
         ],
         "responses": {
           "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "code": {
+                      "example": 0,
+                      "type": "integer"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/CourseUnitPageResponseDto"
+                    },
+                    "message": {
+                      "example": "ok",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "code",
+                    "message",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
             "description": ""
           },
           "400": {
@@ -11171,6 +11339,31 @@
         },
         "responses": {
           "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "code": {
+                      "example": 0,
+                      "type": "integer"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/CourseUnitResponseDto"
+                    },
+                    "message": {
+                      "example": "ok",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "code",
+                    "message",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
             "description": ""
           },
           "400": {
@@ -11230,6 +11423,31 @@
         },
         "responses": {
           "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "code": {
+                      "example": 0,
+                      "type": "integer"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/CourseUnitResponseDto"
+                    },
+                    "message": {
+                      "example": "ok",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "code",
+                    "message",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
             "description": ""
           },
           "400": {

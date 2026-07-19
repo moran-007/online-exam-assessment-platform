@@ -23,4 +23,44 @@ Object.assign(process.env, {
   UPLOADS_DIR: process.env.TEST_UPLOADS_DIR || require('node:path').join(process.cwd(), 'runtime', 'test-uploads'),
 });
 
-require('../dist/main.js');
+const { NestFactory } = require('@nestjs/core');
+const { AppModule } = require('../dist/app.module.js');
+const { configureApplication } = require('../dist/app.setup.js');
+const { AiProviderGateway } = require('../dist/modules/ai/ai-provider.gateway.js');
+
+function e2eCompletion(request) {
+  const prompt = `${request.systemPrompt || ''}\n${request.userPrompt || ''}`;
+  const schemaVersion = [
+    'exam-summary-output/v1',
+    'student-summary-output/v1',
+    'class-summary-output/v1',
+    'parent-report-output/v1',
+    'lesson-assistant-output/v1',
+  ].find((candidate) => prompt.includes(candidate));
+  const evidenceRef = [...prompt.matchAll(/"refId"\s*:\s*"([^"]+)"/g)][0]?.[1];
+  const content = schemaVersion && evidenceRef
+    ? JSON.stringify({
+        schemaVersion,
+        headline: { text: 'E2E 模型生成的可审核结论', evidenceRefs: [evidenceRef] },
+        overview: [{ text: 'E2E 确定性数据概览', evidenceRefs: [evidenceRef] }],
+        strengths: [{ text: 'E2E 已验证优势', evidenceRefs: [evidenceRef] }],
+        risks: [],
+        actions: [{ text: 'E2E 后续行动建议', evidenceRefs: [evidenceRef] }],
+        needsReview: [],
+      })
+    : 'E2E AI 连接与通用总结响应';
+  return Promise.resolve({
+    content,
+    usage: { promptTokens: 120, completionTokens: 80, totalTokens: 200, reported: true },
+    durationMs: 1,
+  });
+}
+
+async function bootstrap() {
+  const app = await NestFactory.create(AppModule, { logger: false, rawBody: true });
+  configureApplication(app);
+  app.get(AiProviderGateway).complete = e2eCompletion;
+  await app.listen(Number(backendPort));
+}
+
+void bootstrap();

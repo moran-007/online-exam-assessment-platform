@@ -12,7 +12,7 @@ export interface SaveCourseUnitDto {
   category?: string;
   /** @maxLength 128 */
   code: string;
-  courseId?: string;
+  courseId: string;
   /** @minimum 0 */
   defaultHours: number;
   lessonTypeId: string;

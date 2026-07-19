@@ -1,6 +1,7 @@
 import { INestApplication } from '@nestjs/common';
 import { ExportStatus, PermissionType, Prisma, PrismaClient, ScoringEvaluationSource, ScoringEvaluationStatus, UserStatus, UserType } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
+import { Workbook } from 'exceljs';
 import request = require('supertest');
 import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -165,6 +166,18 @@ describe('core API flows', () => {
     expect(stored.apiKeyAuthTag).toBeTruthy();
     expect(stored.monthlyTokenBudget).toBe(5000);
 
+    const providerDefaultLimit = await api('post', '/api/v1/ai/configurations', adminToken, {
+      name: 'Integration Provider Default Limit',
+      provider: 'custom',
+      baseUrl: 'https://provider-default.example.com/v1',
+      model: 'provider-default-model',
+      apiKey: 'integration-provider-default-key',
+      enabled: false,
+    });
+    expect(providerDefaultLimit.maxTokens).toBeNull();
+    expect(await prisma.aiProviderConfig.findUniqueOrThrow({ where: { id: providerDefaultLimit.id } }))
+      .toMatchObject({ maxTokens: null });
+
     const personal = await api('post', '/api/v1/ai/configurations', teacherToken, {
       scope: 'personal',
       name: 'Teacher Personal Model',
@@ -191,6 +204,7 @@ describe('core API flows', () => {
       .expect(404);
     await api('delete', `/api/v1/ai/configurations/${personal.id}`, teacherToken);
 
+    await api('delete', `/api/v1/ai/configurations/${providerDefaultLimit.id}`, adminToken);
     await api('delete', `/api/v1/ai/configurations/${created.id}`, adminToken);
     expect(await prisma.aiProviderConfig.count({ where: { id: created.id } })).toBe(0);
   });
@@ -647,6 +661,37 @@ describe('core API flows', () => {
       expect(response.headers['content-disposition']).toContain(`.${paperFormats[index]}`);
       expectValidExportBuffer(paperFormats[index], response.body);
     }
+
+    const exam = await prisma.exam.findFirstOrThrow({ where: { name: 'Integration Exam' } });
+    const resultTasks = await Promise.all([
+      api('post', '/api/v1/exports', adminToken, { type: 'exam_results', examId: exam.id, format: 'csv' }),
+      api('post', '/api/v1/exports', adminToken, { type: 'exam_results', examId: exam.id, format: 'xlsx' }),
+      api('post', '/api/v1/exports', adminToken, { type: 'grading', examId: exam.id, format: 'csv' }),
+    ]);
+    const completedResultTasks = await waitForExportTasks(resultTasks.map((item) => item.id));
+    resultTasks.forEach((item) => expect(completedResultTasks.get(item.id)?.downloadReady).toBe(true));
+
+    const resultCsv = await downloadExportFile(resultTasks[0].id);
+    const resultCsvText = resultCsv.body.toString('utf8').replace(/^\uFEFF/, '');
+    expect(resultCsv.headers['content-disposition']).toContain('.csv');
+    expect(resultCsvText).toContain('Integration Exam');
+    expect(resultCsvText).toContain('Test Student');
+
+    const resultXlsx = await downloadExportFile(resultTasks[1].id);
+    const resultWorkbook = new Workbook();
+    await resultWorkbook.xlsx.load(
+      resultXlsx.body as unknown as Parameters<typeof resultWorkbook.xlsx.load>[0],
+    );
+    const resultSheetText = resultWorkbook.worksheets[0].getSheetValues().flat(2).join(' | ');
+    expect(resultXlsx.headers['content-disposition']).toContain('.xlsx');
+    expect(resultSheetText).toContain('Integration Exam');
+    expect(resultSheetText).toContain('Test Student');
+
+    const gradingCsv = await downloadExportFile(resultTasks[2].id);
+    const gradingCsvText = gradingCsv.body.toString('utf8').replace(/^\uFEFF/, '');
+    expect(gradingCsv.headers['content-disposition']).toContain('.csv');
+    expect(gradingCsvText).toContain('Integration Exam');
+    expect(gradingCsvText).toContain('Test Student');
   });
 
   it('cancels, retries, and cleans up export tasks without losing ownership', async () => {

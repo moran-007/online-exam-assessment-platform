@@ -46,7 +46,7 @@ export type aiSummaryCreateResponse404 = {
 }
 
 export type aiSummaryCreateResponse409 = {
-  data: ApiErrorResponse
+  data: void
   status: 409
 }
 
@@ -184,7 +184,7 @@ export type aiSummaryCreateStudentResponse404 = {
 }
 
 export type aiSummaryCreateStudentResponse409 = {
-  data: ApiErrorResponse
+  data: void
   status: 409
 }
 

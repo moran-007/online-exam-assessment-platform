@@ -61,6 +61,8 @@ const KIND_META: Record<AiSummaryKind, { label: string; schemaVersion: string; p
   },
 };
 
+const RETRY_CONFIRMATION_REQUIRED_MESSAGE = '上一次相同 AI 总结任务调用失败';
+
 export function useAiSummaryDialog(kind: AiSummaryKind) {
   const visible = ref(false);
   const loading = ref(false);
@@ -90,16 +92,22 @@ export function useAiSummaryDialog(kind: AiSummaryKind) {
   const effectiveOutputLimit = computed(() => {
     const configured = selectedConfiguration.value?.maxTokens;
     const requested = optionalOutputLimit(requestedMaxTokens.value).maxTokens;
-    if (!configured) return requested ?? null;
-    return Math.min(requested ?? configured, configured);
+    if (requested !== undefined && configured !== null && configured !== undefined) {
+      return Math.min(requested, configured);
+    }
+    return requested ?? configured ?? null;
   });
   const outputLimitHint = computed(() => {
     const selected = selectedConfiguration.value;
     const requested = optionalOutputLimit(requestedMaxTokens.value).maxTokens;
-    if (!selected) return requested ? `本次要求 ${requested} Token` : '自动使用默认模型配置上限';
-    return requested
-      ? `实际不超过 ${effectiveOutputLimit.value} Token（配置上限 ${selected.maxTokens}）`
-      : `自动使用配置上限 ${selected.maxTokens} Token`;
+    if (requested !== undefined && selected?.maxTokens !== null && selected?.maxTokens !== undefined) {
+      return `实际不超过 ${effectiveOutputLimit.value} Token（配置上限 ${selected.maxTokens}）`;
+    }
+    if (requested !== undefined) return `本次向供应商设置 ${requested} Token 上限`;
+    if (selected?.maxTokens !== null && selected?.maxTokens !== undefined) {
+      return `使用配置上限 ${selected.maxTokens} Token`;
+    }
+    return '不向供应商发送输出上限；失败且用量未报告时按公开估算上界预留';
   });
 
   async function open(id: string, name: string, nextScope: StudentSummaryScope = {}) {
@@ -130,12 +138,15 @@ export function useAiSummaryDialog(kind: AiSummaryKind) {
   }
 
   async function generate() {
-    if (lastTask.value?.status === 'failed' && !await confirm(
-      `上一次调用失败。再次尝试会按当前 ${effectiveOutputLimit.value ?? '自动'} Token 上限产生用量，是否继续？`,
-      '确认再次调用模型',
-    )) return;
+    let retryConfirmed = false;
+    if (lastTask.value?.status === 'failed') {
+      retryConfirmed = await confirmFailedRetry();
+      if (!retryConfirmed) return;
+    }
     await execute(`生成${KIND_META[kind].label}`, async () => {
-      lastTask.value = await createTask();
+      const task = await createTaskAfterConfirmation(retryConfirmed);
+      if (!task) return;
+      lastTask.value = task;
       if (lastTask.value.summary) await refresh(lastTask.value.summary.id);
       if (lastTask.value.status === 'failed') throw new Error(lastTask.value.sanitizedError || '模型生成失败');
       ElMessage.success(lastTask.value.cacheHit ? '已复用相同输入的草稿' : `${KIND_META[kind].label}草稿已生成`);
@@ -181,13 +192,14 @@ export function useAiSummaryDialog(kind: AiSummaryKind) {
 
   async function regenerate() {
     if (!active.value || !await confirm(
-      `重新生成会按当前 ${effectiveOutputLimit.value ?? '自动'} Token 上限发起新模型调用并记录用量。`,
+      `重新生成将${effectiveOutputLimit.value === null ? '不发送输出上限并由供应商决定输出长度' : `按 ${effectiveOutputLimit.value} Token 上限`}发起新模型调用并记录用量。`,
       '确认重新生成',
     )) return;
     await execute('重新生成', async () => {
       lastTask.value = await regenerateExamSummary(active.value!.id, {
         configId: selectedConfigId.value || undefined,
         ...optionalOutputLimit(requestedMaxTokens.value),
+        confirmRetry: true,
       });
       if (lastTask.value.summary) await refresh(lastTask.value.summary.id);
       if (lastTask.value.status === 'failed') throw new Error(lastTask.value.sanitizedError || '重新生成失败');
@@ -211,10 +223,28 @@ export function useAiSummaryDialog(kind: AiSummaryKind) {
     return listLessonAssistantHistory(subjectId.value);
   }
 
-  function createTask() {
+  async function createTaskAfterConfirmation(retryConfirmed: boolean) {
+    try {
+      return await createTask(retryConfirmed);
+    } catch (error: unknown) {
+      if (!retryConfirmationRequired(error)) throw error;
+      if (!await confirmFailedRetry()) return null;
+      return createTask(true);
+    }
+  }
+
+  function confirmFailedRetry() {
+    const limit = effectiveOutputLimit.value === null
+      ? '由供应商决定输出长度'
+      : `使用 ${effectiveOutputLimit.value} Token 上限`;
+    return confirm(`上一次调用失败。再次尝试将${limit}，并可能产生新的 Token 用量，是否继续？`, '确认再次调用模型');
+  }
+
+  function createTask(confirmRetry = false) {
     const options = {
       configId: selectedConfigId.value || undefined,
       ...optionalOutputLimit(requestedMaxTokens.value),
+      ...(confirmRetry ? { confirmRetry: true } : {}),
     };
     if (kind === 'exam') return createExamSummary({ examId: subjectId.value, ...options });
     if (kind === 'student') return createStudentSummary({ studentId: subjectId.value, ...scope.value, ...options });
@@ -260,12 +290,19 @@ export function useAiSummaryDialog(kind: AiSummaryKind) {
 }
 
 function optionalOutputLimit(value: unknown): { maxTokens?: number } {
+  if (value === undefined || value === null || value === '') return {};
   const normalized = Number(value);
-  return Number.isInteger(normalized) && normalized > 0 ? { maxTokens: normalized } : {};
+  return Number.isInteger(normalized) && normalized > 0 && normalized <= 8192 ? { maxTokens: normalized } : {};
 }
 
 function errorMessage(error: unknown, fallback: string) {
   return error instanceof Error ? error.message : fallback;
+}
+
+function retryConfirmationRequired(error: unknown) {
+  if (!(error instanceof Error)) return false;
+  const status = (error as Error & { status?: number }).status;
+  return status === 409 && error.message.includes(RETRY_CONFIRMATION_REQUIRED_MESSAGE);
 }
 
 async function confirm(message: string, title: string) {

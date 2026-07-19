@@ -1,7 +1,4 @@
-/* eslint-disable @typescript-eslint/no-unused-vars */
-import { BadRequestException, ForbiddenException, Injectable, NotFoundException, OnModuleInit } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { ExportStatus, MasteryStatus, Prisma, QuestionStatus, UserType, WrongQuestionSourceType } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import {
   AlignmentType,
   Document,
@@ -11,17 +8,11 @@ import {
   TextRun,
 } from 'docx';
 import PDFDocument = require('pdfkit');
-import { existsSync } from 'node:fs';
-import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises';
-import { basename, extname, isAbsolute, join, relative, resolve } from 'node:path';
-import { toPagination } from '../../common/dto/pagination-query.dto';
+import { createWriteStream, existsSync } from 'node:fs';
+import { basename, extname, isAbsolute, relative, resolve } from 'node:path';
+import { Readable } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
 import { toApiEnum } from '../../common/utils/enum-normalizer';
-import { RequestUser } from '../../common/interfaces/request-user.interface';
-import { AuditService } from '../audit/audit.service';
-import { DataScopeService } from '../data-scope/data-scope.service';
-import { PrismaService } from '../prisma/prisma.service';
-import { CreateExportDto } from './dto/create-export.dto';
-import { QueryExportDto } from './dto/query-export.dto';
 
 type ExportQuestion = {
   sourceId?: string;
@@ -70,29 +61,16 @@ type QuestionExportEntity = Prisma.QuestionGetPayload<{
   };
 }>;
 
-type FullArchivePaper = Prisma.PaperGetPayload<{
-  include: {
-    course: true;
-    _count: { select: { sections: true; questions: true; exams: true } };
-  };
-}>;
-
-type ZipEntry = {
-  name: string;
-  data: Buffer;
-  date?: Date;
-};
 import { ExportsContext } from './exports.context';
+import { writeExportFileAtomically } from './export-file.operations';
 import { formatAnswer, formatDate, plainText, toRecord, typeLabel } from './export-format.operations';
 import { safeZipName } from './export-zip.operations';
-export async function renderPdf(ctx: ExportsContext, content: DocumentExportContent): Promise<Buffer> {
-    return new Promise((resolve, reject) => {
+export async function writePdfFile(ctx: ExportsContext, filePath: string, content: DocumentExportContent) {
+  await writeExportFileAtomically(filePath, async (partialPath) => {
       const doc = new PDFDocument({ size: 'A4', margin: 48, bufferPages: true });
-      const chunks: Buffer[] = [];
-      doc.on('data', (chunk) => chunks.push(Buffer.from(chunk)));
-      doc.on('error', reject);
-      doc.on('end', () => resolve(Buffer.concat(chunks)));
+      const outputCompletion = pipeline(doc, createWriteStream(partialPath));
 
+    try {
       if (ctx.fontPath) {
         doc.registerFont('body', ctx.fontPath);
         doc.font('body');
@@ -138,10 +116,16 @@ export async function renderPdf(ctx: ExportsContext, content: DocumentExportCont
         });
       }
       doc.end();
-    });
-  }
+      await outputCompletion;
+    } catch (error) {
+      doc.destroy(error instanceof Error ? error : new Error(String(error)));
+      await outputCompletion.catch(() => undefined);
+      throw error;
+    }
+  });
+}
 
-export async function renderDocx(ctx: ExportsContext, content: DocumentExportContent) {
+export function renderDocxStream(ctx: ExportsContext, content: DocumentExportContent) {
     const answerBook = content.template === 'answer_book';
     const children: Paragraph[] = [
       new Paragraph({
@@ -200,7 +184,7 @@ export async function renderDocx(ctx: ExportsContext, content: DocumentExportCon
       },
       sections: [{ children }],
     });
-    return Packer.toBuffer(doc);
+    return Packer.toStream(doc) as Readable;
   }
 
 export function pushTextParagraphs(ctx: ExportsContext, children: Paragraph[], text: string) {

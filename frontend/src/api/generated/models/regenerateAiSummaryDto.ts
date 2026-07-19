@@ -9,8 +9,10 @@
 export interface RegenerateAiSummaryDto {
   /** 不传时自动选择默认模型 */
   configId?: string;
+  /** true 表示用户已确认重新生成会再次调用供应商并记录用量 */
+  confirmRetry?: boolean;
   /**
-     * 本次输出上限；不传时使用所选模型配置的输出上限
+     * 本次输出上限；不传时仅使用显式配置上限，二者均为空则由供应商决定
      * @minimum 100
      * @maximum 8192
      */

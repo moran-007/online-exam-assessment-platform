@@ -1,3 +1,7 @@
+const academicReadPermissions = [
+  'schedule:read', 'lesson-hour:read', 'lesson-type:read', 'course-unit:read',
+];
+
 export const publicMenuItems = [
   { path: '/question-bank', label: '公开题库', icon: 'EditPen', section: 'assessment' },
 ];
@@ -9,14 +13,14 @@ export const studentMenuItems = [
   { path: '/student/exams', label: '我的考试', icon: 'Calendar', section: 'assessment' },
   { path: '/student/wrong-questions', label: '错题本', icon: 'Notebook', section: 'assessment' },
   { path: '/student/profile', label: '个人信息', icon: 'User', section: 'account' },
-  { path: '/teaching-operations', label: '课表与课时', icon: 'Calendar', section: 'academics' },
+  { path: '/teaching-operations', label: '课表与课时', icon: 'Calendar', permissions: academicReadPermissions, section: 'academics' },
   { path: '/learning-portal', label: '学习门户', icon: 'Reading', section: 'academics' },
 ];
 
 export const parentMenuItems = [
   { path: '/dashboard', label: '学习看板', icon: 'DataBoard', permissions: ['dashboard:read'], section: 'overview' },
   { path: '/profile', label: '关联学生', icon: 'User', section: 'account' },
-  { path: '/teaching-operations', label: '课表与课时', icon: 'Calendar', section: 'academics' },
+  { path: '/teaching-operations', label: '课表与课时', icon: 'Calendar', permissions: academicReadPermissions, section: 'academics' },
   { path: '/learning-portal', label: '学习门户', icon: 'Reading', section: 'academics' },
 ];
 
@@ -27,7 +31,7 @@ export const adminMenuItems = [
   { path: '/users', label: '用户权限', icon: 'Setting', userTypes: ['SUPER_ADMIN'], section: 'platform' },
   { path: '/academic-profiles', label: '教务档案', icon: 'Postcard', userTypes: ['SUPER_ADMIN', 'ADMIN'], section: 'academics' },
   { path: '/ai-settings', label: 'AI 配置', icon: 'Setting', userTypes: ['SUPER_ADMIN', 'ADMIN', 'TEACHER', 'ASSISTANT'], section: 'platform' },
-  { path: '/teaching-operations', label: '教学运营', icon: 'Calendar', permissions: ['schedule:read'], section: 'academics' },
+  { path: '/teaching-operations', label: '教学运营', icon: 'Calendar', permissions: academicReadPermissions, section: 'academics' },
   { path: '/knowledge', label: '课程知识点', icon: 'Share', permissions: ['knowledge-point:read'], section: 'assessment' },
   { path: '/tags', label: '标签', icon: 'PriceTag', permissions: ['tag:read'], section: 'assessment' },
   { path: '/questions', label: '题库', icon: 'EditPen', permissions: ['question:read'], section: 'assessment' },
@@ -80,10 +84,14 @@ export function canAccessByMeta(user, meta = {}) {
 
 export function menuForUser(user) {
   if (!user) return publicMenuItems;
-  if (isStudent(user)) return studentMenuItems;
-  if (isParent(user)) return parentMenuItems;
+  if (isStudent(user)) return accessibleItems(studentMenuItems, user);
+  if (isParent(user)) return accessibleItems(parentMenuItems, user);
   if (!isPrivilegedUser(user)) return publicMenuItems;
-  return adminMenuItems.filter(
+  return accessibleItems(adminMenuItems, user);
+}
+
+function accessibleItems(items, user) {
+  return items.filter(
     (item) => (!item.userTypes?.length || item.userTypes.includes(user.userType)) && hasAnyPermission(user, item.permissions),
   );
 }

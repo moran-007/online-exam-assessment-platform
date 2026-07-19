@@ -54,6 +54,36 @@ describe('AiProviderGateway', () => {
     expect(options.headers.Authorization).toBe('Bearer secret-key');
   });
 
+  it('omits max_tokens when no request or configuration limit is explicit', async () => {
+    global.fetch = jest.fn().mockResolvedValue(new Response(JSON.stringify({
+      choices: [{ message: { content: 'OK' } }],
+      usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+    }), { status: 200 }));
+
+    await gateway.complete({
+      baseUrl: 'https://api.example.com/v1', apiKey: 'secret-key', model: 'model-a',
+      systemPrompt: 'system', userPrompt: 'content', timeoutMs: 3000,
+    });
+
+    const body = JSON.parse((global.fetch as jest.Mock).mock.calls[0][1].body);
+    expect(body).not.toHaveProperty('max_tokens');
+  });
+
+  it('sends Qwen enable_thinking without the MiniMax-style thinking object', async () => {
+    global.fetch = jest.fn().mockResolvedValue(new Response(JSON.stringify({
+      choices: [{ message: { content: 'OK' } }],
+    }), { status: 200 }));
+
+    await gateway.complete({
+      baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1', apiKey: 'secret-key', model: 'qwen3.7-plus',
+      systemPrompt: 'system', userPrompt: 'content', timeoutMs: 3000, enableThinking: false,
+    });
+
+    const body = JSON.parse((global.fetch as jest.Mock).mock.calls[0][1].body);
+    expect(body).toMatchObject({ enable_thinking: false });
+    expect(body).not.toHaveProperty('thinking');
+  });
+
   it('normalizes missing or undersized provider total token counts', async () => {
     global.fetch = jest.fn().mockResolvedValue(new Response(JSON.stringify({
       choices: [{ message: { content: 'OK' } }],

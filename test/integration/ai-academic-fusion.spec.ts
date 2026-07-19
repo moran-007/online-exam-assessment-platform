@@ -13,6 +13,8 @@ import {
 import * as bcrypt from 'bcryptjs';
 import request = require('supertest');
 import { TokenService } from '../../src/modules/auth/token.service';
+import { AiProviderCallException, AiProviderGateway } from '../../src/modules/ai/ai-provider.gateway';
+import { CredentialCipherService } from '../../src/security/credential-cipher.service';
 import { createTestApp } from '../helpers/test-app';
 
 jest.setTimeout(90_000);
@@ -27,6 +29,7 @@ describe('AI and academic fusion', () => {
   let studentId = '';
   let sessionId = '';
   let summaryId = '';
+  let configId = '';
 
   beforeAll(async () => {
     prisma = new PrismaClient();
@@ -124,8 +127,23 @@ describe('AI and academic fusion', () => {
         apiKeyIv: '000000000000000000000000',
         apiKeyAuthTag: '00000000000000000000000000000000',
         apiKeyKeyVersion: 1,
+        isDefault: true,
+        maxTokens: 100,
         createdBy: admin.id,
         updatedBy: admin.id,
+      },
+    });
+    configId = config.id;
+    await prisma.aiSummaryPromptTemplate.create({
+      data: {
+        code: 'lesson-assistant',
+        summaryType: AiSummaryType.LESSON,
+        version: 1,
+        systemPrompt: 'integration retry confirmation',
+        outputSchema: {},
+        enabled: true,
+        reviewedBy: admin.id,
+        createdBy: admin.id,
       },
     });
     const template = await prisma.aiSummaryPromptTemplate.create({
@@ -153,6 +171,8 @@ describe('AI and academic fusion', () => {
         providerConfigId: config.id,
         modelSnapshot: config.model,
         requestedOutputTokens: 1000,
+        reservationOutputTokens: 1000,
+        outputLimitKey: 1000,
         status: AiSummaryTaskStatus.SUCCEEDED,
         correlationId: 'fusion-quality-task',
         inputTokens: 80,
@@ -186,6 +206,19 @@ describe('AI and academic fusion', () => {
     summaryId = summary.id;
 
     app = await createTestApp();
+    const encrypted = app.get(CredentialCipherService).encrypt(
+      'integration-retry-key',
+      `ai-provider:${configId}`,
+    );
+    await prisma.aiProviderConfig.update({
+      where: { id: configId },
+      data: {
+        apiKeyCiphertext: encrypted.ciphertext,
+        apiKeyIv: encrypted.iv,
+        apiKeyAuthTag: encrypted.authTag,
+        apiKeyKeyVersion: encrypted.keyVersion,
+      },
+    });
     teacherToken = await token(teacher, [
       'ai.summary.class.generate', 'ai.summary.parent-report.generate', 'ai.summary.lesson.generate',
       'dashboard:read', 'ai.quality.read', 'ai.quality.manage',
@@ -255,6 +288,36 @@ describe('AI and academic fusion', () => {
     });
     expect(resolved).toMatchObject({ status: 'resolved', resolutionNote: '已核对并记录修正建议' });
     expect(await prisma.auditLog.count({ where: { targetId: feedback.id } })).toBe(2);
+  });
+
+  it('requires a fresh retry confirmation after a failed task when the dialog is reopened', async () => {
+    const gateway = app.get(AiProviderGateway);
+    const completion = jest.spyOn(gateway, 'complete').mockRejectedValue(
+      new AiProviderCallException('integration timeout', true),
+    );
+    const body = { sessionId, configId };
+    try {
+      const first = await api('post', '/api/v1/ai-summaries/lessons', teacherToken, body);
+      expect(first).toMatchObject({ status: 'failed', attemptCount: 1 });
+      expect(completion).toHaveBeenCalledTimes(1);
+
+      const blocked = await request(app.getHttpServer())
+        .post('/api/v1/ai-summaries/lessons')
+        .auth(teacherToken, { type: 'bearer' })
+        .send(body)
+        .expect(409);
+      expect(blocked.body).toMatchObject({ code: 40910 });
+      expect(completion).toHaveBeenCalledTimes(1);
+
+      const confirmed = await api('post', '/api/v1/ai-summaries/lessons', teacherToken, {
+        ...body,
+        confirmRetry: true,
+      });
+      expect(confirmed).toMatchObject({ id: first.id, status: 'failed', attemptCount: 2 });
+      expect(completion).toHaveBeenCalledTimes(2);
+    } finally {
+      completion.mockRestore();
+    }
   });
 
   async function token(

@@ -6,7 +6,7 @@
         <el-select v-model="courseId" filterable placeholder="选择课程" style="width: 260px" @change="onCourseChange">
           <el-option v-for="course in courses" :key="course.id" :label="course.name" :value="course.id" />
         </el-select>
-        <el-button type="primary" :icon="Upload" @click="openKnowledgeImportDialog">批量导入知识点</el-button>
+        <el-button v-if="canCreateKnowledge && canUpdateKnowledge" type="primary" :icon="Upload" @click="openKnowledgeImportDialog">批量导入知识点</el-button>
         <el-button :icon="Refresh" @click="loadAll">刷新</el-button>
       </div>
     </div>
@@ -46,7 +46,7 @@
             <span class="muted">知识点是课程下的细分目录，可继续创建多级子知识点</span>
           </div>
           <div class="toolbar">
-            <el-button :icon="Plus" @click="openCreateKnowledge()">新增一级</el-button>
+            <el-button v-if="canCreateKnowledge" :icon="Plus" @click="openCreateKnowledge()">新增一级</el-button>
           </div>
         </div>
         <div class="knowledge-tree-shell">
@@ -58,9 +58,9 @@
                   <small>{{ data.raw.code || '自动编码' }} · 排序 {{ data.raw.sortOrder ?? 0 }}</small>
                 </span>
                 <span class="knowledge-node-actions">
-                  <el-button size="small" link :icon="Plus" @click.stop="openCreateKnowledge(data.raw)">添加子级</el-button>
-                  <el-button size="small" link :icon="Edit" @click.stop="openEditKnowledge(data.raw)">编辑</el-button>
-                  <el-button size="small" link type="danger" :icon="Delete" @click.stop="removeKnowledge(data.raw)">
+                  <el-button v-if="canCreateKnowledge" size="small" link :icon="Plus" @click.stop="openCreateKnowledge(data.raw)">添加子级</el-button>
+                  <el-button v-if="canUpdateKnowledge" size="small" link :icon="Edit" @click.stop="openEditKnowledge(data.raw)">编辑</el-button>
+                  <el-button v-if="canUpdateKnowledge" size="small" link type="danger" :icon="Delete" @click.stop="removeKnowledge(data.raw)">
                     删除
                   </el-button>
                 </span>
@@ -68,7 +68,7 @@
             </template>
           </el-tree>
           <el-empty v-else description="当前课程暂无知识点">
-            <el-button type="primary" :icon="Plus" @click="openCreateKnowledge()">新增知识点</el-button>
+            <el-button v-if="canCreateKnowledge" type="primary" :icon="Plus" @click="openCreateKnowledge()">新增知识点</el-button>
           </el-empty>
         </div>
       </section>
@@ -163,8 +163,13 @@
 
 <script setup>
 import { Delete, DocumentCopy, Edit, Plus, Refresh, Upload, View } from '@element-plus/icons-vue';
+import { getCurrentUser } from '../../../api';
+import { hasAnyPermission } from '../../../access';
 import { useKnowledgeManagementPage } from '../composables/useKnowledgeManagementPage';
 
+const currentUser = getCurrentUser();
+const canCreateKnowledge = hasAnyPermission(currentUser, ['knowledge-point:create']);
+const canUpdateKnowledge = hasAnyPermission(currentUser, ['knowledge-point:update']);
 const {
   batchCourseId,
   batchErrorSummary,

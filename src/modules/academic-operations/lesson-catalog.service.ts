@@ -6,6 +6,11 @@ import { AuditService } from '../audit/audit.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { QueryCatalogDto, QueryCourseUnitDto, SaveCourseUnitDto, SaveLessonTypeDto } from './dto/catalog.dto';
 
+const courseUnitInclude = {
+  course: { select: { name: true } },
+  lessonType: { select: { name: true } },
+} as const;
+
 @Injectable()
 export class LessonCatalogService {
   constructor(
@@ -87,11 +92,10 @@ export class LessonCatalogService {
           ]
         : undefined,
     };
-    const include = { course: { select: { name: true } }, lessonType: { select: { name: true } } } as const;
     const [items, total] = await this.prisma.$transaction([
       this.prisma.courseUnitTemplate.findMany({
         where,
-        include,
+        include: courseUnitInclude,
         orderBy: [{ category: 'asc' }, { stage: 'asc' }, { unitNo: 'asc' }, { name: 'asc' }],
         skip,
         take,
@@ -99,12 +103,7 @@ export class LessonCatalogService {
       this.prisma.courseUnitTemplate.count({ where }),
     ]);
     return {
-      items: items.map((item) => ({
-        ...item,
-        defaultHours: Number(item.defaultHours),
-        courseName: item.course?.name ?? '',
-        lessonTypeName: item.lessonType.name,
-      })),
+      items: items.map(this.courseUnitView),
       page,
       pageSize,
       total,
@@ -113,7 +112,10 @@ export class LessonCatalogService {
 
   async createCourseUnit(dto: SaveCourseUnitDto, actor: RequestUser) {
     await this.assertCatalogReferences(dto);
-    const item = await this.prisma.courseUnitTemplate.create({ data: this.courseUnitData(dto, actor.id) });
+    const item = await this.prisma.courseUnitTemplate.create({
+      data: this.courseUnitData(dto, actor.id),
+      include: courseUnitInclude,
+    });
     await this.audit.log({
       userId: actor.id,
       action: 'course-unit:create',
@@ -122,7 +124,7 @@ export class LessonCatalogService {
       targetId: item.id,
       afterData: { code: item.code, name: item.name },
     });
-    return { ...item, defaultHours: Number(item.defaultHours) };
+    return this.courseUnitView(item);
   }
 
   async updateCourseUnit(id: string, dto: SaveCourseUnitDto, actor: RequestUser) {
@@ -130,6 +132,7 @@ export class LessonCatalogService {
     const item = await this.prisma.courseUnitTemplate.update({
       where: { id },
       data: { ...this.courseUnitData(dto, actor.id), createdBy: undefined },
+      include: courseUnitInclude,
     });
     await this.audit.log({
       userId: actor.id,
@@ -139,11 +142,20 @@ export class LessonCatalogService {
       targetId: id,
       afterData: { code: item.code, name: item.name, status: item.status },
     });
-    return { ...item, defaultHours: Number(item.defaultHours) };
+    return this.courseUnitView(item);
   }
 
   private lessonTypeView(item: { defaultHours: Prisma.Decimal } & Record<string, unknown>) {
     return { ...item, defaultHours: Number(item.defaultHours) };
+  }
+
+  private courseUnitView(item: Prisma.CourseUnitTemplateGetPayload<{ include: typeof courseUnitInclude }>) {
+    return {
+      ...item,
+      defaultHours: Number(item.defaultHours),
+      courseName: item.course?.name ?? '',
+      lessonTypeName: item.lessonType.name,
+    };
   }
 
   private courseUnitData(dto: SaveCourseUnitDto, actorId: string): Prisma.CourseUnitTemplateUncheckedCreateInput {

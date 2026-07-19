@@ -15,7 +15,6 @@ export class ExportsContext {
   readonly uploadsRoot: string;
   readonly exportDir: string;
   readonly fontPath: string;
-  readonly crc32Table = makeCrc32Table();
   readonly exportExpireDays = 7;
   cleanupTimer?: NodeJS.Timeout;
 
@@ -40,16 +39,4 @@ function resolveFontPath() {
     'C:\\Windows\\Fonts\\Deng.ttf',
   ];
   return candidates.find((path) => existsSync(path)) ?? '';
-}
-
-function makeCrc32Table() {
-  const table = new Uint32Array(256);
-  for (let i = 0; i < 256; i += 1) {
-    let value = i;
-    for (let bit = 0; bit < 8; bit += 1) {
-      value = value & 1 ? 0xedb88320 ^ (value >>> 1) : value >>> 1;
-    }
-    table[i] = value >>> 0;
-  }
-  return table;
 }

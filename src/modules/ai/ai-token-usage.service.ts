@@ -31,7 +31,8 @@ type RecordUsageInput = {
   config: BudgetConfig;
   operation: string;
   correlationId?: string;
-  requestedOutputTokens: number;
+  requestedOutputTokens: number | null;
+  reservationOutputTokens: number;
   usage: AiTokenUsage;
   userId: string;
 };
@@ -51,7 +52,7 @@ export class AiTokenUsageService {
         providerConfigId: { in: configs.map((config) => config.id) },
         createdAt: { gte: period.start, lt: period.end },
       },
-      _sum: { totalTokens: true, requestedOutputTokens: true },
+      _sum: { totalTokens: true, reservationOutputTokens: true },
       _count: { _all: true },
     }) : [];
     const usageByConfig = new Map<string, { usedTokens: number; reservedTokens: number; unreportedCalls: number }>();
@@ -61,7 +62,7 @@ export class AiTokenUsageService {
       if (row.usageReported) {
         usage.usedTokens += row._sum.totalTokens ?? 0;
       } else {
-        usage.reservedTokens += Math.max(row._sum.requestedOutputTokens ?? 0, row._sum.totalTokens ?? 0);
+        usage.reservedTokens += row._sum.reservationOutputTokens ?? 0;
         usage.unreportedCalls += row._count._all;
       }
       usageByConfig.set(row.providerConfigId, usage);
@@ -77,9 +78,9 @@ export class AiTokenUsageService {
     return quotas.get(config.id) as AiTokenQuota;
   }
 
-  async authorize(config: BudgetConfig, requestedOutputTokens: number) {
+  async authorize(config: BudgetConfig, reservationOutputTokens: number) {
     const quota = await this.quota(config);
-    const allowed = quota.remainingTokens === null || quota.remainingTokens >= requestedOutputTokens;
+    const allowed = quota.remainingTokens === null || quota.remainingTokens >= reservationOutputTokens;
     this.metrics.recordAiBudgetDecision(config.id, allowed ? 'accepted' : 'rejected');
     if (!allowed) throw new BadRequestException('本地月度 Token 预算不足，请调整预算或等待下个周期');
     return quota;
@@ -92,6 +93,7 @@ export class AiTokenUsageService {
         operation: input.operation,
         correlationId: input.correlationId ?? randomUUID(),
         requestedOutputTokens: input.requestedOutputTokens,
+        reservationOutputTokens: input.reservationOutputTokens,
         inputTokens: input.usage.promptTokens,
         outputTokens: input.usage.completionTokens,
         totalTokens: input.usage.totalTokens,

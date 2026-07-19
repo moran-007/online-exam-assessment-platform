@@ -19,7 +19,7 @@ export interface GenerateAiSummaryDto {
      */
   instruction?: string;
   /**
-     * 本次输出上限；不传时使用所选模型配置的输出上限
+     * 本次输出上限；不传时仅使用显式配置上限，二者均为空则由供应商决定
      * @minimum 1
      * @maximum 8192
      */

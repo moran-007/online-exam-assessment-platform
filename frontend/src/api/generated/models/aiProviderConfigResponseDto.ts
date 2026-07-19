@@ -24,7 +24,11 @@ export interface AiProviderConfigResponseDto {
   lastTestMessage: string | null;
   /** @nullable */
   lastTestStatus: string | null;
-  maxTokens: number;
+  /**
+     * 配置级输出上限；null 表示不向供应商设置该限制
+     * @nullable
+     */
+  maxTokens: number | null;
   model: string;
   /** @nullable */
   monthlyTokenBudget: number | null;

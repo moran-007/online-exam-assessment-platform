@@ -12,6 +12,7 @@ import { ExamSummaryTaskUseCases } from './exam-summary-task.use-cases';
 import { SummaryOutputValidator } from './schemas/summary-output.validator';
 import { StudentSummaryTaskUseCases } from './student-summary-task.use-cases';
 import { IntegratedSummaryUseCases } from './integrated-summary.use-cases';
+import { withRetryConfirmation } from './ai-summary-task.coordinator';
 
 const EDITABLE_STATUSES = [
   AiSummaryReviewStatus.DRAFT,
@@ -100,7 +101,10 @@ export class AiSummaryLifecycleUseCases {
   async regenerate(id: string, dto: RegenerateAiSummaryDto, user: RequestUser) {
     const current = await this.access.require(id, user);
     this.assertGenerationPermission(current.type, user);
-    const options = { generationKey: randomUUID(), sourceSummaryId: current.id };
+    const options = withRetryConfirmation({
+      generationKey: randomUUID(),
+      sourceSummaryId: current.id,
+    }, dto.confirmRetry);
     const task = await this.regenerateTask(current, dto, user, options);
     await this.audit.log({
       userId: user.id,

@@ -5,8 +5,7 @@ import { CredentialCipherService } from '../../security/credential-cipher.servic
 import { PrismaService } from '../prisma/prisma.service';
 import { AiProviderCapabilityRegistry } from './ai-provider-capability.registry';
 import { AiProviderCallException, AiProviderGateway } from './ai-provider.gateway';
-import { thinkingModeFor } from './ai-provider-request.policy';
-import { MAX_AI_OUTPUT_TOKENS } from './ai-summary-limits';
+import { providerRequestPolicyFor } from './ai-provider-request.policy';
 import type { SummaryTaskWithRelations } from './ai-summary-task.coordinator';
 import { AiTokenUsage, AiTokenUsageService } from './ai-token-usage.service';
 import { assertSummaryDataset } from './datasets/dataset-validator';
@@ -54,39 +53,36 @@ export class AiSummaryTaskRunner {
     const startedAt = Date.now();
     let usage: AiTokenUsage = { promptTokens: 0, completionTokens: 0, totalTokens: 0, reported: false };
     let usageRecorded = false;
-    let authorizedOutputTokens = task.requestedOutputTokens;
     try {
       if (!task.providerConfig.enabled) throw new AiSummaryTaskError('所选 AI 配置已停用');
       const dataset = this.dataset(task.inputSnapshotJson, task.type);
       const prompt = buildSummaryPrompt(dataset);
       const capability = await this.capabilities.resolve(task.providerConfig.provider, task.modelSnapshot);
-      authorizedOutputTokens = Math.min(
-        task.requestedOutputTokens,
-        task.providerConfig.maxTokens,
-        capability.maxOutputTokens ?? MAX_AI_OUTPUT_TOKENS,
-        MAX_AI_OUTPUT_TOKENS,
-      );
-      await this.tokenUsage.authorize(task.providerConfig, authorizedOutputTokens);
+      await this.tokenUsage.authorize(task.providerConfig, task.reservationOutputTokens);
       const result = await this.gateway.complete({
         baseUrl: task.providerConfig.baseUrl,
         apiKey: this.decrypt(task.providerConfig),
         model: task.modelSnapshot,
         systemPrompt: task.promptTemplate.systemPrompt,
         userPrompt: prompt.userPrompt,
-        maxTokens: authorizedOutputTokens,
+        maxTokens: task.requestedOutputTokens ?? undefined,
         timeoutMs: task.providerConfig.timeoutMs,
         responseFormat: responseFormatFor(capability, task.promptTemplate.outputSchema, prompt.schemaName),
-        thinking: thinkingModeFor(task.providerConfig.provider),
+        ...providerRequestPolicyFor(
+          task.providerConfig.provider,
+          task.providerConfig.baseUrl,
+          task.modelSnapshot,
+        ),
       });
       usage = result.usage;
-      await this.recordUsage(task, authorizedOutputTokens, usage, dataset.type);
+      await this.recordUsage(task, usage, dataset.type);
       usageRecorded = true;
       const output = this.validator.validate(
         parseSummaryJson(result.content, task.schemaVersion),
         dataset.evidenceIndex,
       );
       const { evidenceIndex, ...sourceSnapshot } = dataset;
-      const estimatedCost = this.estimatedCost(task.providerConfig, usage);
+      const estimatedCost = this.estimatedCost(task.providerConfig, usage, task.reservationOutputTokens);
       await this.prisma.$transaction([
         this.prisma.aiSummary.create({
           data: {
@@ -114,7 +110,7 @@ export class AiSummaryTaskRunner {
       if (error instanceof AiProviderCallException && error.usage) usage = error.usage;
       if (!usageRecorded && error instanceof AiProviderCallException
         && (error.usageMayBeUnreported || Boolean(error.usage))) {
-        await this.recordUsage(task, authorizedOutputTokens, usage, task.type.toLowerCase()).catch(() => undefined);
+        await this.recordUsage(task, usage, task.type.toLowerCase()).catch(() => undefined);
       }
       await this.prisma.aiSummaryTask.update({
         where: { id: task.id },
@@ -122,7 +118,7 @@ export class AiSummaryTaskRunner {
           status: AiSummaryTaskStatus.FAILED,
           inputTokens: usage.promptTokens,
           outputTokens: usage.completionTokens,
-          estimatedCost: this.estimatedCost(task.providerConfig, usage),
+          estimatedCost: this.estimatedCost(task.providerConfig, usage, task.reservationOutputTokens),
           finishedAt: new Date(),
           sanitizedError: this.sanitizedError(error),
         },
@@ -159,7 +155,6 @@ export class AiSummaryTaskRunner {
 
   private recordUsage(
     task: SummaryTaskWithRelations,
-    requestedOutputTokens: number,
     usage: AiTokenUsage,
     summaryType: string,
   ) {
@@ -167,7 +162,8 @@ export class AiSummaryTaskRunner {
       config: task.providerConfig,
       operation: `${summaryType}-summary`,
       correlationId: `${task.correlationId}:${task.attemptCount}`,
-      requestedOutputTokens,
+      requestedOutputTokens: task.requestedOutputTokens,
+      reservationOutputTokens: task.reservationOutputTokens,
       usage,
       userId: task.createdBy,
     });
@@ -198,16 +194,20 @@ export class AiSummaryTaskRunner {
       durationSeconds: (Date.now() - startedAt) / 1000,
       inputTokens: usage.promptTokens,
       outputTokens: usage.completionTokens,
-      estimatedCost: this.estimatedCost(task.providerConfig, usage),
+      estimatedCost: this.estimatedCost(task.providerConfig, usage, task.reservationOutputTokens),
     });
   }
 
   private estimatedCost(
     config: { inputCostPerMillion: Prisma.Decimal; outputCostPerMillion: Prisma.Decimal },
     usage: AiTokenUsage,
+    reservationOutputTokens: number,
   ) {
+    const estimatedOutputTokens = usage.reported
+      ? usage.completionTokens
+      : Math.max(usage.completionTokens, reservationOutputTokens);
     const cost = usage.promptTokens * Number(config.inputCostPerMillion)
-      + usage.completionTokens * Number(config.outputCostPerMillion);
+      + estimatedOutputTokens * Number(config.outputCostPerMillion);
     return Number((cost / 1_000_000).toFixed(6));
   }
 }

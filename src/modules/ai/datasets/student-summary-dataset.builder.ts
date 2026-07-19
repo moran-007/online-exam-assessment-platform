@@ -19,107 +19,32 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { assertSummaryDataset } from './dataset-validator';
 import { EvidenceCollector } from './evidence-collector';
 import {
+  buildExamPerformance,
+  buildLessonActivity,
+  buildScratchActivity,
+  collectKnowledgeValue,
+  collectStudentValue,
+} from './student-summary-activities';
+import {
   aggregateKnowledgePoints,
   aggregateQuestionTypes,
   programmingSummary,
   type StudentAnswerFact,
 } from './student-summary-aggregates';
+import {
+  MAX_SELECTED_EXAMS,
+  STUDENT_ATTEMPT_SELECT,
+  STUDENT_EXAM_SELECT,
+  STUDENT_LESSON_SELECT,
+  STUDENT_SCRATCH_SELECT,
+  WRONG_QUESTION_SELECT,
+  type NormalizedStudentSummaryScope,
+  type StudentAttempt,
+  type StudentLesson,
+  type StudentScratchWork,
+  type StudentSummaryDatasetInput,
+} from './student-summary-data';
 import type { StudentSummaryDataset } from './summary-dataset';
-
-const MAX_SELECTED_EXAMS = 20;
-
-const STUDENT_EXAM_SELECT = {
-  id: true,
-  name: true,
-  courseId: true,
-  endTime: true,
-  course: { select: { name: true } },
-  paper: { select: { totalScore: true } },
-} satisfies Prisma.ExamSelect;
-
-const STUDENT_ATTEMPT_SELECT = {
-  id: true,
-  examId: true,
-  status: true,
-  submittedAt: true,
-  totalScore: true,
-  answers: {
-    select: {
-      id: true,
-      score: true,
-      isCorrect: true,
-      currentEvaluation: { select: { maxScore: true } },
-      question: {
-        select: {
-          id: true,
-          type: true,
-          defaultScore: true,
-          knowledgePoints: {
-            select: { knowledgePoint: { select: { id: true, name: true } } },
-          },
-        },
-      },
-    },
-  },
-} satisfies Prisma.ExamAttemptSelect;
-
-const WRONG_QUESTION_SELECT = {
-  id: true,
-  questionId: true,
-  wrongCount: true,
-  masteryStatus: true,
-  question: { select: { title: true, type: true } },
-} satisfies Prisma.WrongQuestionSelect;
-
-const STUDENT_LESSON_SELECT = {
-  id: true,
-  title: true,
-  startsAt: true,
-  status: true,
-  lessonHours: true,
-  classGroup: { select: { courseId: true, course: { select: { name: true } } } },
-  attendance: { select: { id: true, status: true, confirmedAt: true } },
-  lessonRecord: {
-    select: {
-      id: true,
-      status: true,
-      publicLearningGoal: true,
-      publicClassPerformance: true,
-      publicHomework: true,
-    },
-  },
-} satisfies Prisma.LessonSessionSelect;
-
-const STUDENT_SCRATCH_SELECT = {
-  id: true,
-  status: true,
-  currentVersion: true,
-  submittedAt: true,
-  assignment: {
-    select: {
-      id: true,
-      title: true,
-      sessionId: true,
-      session: { select: { startsAt: true, classGroup: { select: { courseId: true } } } },
-    },
-  },
-  reviews: {
-    orderBy: { createdAt: 'desc' },
-    take: 1,
-    select: { id: true, score: true, comment: true },
-  },
-  judgeRuns: {
-    orderBy: { createdAt: 'desc' },
-    take: 1,
-    select: { id: true, status: true, score: true },
-  },
-} satisfies Prisma.ScratchWorkSelect;
-
-type StudentExam = Prisma.ExamGetPayload<{ select: typeof STUDENT_EXAM_SELECT }>;
-type StudentAttempt = Prisma.ExamAttemptGetPayload<{ select: typeof STUDENT_ATTEMPT_SELECT }>;
-type StudentWrongQuestion = Prisma.WrongQuestionGetPayload<{ select: typeof WRONG_QUESTION_SELECT }>;
-type StudentLesson = Prisma.LessonSessionGetPayload<{ select: typeof STUDENT_LESSON_SELECT }>;
-type StudentScratchWork = Prisma.ScratchWorkGetPayload<{ select: typeof STUDENT_SCRATCH_SELECT }>;
 
 export type StudentSummaryScopeInput = {
   studentId: string;
@@ -189,7 +114,7 @@ export class StudentSummaryDatasetBuilder {
     });
   }
 
-  private async selectExams(scope: NormalizedScope, user: RequestUser) {
+  private async selectExams(scope: NormalizedStudentSummaryScope, user: RequestUser) {
     const [examScope, studentClasses] = await Promise.all([
       this.dataScope.examWhere(user),
       this.prisma.classStudent.findMany({
@@ -233,7 +158,7 @@ export class StudentSummaryDatasetBuilder {
     return exams.sort((left, right) => left.endTime.getTime() - right.endTime.getTime());
   }
 
-  private wrongQuestions(scope: NormalizedScope, selectedExamIds: string[]) {
+  private wrongQuestions(scope: NormalizedStudentSummaryScope, selectedExamIds: string[]) {
     const time = {
       ...(scope.from ? { gte: scope.from } : {}),
       ...(scope.to ? { lte: scope.to } : {}),
@@ -254,7 +179,7 @@ export class StudentSummaryDatasetBuilder {
     });
   }
 
-  private lessons(scope: NormalizedScope): Promise<StudentLesson[]> {
+  private lessons(scope: NormalizedStudentSummaryScope): Promise<StudentLesson[]> {
     const startsAt = {
       ...(scope.from ? { gte: scope.from } : {}),
       ...(scope.to ? { lte: scope.to } : {}),
@@ -280,7 +205,7 @@ export class StudentSummaryDatasetBuilder {
     });
   }
 
-  private scratchWorks(scope: NormalizedScope): Promise<StudentScratchWork[]> {
+  private scratchWorks(scope: NormalizedStudentSummaryScope): Promise<StudentScratchWork[]> {
     const startsAt = {
       ...(scope.from ? { gte: scope.from } : {}),
       ...(scope.to ? { lte: scope.to } : {}),
@@ -315,7 +240,7 @@ export class StudentSummaryDatasetBuilder {
     }));
   }
 
-  private dataset(input: DatasetInput): StudentSummaryDataset {
+  private dataset(input: StudentSummaryDatasetInput): StudentSummaryDataset {
     const generatedAt = new Date().toISOString();
     const evidence = new EvidenceCollector(generatedAt);
     const byExam = input.latestAttempts;
@@ -381,33 +306,33 @@ export class StudentSummaryDatasetBuilder {
         examIds: input.exams.map((exam) => exam.id),
       },
       coverage: {
-        selectedExamCount: this.studentValue(evidence, input.studentId, 'selectedExamCount', input.exams.length, 'exam'),
-        gradedExamCount: this.studentValue(evidence, input.studentId, 'gradedExamCount', statusCounts.graded, 'exam'),
-        notSubmittedExamCount: this.studentValue(evidence, input.studentId, 'notSubmittedExamCount', statusCounts.notSubmitted, 'exam'),
-        ungradedExamCount: this.studentValue(evidence, input.studentId, 'ungradedExamCount', statusCounts.ungraded, 'exam'),
-        gradedAnswerCount: this.studentValue(evidence, input.studentId, 'gradedAnswerCount', input.answers.length, 'answer'),
-        scheduledLessonCount: this.studentValue(evidence, input.studentId, 'scheduledLessonCount', scheduledLessonCount, 'lesson'),
-        completedLessonCount: this.studentValue(evidence, input.studentId, 'completedLessonCount', completedLessonCount, 'lesson'),
-        attendanceRecordCount: this.studentValue(evidence, input.studentId, 'attendanceRecordCount', attendance.length, 'attendance'),
-        publishedLessonRecordCount: this.studentValue(evidence, input.studentId, 'publishedLessonRecordCount', publishedLessons.length, 'lesson_record'),
-        homeworkAssignmentCount: this.studentValue(evidence, input.studentId, 'homeworkAssignmentCount', homeworkAssignmentCount, 'homework'),
-        scratchWorkCount: this.studentValue(evidence, input.studentId, 'scratch.workCount', input.scratchWorks.length, 'work'),
-        scratchSubmittedCount: this.studentValue(evidence, input.studentId, 'scratch.submittedCount', scratchSubmittedCount, 'work'),
-        scratchReviewedCount: this.studentValue(evidence, input.studentId, 'scratch.reviewedCount', scratchReviewedCount, 'review'),
+        selectedExamCount: collectStudentValue(evidence, input.studentId, 'selectedExamCount', input.exams.length, 'exam'),
+        gradedExamCount: collectStudentValue(evidence, input.studentId, 'gradedExamCount', statusCounts.graded, 'exam'),
+        notSubmittedExamCount: collectStudentValue(evidence, input.studentId, 'notSubmittedExamCount', statusCounts.notSubmitted, 'exam'),
+        ungradedExamCount: collectStudentValue(evidence, input.studentId, 'ungradedExamCount', statusCounts.ungraded, 'exam'),
+        gradedAnswerCount: collectStudentValue(evidence, input.studentId, 'gradedAnswerCount', input.answers.length, 'answer'),
+        scheduledLessonCount: collectStudentValue(evidence, input.studentId, 'scheduledLessonCount', scheduledLessonCount, 'lesson'),
+        completedLessonCount: collectStudentValue(evidence, input.studentId, 'completedLessonCount', completedLessonCount, 'lesson'),
+        attendanceRecordCount: collectStudentValue(evidence, input.studentId, 'attendanceRecordCount', attendance.length, 'attendance'),
+        publishedLessonRecordCount: collectStudentValue(evidence, input.studentId, 'publishedLessonRecordCount', publishedLessons.length, 'lesson_record'),
+        homeworkAssignmentCount: collectStudentValue(evidence, input.studentId, 'homeworkAssignmentCount', homeworkAssignmentCount, 'homework'),
+        scratchWorkCount: collectStudentValue(evidence, input.studentId, 'scratch.workCount', input.scratchWorks.length, 'work'),
+        scratchSubmittedCount: collectStudentValue(evidence, input.studentId, 'scratch.submittedCount', scratchSubmittedCount, 'work'),
+        scratchReviewedCount: collectStudentValue(evidence, input.studentId, 'scratch.reviewedCount', scratchReviewedCount, 'review'),
       },
-      examPerformance: input.exams.map((exam) => this.examPerformance(evidence, input.studentId, exam, byExam.get(exam.id))),
+      examPerformance: input.exams.map((exam) => buildExamPerformance(evidence, input.studentId, exam, byExam.get(exam.id))),
       questionTypes: questionTypes.map((item) => ({
         type: item.type,
-        answerCount: this.studentValue(evidence, input.studentId, `questionType.${item.type}.answerCount`, item.answerCount, 'answer'),
-        correctRate: this.studentValue(evidence, input.studentId, `questionType.${item.type}.correctRate`, item.correctRate, 'ratio'),
-        scoreRate: this.studentValue(evidence, input.studentId, `questionType.${item.type}.scoreRate`, item.scoreRate, 'ratio'),
+        answerCount: collectStudentValue(evidence, input.studentId, `questionType.${item.type}.answerCount`, item.answerCount, 'answer'),
+        correctRate: collectStudentValue(evidence, input.studentId, `questionType.${item.type}.correctRate`, item.correctRate, 'ratio'),
+        scoreRate: collectStudentValue(evidence, input.studentId, `questionType.${item.type}.scoreRate`, item.scoreRate, 'ratio'),
       })),
       knowledgePoints: knowledgePoints.map((item) => ({
         knowledgePointId: item.id,
         name: item.name,
-        answerCount: this.knowledgeValue(evidence, item.id, 'studentAnswerCount', item.answerCount, 'answer'),
-        correctRate: this.knowledgeValue(evidence, item.id, 'studentCorrectRate', item.correctRate, 'ratio'),
-        scoreRate: this.knowledgeValue(evidence, item.id, 'studentScoreRate', item.scoreRate, 'ratio'),
+        answerCount: collectKnowledgeValue(evidence, item.id, 'studentAnswerCount', item.answerCount, 'answer'),
+        correctRate: collectKnowledgeValue(evidence, item.id, 'studentCorrectRate', item.correctRate, 'ratio'),
+        scoreRate: collectKnowledgeValue(evidence, item.id, 'studentScoreRate', item.scoreRate, 'ratio'),
       })),
       wrongQuestions: input.wrongQuestions.map((item) => ({
         questionId: item.questionId,
@@ -424,186 +349,28 @@ export class StudentSummaryDatasetBuilder {
         }),
       })),
       programming: {
-        submissionCount: this.studentValue(evidence, input.studentId, 'programming.submissionCount', programming.submissionCount, 'submission'),
-        acceptedCount: this.studentValue(evidence, input.studentId, 'programming.acceptedCount', programming.acceptedCount, 'submission'),
-        acceptedRate: this.studentValue(evidence, input.studentId, 'programming.acceptedRate', programming.acceptedRate, 'ratio'),
-        averageScore: this.studentValue(evidence, input.studentId, 'programming.averageScore', programming.averageScore, 'score'),
+        submissionCount: collectStudentValue(evidence, input.studentId, 'programming.submissionCount', programming.submissionCount, 'submission'),
+        acceptedCount: collectStudentValue(evidence, input.studentId, 'programming.acceptedCount', programming.acceptedCount, 'submission'),
+        acceptedRate: collectStudentValue(evidence, input.studentId, 'programming.acceptedRate', programming.acceptedRate, 'ratio'),
+        averageScore: collectStudentValue(evidence, input.studentId, 'programming.averageScore', programming.averageScore, 'score'),
       },
       attendance: {
-        confirmedCount: this.studentValue(evidence, input.studentId, 'attendance.confirmedCount', attendance.length, 'attendance'),
-        presentCount: this.studentValue(evidence, input.studentId, 'attendance.presentCount', attendanceCount(AttendanceStatus.PRESENT), 'attendance'),
-        lateCount: this.studentValue(evidence, input.studentId, 'attendance.lateCount', attendanceCount(AttendanceStatus.LATE), 'attendance'),
-        leaveCount: this.studentValue(evidence, input.studentId, 'attendance.leaveCount', attendanceCount(AttendanceStatus.LEAVE), 'attendance'),
-        absentCount: this.studentValue(evidence, input.studentId, 'attendance.absentCount', attendanceCount(AttendanceStatus.ABSENT), 'attendance'),
-        attendanceRate: this.studentValue(evidence, input.studentId, 'attendance.attendanceRate', ratio(attendedCount, attendance.length), 'ratio'),
+        confirmedCount: collectStudentValue(evidence, input.studentId, 'attendance.confirmedCount', attendance.length, 'attendance'),
+        presentCount: collectStudentValue(evidence, input.studentId, 'attendance.presentCount', attendanceCount(AttendanceStatus.PRESENT), 'attendance'),
+        lateCount: collectStudentValue(evidence, input.studentId, 'attendance.lateCount', attendanceCount(AttendanceStatus.LATE), 'attendance'),
+        leaveCount: collectStudentValue(evidence, input.studentId, 'attendance.leaveCount', attendanceCount(AttendanceStatus.LEAVE), 'attendance'),
+        absentCount: collectStudentValue(evidence, input.studentId, 'attendance.absentCount', attendanceCount(AttendanceStatus.ABSENT), 'attendance'),
+        attendanceRate: collectStudentValue(evidence, input.studentId, 'attendance.attendanceRate', ratio(attendedCount, attendance.length), 'ratio'),
       },
-      lessons: input.lessons.map((lesson) => this.lessonActivity(evidence, input.studentId, lesson)),
-      scratchWorks: input.scratchWorks.map((work) => this.scratchActivity(evidence, input.studentId, work)),
+      lessons: input.lessons.map((lesson) => buildLessonActivity(evidence, input.studentId, lesson)),
+      scratchWorks: input.scratchWorks.map((work) => buildScratchActivity(evidence, input.studentId, work)),
       evidenceIndex: evidence.index,
     };
     assertSummaryDataset(dataset);
     return dataset;
   }
 
-  private scratchActivity(
-    evidence: EvidenceCollector,
-    studentId: string,
-    work: StudentScratchWork,
-  ): StudentSummaryDataset['scratchWorks'][number] {
-    const review = work.reviews[0];
-    const judge = work.judgeRuns[0];
-    return {
-      workId: work.id,
-      assignmentTitle: work.assignment.title,
-      sessionId: work.assignment.sessionId,
-      status: evidence.collect({
-        sourceType: 'scratch_work', sourceId: work.id, metric: 'status',
-        path: `/students/${studentId}/scratch-works/${work.id}/status`,
-        value: work.status.toLowerCase(), unit: 'status',
-      }),
-      versionCount: evidence.collect({
-        sourceType: 'scratch_work', sourceId: work.id, metric: 'versionCount',
-        path: `/students/${studentId}/scratch-works/${work.id}/versionCount`,
-        value: work.currentVersion, unit: 'version',
-      }),
-      submittedAt: work.submittedAt?.toISOString() ?? null,
-      latestReviewScore: evidence.collect({
-        sourceType: review ? 'scratch_review' : 'scratch_work', sourceId: review?.id ?? work.id,
-        metric: 'latestReviewScore', path: `/students/${studentId}/scratch-works/${work.id}/latestReviewScore`,
-        value: review?.score === null || review?.score === undefined ? null : Number(review.score), unit: 'score',
-      }),
-      latestReviewComment: evidence.collect({
-        sourceType: review ? 'scratch_review' : 'scratch_work', sourceId: review?.id ?? work.id,
-        metric: 'latestReviewComment', path: `/students/${studentId}/scratch-works/${work.id}/latestReviewComment`,
-        value: review?.comment ?? null, unit: 'text',
-      }),
-      latestJudgeStatus: evidence.collect({
-        sourceType: judge ? 'scratch_judge_run' : 'scratch_work', sourceId: judge?.id ?? work.id,
-        metric: 'latestJudgeStatus', path: `/students/${studentId}/scratch-works/${work.id}/latestJudgeStatus`,
-        value: judge?.status.toLowerCase() ?? null, unit: 'status',
-      }),
-      latestJudgeScore: evidence.collect({
-        sourceType: judge ? 'scratch_judge_run' : 'scratch_work', sourceId: judge?.id ?? work.id,
-        metric: 'latestJudgeScore', path: `/students/${studentId}/scratch-works/${work.id}/latestJudgeScore`,
-        value: judge?.score === null || judge?.score === undefined ? null : Number(judge.score), unit: 'score',
-      }),
-    };
-  }
-
-  private lessonActivity(
-    evidence: EvidenceCollector,
-    studentId: string,
-    lesson: StudentLesson,
-  ): StudentSummaryDataset['lessons'][number] {
-    const attendance = lesson.attendance[0];
-    const record = lesson.lessonRecord?.status === LessonRecordStatus.PUBLISHED
-      ? lesson.lessonRecord
-      : null;
-    return {
-      sessionId: lesson.id,
-      title: lesson.title,
-      startsAt: lesson.startsAt.toISOString(),
-      status: evidence.collect({
-        sourceType: 'lesson_session', sourceId: lesson.id, metric: 'status',
-        path: `/students/${studentId}/lessons/${lesson.id}/status`,
-        value: lesson.status.toLowerCase(), unit: 'status',
-      }),
-      lessonHours: evidence.collect({
-        sourceType: 'lesson_session', sourceId: lesson.id, metric: 'lessonHours',
-        path: `/students/${studentId}/lessons/${lesson.id}/lessonHours`,
-        value: Number(lesson.lessonHours), unit: 'hour',
-      }),
-      attendanceStatus: evidence.collect({
-        sourceType: attendance ? 'attendance' : 'lesson_session',
-        sourceId: attendance?.id ?? lesson.id,
-        metric: 'attendanceStatus',
-        path: `/students/${studentId}/lessons/${lesson.id}/attendanceStatus`,
-        value: attendance?.status.toLowerCase() ?? null,
-        unit: 'status',
-      }),
-      learningGoal: this.lessonRecordValue(
-        evidence, studentId, lesson.id, record?.id, 'learningGoal', record?.publicLearningGoal ?? null,
-      ),
-      classPerformance: this.lessonRecordValue(
-        evidence, studentId, lesson.id, record?.id, 'classPerformance', record?.publicClassPerformance ?? null,
-      ),
-      homework: this.lessonRecordValue(
-        evidence, studentId, lesson.id, record?.id, 'homework', record?.publicHomework ?? null,
-      ),
-    };
-  }
-
-  private lessonRecordValue(
-    evidence: EvidenceCollector,
-    studentId: string,
-    sessionId: string,
-    recordId: string | undefined,
-    metric: string,
-    value: string | null,
-  ) {
-    return evidence.collect({
-      sourceType: recordId ? 'lesson_record' : 'lesson_session',
-      sourceId: recordId ?? sessionId,
-      metric,
-      path: `/students/${studentId}/lessons/${sessionId}/${metric}`,
-      value,
-      unit: 'text',
-    });
-  }
-
-  private examPerformance(
-    evidence: EvidenceCollector,
-    studentId: string,
-    exam: DatasetInput['exams'][number],
-    attempt?: DatasetInput['gradedAttempts'][number],
-  ): StudentSummaryDataset['examPerformance'][number] {
-    const graded = attempt?.status === AttemptStatus.GRADED;
-    const status = !attempt ? 'not_submitted' : graded ? 'graded' : 'ungraded';
-    const score = graded ? Number(attempt.totalScore) : null;
-    const fullScore = Number(exam.paper.totalScore);
-    const statusSource = attempt
-      ? { sourceType: 'exam_attempt' as const, sourceId: attempt.id }
-      : { sourceType: 'exam' as const, sourceId: exam.id };
-    return {
-      examId: exam.id,
-      examName: exam.name,
-      endedAt: exam.endTime.toISOString(),
-      status: evidence.collect({
-        ...statusSource, metric: `student.${studentId}.status`,
-        path: `/students/${studentId}/exams/${exam.id}/status`, value: status, unit: 'status',
-      }),
-      submittedAt: attempt?.submittedAt?.toISOString() ?? null,
-      score: evidence.collect({
-        ...statusSource, metric: `student.${studentId}.score`,
-        path: `/students/${studentId}/exams/${exam.id}/score`, value: score, unit: 'score',
-      }),
-      fullScore: evidence.collect({
-        sourceType: 'exam', sourceId: exam.id, metric: 'fullScore',
-        path: `/students/${studentId}/exams/${exam.id}/fullScore`, value: fullScore, unit: 'score',
-      }),
-      scoreRate: evidence.collect({
-        ...statusSource, metric: `student.${studentId}.scoreRate`,
-        path: `/students/${studentId}/exams/${exam.id}/scoreRate`,
-        value: score === null ? null : ratio(score, fullScore), unit: 'ratio',
-      }),
-    };
-  }
-
-  private studentValue(evidence: EvidenceCollector, id: string, metric: string, value: number, unit: string) {
-    return evidence.collect({
-      sourceType: 'student', sourceId: id, metric,
-      path: `/students/${id}/summary/${metric}`, value, unit,
-    });
-  }
-
-  private knowledgeValue(evidence: EvidenceCollector, id: string, metric: string, value: number, unit: string) {
-    return evidence.collect({
-      sourceType: 'knowledge_point', sourceId: id, metric,
-      path: `/students/summary/knowledge-points/${id}/${metric}`, value, unit,
-    });
-  }
-
-  private normalizeScope(input: StudentSummaryScopeInput): NormalizedScope {
+  private normalizeScope(input: StudentSummaryScopeInput): NormalizedStudentSummaryScope {
     const examIds = [...new Set(input.examIds ?? [])].sort();
     if (examIds.length > MAX_SELECTED_EXAMS) throw new BadRequestException(`一次最多选择 ${MAX_SELECTED_EXAMS} 场考试`);
     const from = this.date(input.from, '开始时间');
@@ -619,24 +386,3 @@ export class StudentSummaryDatasetBuilder {
     return date;
   }
 }
-
-type NormalizedScope = {
-  studentId: string;
-  courseId?: string;
-  examIds: string[];
-  from?: Date;
-  to?: Date;
-};
-
-type DatasetInput = {
-  studentId: string;
-  scope: NormalizedScope;
-  exams: StudentExam[];
-  latestAttempts: Map<string, StudentAttempt>;
-  gradedAttempts: StudentAttempt[];
-  answers: StudentAnswerFact[];
-  wrongQuestions: StudentWrongQuestion[];
-  judgeSubmissions: Array<{ status: string; score: Prisma.Decimal | null }>;
-  lessons: StudentLesson[];
-  scratchWorks: StudentScratchWork[];
-};

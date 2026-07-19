@@ -1,5 +1,5 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
-import { CourseStatus, Prisma } from '@prisma/client';
+import { CourseStatus, CourseUnitStatus, Prisma } from '@prisma/client';
 import { toPagination } from '../../common/dto/pagination-query.dto';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateCourseDto } from './dto/create-course.dto';
@@ -98,15 +98,37 @@ export class CoursesService {
       throw new NotFoundException('课程不存在');
     }
 
-    const [knowledgePointCount, questionCount, paperCount, examCount] = await this.prisma.$transaction([
+    const [
+      knowledgePointCount,
+      questionCount,
+      paperCount,
+      examCount,
+      activeClassCount,
+      courseUnitCount,
+      lessonHourEntryCount,
+    ] = await this.prisma.$transaction([
       this.prisma.knowledgePoint.count({ where: { courseId: id, deletedAt: null } }),
       this.prisma.question.count({ where: { courseId: id, deletedAt: null } }),
       this.prisma.paper.count({ where: { courseId: id, deletedAt: null } }),
       this.prisma.exam.count({ where: { courseId: id, deletedAt: null } }),
+      this.prisma.classGroup.count({ where: { courseId: id, deletedAt: null, status: { not: 'archived' } } }),
+      this.prisma.courseUnitTemplate.count({ where: { courseId: id, status: { not: CourseUnitStatus.ARCHIVED } } }),
+      this.prisma.lessonHourLedger.count({ where: { courseId: id } }),
     ]);
 
-    if (knowledgePointCount || questionCount || paperCount || examCount) {
-      throw new BadRequestException('课程下仍有知识点、题目、试卷或考试，请先迁移/删除后再删除');
+    const references = [
+      ['知识点', knowledgePointCount],
+      ['题目', questionCount],
+      ['试卷', paperCount],
+      ['考试', examCount],
+      ['活动班级', activeClassCount],
+      ['课程单元', courseUnitCount],
+      ['课时台账', lessonHourEntryCount],
+    ] as const;
+    const blockers = references.filter(([, count]) => count > 0);
+    if (blockers.length) {
+      const summary = blockers.map(([label, count]) => `${label} ${count}`).join('、');
+      throw new BadRequestException(`课程仍有业务引用（${summary}），请先迁移或归档相关数据`);
     }
 
     await this.prisma.course.update({

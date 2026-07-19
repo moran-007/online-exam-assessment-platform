@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsDateString, IsInt, IsOptional, IsUUID, Max, Min } from 'class-validator';
+import { IsBoolean, IsDateString, IsInt, IsOptional, IsUUID, Max, Min } from 'class-validator';
 import { MAX_AI_OUTPUT_TOKENS, MIN_AI_OUTPUT_TOKENS } from '../ai-summary-limits';
 
 export class IntegratedSummaryRangeDto {
@@ -18,12 +18,19 @@ class IntegratedGenerationOptionsDto extends IntegratedSummaryRangeDto {
   configId?: string;
 
   @ApiPropertyOptional({
-    description: '本次输出上限；不传时使用模型配置上限',
+    description: '本次输出上限；配置与本次均为空时由供应商决定',
     minimum: MIN_AI_OUTPUT_TOKENS,
     maximum: MAX_AI_OUTPUT_TOKENS,
   })
   @IsOptional() @IsInt() @Min(MIN_AI_OUTPUT_TOKENS) @Max(MAX_AI_OUTPUT_TOKENS)
   maxTokens?: number;
+
+  @ApiPropertyOptional({
+    description: '仅重试相同失败任务时使用；true 表示用户已确认本次会再次调用供应商并记录用量',
+    default: false,
+  })
+  @IsOptional() @IsBoolean()
+  confirmRetry?: boolean;
 }
 
 export class CreateClassSummaryTaskDto extends IntegratedGenerationOptionsDto {

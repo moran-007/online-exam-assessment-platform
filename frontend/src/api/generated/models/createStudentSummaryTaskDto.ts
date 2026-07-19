@@ -9,13 +9,15 @@
 export interface CreateStudentSummaryTaskDto {
   /** 不传时按个人默认、系统默认顺序自动选择 */
   configId?: string;
+  /** 仅重试相同失败任务时使用；true 表示用户已确认本次会再次调用供应商并记录用量 */
+  confirmRetry?: boolean;
   courseId?: string;
   /** @maxItems 20 */
   examIds?: string[];
   /** 按考试结束时间筛选 */
   from?: string;
   /**
-     * 本次输出上限；不传时使用所选模型配置的输出上限
+     * 本次输出上限；配置与本次均为空时由供应商决定
      * @minimum 100
      * @maximum 8192
      */

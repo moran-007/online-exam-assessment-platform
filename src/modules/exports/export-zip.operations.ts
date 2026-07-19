@@ -1,229 +1,370 @@
-/* eslint-disable @typescript-eslint/no-unused-vars */
-import { BadRequestException, ForbiddenException, Injectable, NotFoundException, OnModuleInit } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { ExportStatus, MasteryStatus, Prisma, QuestionStatus, UserType, WrongQuestionSourceType } from '@prisma/client';
-import {
-  AlignmentType,
-  Document,
-  HeadingLevel,
-  Packer,
-  Paragraph,
-  TextRun,
-} from 'docx';
-import PDFDocument = require('pdfkit');
-import { existsSync } from 'node:fs';
-import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises';
-import { basename, extname, isAbsolute, join, relative, resolve } from 'node:path';
-import { toPagination } from '../../common/dto/pagination-query.dto';
-import { toApiEnum } from '../../common/utils/enum-normalizer';
-import { RequestUser } from '../../common/interfaces/request-user.interface';
-import ExcelJS = require('exceljs');
-import { AuditService } from '../audit/audit.service';
-import { DataScopeService } from '../data-scope/data-scope.service';
-import { PrismaService } from '../prisma/prisma.service';
-import { CreateExportDto } from './dto/create-export.dto';
-import { QueryExportDto } from './dto/query-export.dto';
+import { BadRequestException } from '@nestjs/common';
+import { createReadStream, createWriteStream } from 'node:fs';
+import { join } from 'node:path';
+import { Readable } from 'node:stream';
+import { finished, pipeline } from 'node:stream/promises';
+import { ZipFile } from 'yazl';
+import { ExportsContext } from './exports.context';
+import { writeExportFileAtomically } from './export-file.operations';
 
-type ExportQuestion = {
-  sourceId?: string;
-  title: string;
-  type: string;
-  score: number;
-  defaultScore?: number;
-  difficulty?: number;
-  status?: string;
-  courseId?: string;
-  courseName?: string;
-  content: string;
-  options: Array<{ id?: string; label: string; content: string; isCorrect?: boolean; sortOrder?: number }>;
-  answer?: Record<string, unknown> | null;
-  scoringRule?: Record<string, unknown> | null;
-  analysis?: string | null;
-  sectionTitle?: string;
-  tagNames?: string[];
-  knowledgePointNames?: string[];
-  allowOptionShuffle?: boolean;
-  wrongCount?: number;
-  lastWrongAt?: Date;
-};
-
-type DocumentExportContent = {
-  title: string;
-  subtitle: string;
-  questions: ExportQuestion[];
-  includeAnswers: boolean;
-  includeAnalysis: boolean;
-  includeWrongInfo: boolean;
-  template?: string;
-};
-
-type MarkdownSegment =
-  | { type: 'text'; value: string }
-  | { type: 'image'; alt: string; src: string };
-
-type QuestionExportEntity = Prisma.QuestionGetPayload<{
-  include: {
-    course: true;
-    options: true;
-    answer: true;
-    tags: { include: { tag: true } };
-    knowledgePoints: { include: { knowledgePoint: true } };
-  };
-}>;
-
-type FullArchivePaper = Prisma.PaperGetPayload<{
-  include: {
-    course: true;
-    _count: { select: { sections: true; questions: true; exams: true } };
-  };
-}>;
-
-type ZipEntry = {
+type ZipEntryBase = {
   name: string;
-  data: Buffer;
   date?: Date;
 };
-import { ExportsContext } from './exports.context';
-export function createZip(ctx: ExportsContext, entries: ZipEntry[]) {
-    const localParts: Buffer[] = [];
-    const centralParts: Buffer[] = [];
-    let offset = 0;
 
-    for (const entry of entries) {
-      const name = entry.name.replace(/\\/g, '/');
-      const nameBuffer = Buffer.from(name, 'utf8');
-      const data = entry.data;
-      const crc = crc32(ctx, data);
-      const { time, date } = toDosDateTime(ctx, entry.date ?? new Date());
+export type ZipEntry = ZipEntryBase & (
+  | { data: Buffer | string; filePath?: never; stream?: never }
+  | { data?: never; filePath: string; stream?: never }
+  | { data?: never; filePath?: never; stream: () => Readable }
+);
 
-      const localHeader = Buffer.alloc(30);
-      localHeader.writeUInt32LE(0x04034b50, 0);
-      localHeader.writeUInt16LE(20, 4);
-      localHeader.writeUInt16LE(0x0800, 6);
-      localHeader.writeUInt16LE(0, 8);
-      localHeader.writeUInt16LE(time, 10);
-      localHeader.writeUInt16LE(date, 12);
-      localHeader.writeUInt32LE(crc, 14);
-      localHeader.writeUInt32LE(data.length, 18);
-      localHeader.writeUInt32LE(data.length, 22);
-      localHeader.writeUInt16LE(nameBuffer.length, 26);
-      localHeader.writeUInt16LE(0, 28);
-      localParts.push(localHeader, nameBuffer, data);
+export type ExportRowSource =
+  | Iterable<Record<string, unknown>>
+  | AsyncIterable<Record<string, unknown>>;
 
-      const centralHeader = Buffer.alloc(46);
-      centralHeader.writeUInt32LE(0x02014b50, 0);
-      centralHeader.writeUInt16LE(20, 4);
-      centralHeader.writeUInt16LE(20, 6);
-      centralHeader.writeUInt16LE(0x0800, 8);
-      centralHeader.writeUInt16LE(0, 10);
-      centralHeader.writeUInt16LE(time, 12);
-      centralHeader.writeUInt16LE(date, 14);
-      centralHeader.writeUInt32LE(crc, 16);
-      centralHeader.writeUInt32LE(data.length, 20);
-      centralHeader.writeUInt32LE(data.length, 24);
-      centralHeader.writeUInt16LE(nameBuffer.length, 28);
-      centralHeader.writeUInt16LE(0, 30);
-      centralHeader.writeUInt16LE(0, 32);
-      centralHeader.writeUInt16LE(0, 34);
-      centralHeader.writeUInt16LE(0, 36);
-      centralHeader.writeUInt32LE(0, 38);
-      centralHeader.writeUInt32LE(offset, 42);
-      centralParts.push(centralHeader, nameBuffer);
+export class StreamingZipWriter {
+  private readonly zip = new ZipFile();
+  private readonly output: Readable;
+  private readonly outputCompletion: Promise<void>;
+  private closed = false;
 
-      offset += localHeader.length + nameBuffer.length + data.length;
-    }
-
-    const central = Buffer.concat(centralParts);
-    const end = Buffer.alloc(22);
-    end.writeUInt32LE(0x06054b50, 0);
-    end.writeUInt16LE(0, 4);
-    end.writeUInt16LE(0, 6);
-    end.writeUInt16LE(entries.length, 8);
-    end.writeUInt16LE(entries.length, 10);
-    end.writeUInt32LE(central.length, 12);
-    end.writeUInt32LE(offset, 16);
-    end.writeUInt16LE(0, 20);
-
-    return Buffer.concat([...localParts, central, end]);
+  constructor(filePath: string) {
+    this.output = this.zip.outputStream as Readable;
+    this.zip.once('error', (error) => this.output.destroy(error));
+    this.outputCompletion = pipeline(this.output, createWriteStream(filePath));
   }
 
-export function crc32(ctx: ExportsContext, buffer: Buffer) {
-    let crc = 0xffffffff;
-    for (const byte of buffer) {
-      crc = (crc >>> 8) ^ ctx.crc32Table[(crc ^ byte) & 0xff];
+  async addEntry(entry: ZipEntry, prefix = '') {
+    if (this.closed) throw new Error('ZIP writer is already closed');
+    const name = normalizeZipEntryName(prefix, entry.name);
+    const options = entry.date ? { mtime: entry.date } : undefined;
+
+    if (entry.filePath !== undefined) {
+      const input = createReadStream(entry.filePath, { highWaterMark: 64 * 1024 });
+      this.zip.addReadStream(input, name, options);
+      await finished(input);
+      return;
     }
-    return (crc ^ 0xffffffff) >>> 0;
+
+    if (entry.stream !== undefined) {
+      const input = entry.stream();
+      this.zip.addReadStream(input, name, options);
+      await finished(input);
+      return;
+    }
+
+    const input = Readable.from([entry.data]);
+    this.zip.addReadStream(input, name, {
+      ...options,
+      size: typeof entry.data === 'string' ? Buffer.byteLength(entry.data) : entry.data.length,
+    });
+    await finished(input);
   }
 
-export function makeCrc32Table(ctx: ExportsContext) {
-    const table = new Uint32Array(256);
-    for (let i = 0; i < 256; i += 1) {
-      let value = i;
-      for (let bit = 0; bit < 8; bit += 1) {
-        value = value & 1 ? 0xedb88320 ^ (value >>> 1) : value >>> 1;
-      }
-      table[i] = value >>> 0;
-    }
-    return table;
+  async addEntries(entries: Iterable<ZipEntry>, prefix = '') {
+    for (const entry of entries) await this.addEntry(entry, prefix);
   }
 
-export function toDosDateTime(ctx: ExportsContext, value: Date) {
-    const year = Math.max(1980, value.getFullYear());
-    const month = value.getMonth() + 1;
-    const day = value.getDate();
-    const hours = value.getHours();
-    const minutes = value.getMinutes();
-    const seconds = Math.floor(value.getSeconds() / 2);
-    return {
-      time: (hours << 11) | (minutes << 5) | seconds,
-      date: ((year - 1980) << 9) | (month << 5) | day,
-    };
+  async close() {
+    if (this.closed) return this.outputCompletion;
+    this.closed = true;
+    this.zip.end();
+    await this.outputCompletion;
   }
 
-export function safeZipName(ctx: ExportsContext, value: string) {
-    const withoutControlCharacters = [...String(value || '')]
-      .map((character) => character.charCodeAt(0) < 32 ? '_' : character)
-      .join('');
-    return withoutControlCharacters
-      .replace(/[<>:"\\|?*]/g, '_')
-      .replace(/\s+/g, '_')
-      .slice(0, 160);
+  async abort(error: unknown) {
+    this.closed = true;
+    this.output.destroy(error instanceof Error ? error : new Error(String(error)));
+    await this.outputCompletion.catch(() => undefined);
   }
+}
 
-export async function writeTableExportFile(ctx: ExportsContext, taskId: string, type: string, format: string, rows: Array<Record<string, unknown>>) {
-    if (!['csv', 'xlsx', 'json'].includes(format)) {
-      throw new BadRequestException('表格类导出仅支持 CSV、XLSX 或 JSON；PDF/Word 请使用“试卷文档”或“错题导出”');
+export async function writeZipArchive(
+  filePath: string,
+  addEntries: (writer: StreamingZipWriter) => Promise<void>,
+) {
+  await writeExportFileAtomically(filePath, async (partialPath) => {
+    const writer = new StreamingZipWriter(partialPath);
+    try {
+      await addEntries(writer);
+      await writer.close();
+    } catch (error) {
+      await writer.abort(error);
+      throw error;
     }
-    await mkdir(ctx.exportDir, { recursive: true });
-    const ext = format;
-    const fileName = `${type}-${taskId}.${ext}`;
-    const filePath = join(ctx.exportDir, fileName);
-    if (format === 'xlsx') {
-      const workbook = new ExcelJS.Workbook();
-      const worksheet = workbook.addWorksheet('导出数据');
-      const headers = rows.length ? Object.keys(rows[0]) : [];
-      worksheet.columns = headers.map((header) => ({ header, key: header, width: 18 }));
-      rows.forEach((row) => worksheet.addRow(row));
-      worksheet.views = [{ state: 'frozen', ySplit: 1 }];
-      if (worksheet.getRow(1).cellCount) worksheet.getRow(1).font = { bold: true };
-      await workbook.xlsx.writeFile(filePath);
-      return `/uploads/exports/${fileName}`;
-    }
-    const content = format === 'json' ? JSON.stringify(rows, null, 2) : toCsv(ctx, rows);
-    await writeFile(filePath, content, 'utf8');
+  });
+}
+
+export async function writeZipFile(filePath: string, entries: Iterable<ZipEntry>) {
+  await writeZipArchive(filePath, (writer) => writer.addEntries(entries));
+}
+
+export function csvZipStreamEntry(name: string, rows: ExportRowSource): ZipEntry {
+  return { name, stream: () => Readable.from(csvChunks(rows)) };
+}
+
+function normalizeZipEntryName(prefix: string, name: string) {
+  const combined = [prefix, name]
+    .filter(Boolean)
+    .join('/')
+    .replace(/\\/g, '/');
+  const parts = combined.split('/');
+  if (
+    !combined
+    || combined.startsWith('/')
+    || /^[a-zA-Z]:\//.test(combined)
+    || parts.some((part) => !part || part === '.' || part === '..')
+  ) {
+    throw new Error(`ZIP entry path is unsafe: ${combined || '<empty>'}`);
+  }
+  return combined;
+}
+
+export function safeZipName(_ctx: ExportsContext, value: string) {
+  const withoutControlCharacters = [...String(value || '')]
+    .map((character) => character.charCodeAt(0) < 32 ? '_' : character)
+    .join('');
+  return withoutControlCharacters
+    .replace(/[<>:"\\|?*]/g, '_')
+    .replace(/\s+/g, '_')
+    .slice(0, 160);
+}
+
+export async function writeTableExportFile(
+  ctx: ExportsContext,
+  taskId: string,
+  type: string,
+  format: string,
+  rows: ExportRowSource,
+) {
+  if (!['csv', 'xlsx', 'json'].includes(format)) {
+    throw new BadRequestException('表格类导出仅支持 CSV、XLSX 或 JSON；PDF/Word 请使用“试卷文档”或“错题导出”');
+  }
+  const fileName = `${type}-${taskId}.${format}`;
+  const filePath = join(ctx.exportDir, fileName);
+
+  if (format === 'xlsx') {
+    await writeStreamingWorkbook(filePath, rows);
     return `/uploads/exports/${fileName}`;
   }
 
-export function toCsv(ctx: ExportsContext, rows: Array<Record<string, unknown>>) {
-    if (!rows.length) return '';
-    const headers = Object.keys(rows[0]);
-    const lines = rows.map((row) =>
-      headers
-        .map((header) => {
-          const value = row[header] ?? '';
-          return `"${String(value).replace(/"/g, '""')}"`;
-        })
-        .join(','),
-    );
-    return [`\uFEFF${headers.join(',')}`, ...lines].join('\n');
+  await writeExportFileAtomically(filePath, async (partialPath) => {
+    const chunks = format === 'json' ? jsonChunks(rows) : csvChunks(rows);
+    await pipeline(Readable.from(chunks), createWriteStream(partialPath));
+  });
+  return `/uploads/exports/${fileName}`;
+}
+
+async function writeStreamingWorkbook(filePath: string, rows: ExportRowSource) {
+  await writeZipArchive(filePath, async (writer) => {
+    await writer.addEntries([
+      { name: '[Content_Types].xml', data: XLSX_CONTENT_TYPES },
+      { name: '_rels/.rels', data: XLSX_ROOT_RELS },
+      { name: 'docProps/app.xml', data: XLSX_APP_PROPERTIES },
+      { name: 'docProps/core.xml', data: xlsxCoreProperties() },
+      { name: 'xl/styles.xml', data: XLSX_STYLES },
+      { name: 'xl/workbook.xml', data: XLSX_WORKBOOK },
+      { name: 'xl/_rels/workbook.xml.rels', data: XLSX_WORKBOOK_RELS },
+      { name: 'xl/worksheets/sheet1.xml', stream: () => Readable.from(worksheetXmlChunks(rows)) },
+    ]);
+  });
+}
+
+async function* worksheetXmlChunks(rows: ExportRowSource) {
+  const iterator = toAsyncIterator(rows);
+  const first = await iterator.next();
+  const headers = first.done ? [] : Object.keys(first.value);
+  yield XLSX_WORKSHEET_START;
+  if (headers.length) yield xlsxRow(1, headers, headers, 1);
+  let rowNumber = 2;
+  if (!first.done) yield xlsxRow(rowNumber++, headers, first.value);
+  for await (const row of remainingRows(iterator)) yield xlsxRow(rowNumber++, headers, row);
+  yield '</sheetData><autoFilter ref="A1:';
+  yield `${columnName(Math.max(headers.length, 1))}1"/>`;
+  yield '<pageMargins left="0.7" right="0.7" top="0.75" bottom="0.75" header="0.3" footer="0.3"/></worksheet>';
+}
+
+function xlsxRow(
+  rowNumber: number,
+  headers: string[],
+  values: Record<string, unknown> | string[],
+  style = 0,
+) {
+  const cells = headers.map((header, index) => {
+    const value = Array.isArray(values) ? values[index] : values[header];
+    return xlsxCell(`${columnName(index + 1)}${rowNumber}`, value, style);
+  }).join('');
+  return `<row r="${rowNumber}">${cells}</row>`;
+}
+
+function xlsxCell(reference: string, value: unknown, style: number) {
+  const styleAttribute = style ? ` s="${style}"` : '';
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return `<c r="${reference}"${styleAttribute}><v>${value}</v></c>`;
   }
+  if (typeof value === 'boolean') {
+    return `<c r="${reference}" t="b"${styleAttribute}><v>${value ? 1 : 0}</v></c>`;
+  }
+  const text = serializeCellValue(value);
+  return `<c r="${reference}" t="inlineStr"${styleAttribute}><is><t xml:space="preserve">${escapeXml(text)}</t></is></c>`;
+}
+
+function serializeCellValue(value: unknown) {
+  if (value === null || value === undefined) return '';
+  if (value instanceof Date) return value.toISOString();
+  if (typeof value === 'object') return stringifyJson(value);
+  return String(value);
+}
+
+function columnName(index: number) {
+  let value = index;
+  let result = '';
+  while (value > 0) {
+    value -= 1;
+    result = String.fromCharCode(65 + (value % 26)) + result;
+    value = Math.floor(value / 26);
+  }
+  return result;
+}
+
+function escapeXml(value: string) {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
+}
+
+const XML_HEADER = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>';
+const XLSX_CONTENT_TYPES = XML_HEADER + [
+  '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">',
+  '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>',
+  '<Default Extension="xml" ContentType="application/xml"/>',
+  '<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>',
+  '<Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>',
+  '<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>',
+  '<Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/>',
+  '<Override PartName="/docProps/app.xml" ContentType="application/vnd.openxmlformats-officedocument.extended-properties+xml"/>',
+  '</Types>',
+].join('');
+
+const XLSX_ROOT_RELS = XML_HEADER + [
+  '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">',
+  '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>',
+  '<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"/>',
+  '<Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/extended-properties" Target="docProps/app.xml"/>',
+  '</Relationships>',
+].join('');
+
+const XLSX_APP_PROPERTIES = XML_HEADER + [
+  '<Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties" ',
+  'xmlns:vt="http://schemas.openxmlformats.org/officeDocument/2006/docPropsVTypes">',
+  '<Application>Online Exam Assessment Platform</Application>',
+  '<DocSecurity>0</DocSecurity><ScaleCrop>false</ScaleCrop>',
+  '<HeadingPairs><vt:vector size="2" baseType="variant"><vt:variant><vt:lpstr>Worksheets</vt:lpstr></vt:variant>',
+  '<vt:variant><vt:i4>1</vt:i4></vt:variant></vt:vector></HeadingPairs>',
+  '<TitlesOfParts><vt:vector size="1" baseType="lpstr"><vt:lpstr>导出数据</vt:lpstr></vt:vector></TitlesOfParts>',
+  '<Company></Company><LinksUpToDate>false</LinksUpToDate><SharedDoc>false</SharedDoc>',
+  '<HyperlinksChanged>false</HyperlinksChanged><AppVersion>1.0</AppVersion></Properties>',
+].join('');
+
+const XLSX_STYLES = XML_HEADER + [
+  '<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">',
+  '<fonts count="2"><font><sz val="11"/><name val="Calibri"/></font>',
+  '<font><b/><sz val="11"/><name val="Calibri"/></font></fonts>',
+  '<fills count="2"><fill><patternFill patternType="none"/></fill>',
+  '<fill><patternFill patternType="gray125"/></fill></fills>',
+  '<borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders>',
+  '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>',
+  '<cellXfs count="2"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>',
+  '<xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"/></cellXfs>',
+  '<cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>',
+  '</styleSheet>',
+].join('');
+
+const XLSX_WORKBOOK = XML_HEADER + [
+  '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" ',
+  'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">',
+  '<sheets><sheet name="导出数据" sheetId="1" r:id="rId1"/></sheets></workbook>',
+].join('');
+
+const XLSX_WORKBOOK_RELS = XML_HEADER + [
+  '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">',
+  '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>',
+  '<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>',
+  '</Relationships>',
+].join('');
+
+const XLSX_WORKSHEET_START = XML_HEADER + [
+  '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">',
+  '<sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" ',
+  'activePane="bottomLeft" state="frozen"/></sheetView></sheetViews><sheetData>',
+].join('');
+
+function xlsxCoreProperties() {
+  const createdAt = new Date().toISOString();
+  return XML_HEADER + [
+    '<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" ',
+    'xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:dcterms="http://purl.org/dc/terms/" ',
+    'xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">',
+    '<dc:creator>Online Exam Assessment Platform</dc:creator>',
+    `<dcterms:created xsi:type="dcterms:W3CDTF">${createdAt}</dcterms:created>`,
+    `<dcterms:modified xsi:type="dcterms:W3CDTF">${createdAt}</dcterms:modified>`,
+    '</cp:coreProperties>',
+  ].join('');
+}
+
+async function* csvChunks(rows: ExportRowSource) {
+  const iterator = toAsyncIterator(rows);
+  const first = await iterator.next();
+  if (first.done) return;
+  const headers = Object.keys(first.value);
+  yield `\uFEFF${headers.join(',')}`;
+  yield `\n${csvRow(headers, first.value)}`;
+  for await (const row of remainingRows(iterator)) yield `\n${csvRow(headers, row)}`;
+}
+
+async function* jsonChunks(rows: ExportRowSource) {
+  yield '[';
+  let index = 0;
+  for await (const row of toAsyncIterable(rows)) {
+    const serialized = stringifyJson(row, 2).replace(/^/gm, '  ');
+    yield `${index ? ',\n' : '\n'}${serialized}`;
+    index += 1;
+  }
+  yield index ? '\n]' : ']';
+}
+
+export function toCsv(_ctx: ExportsContext, rows: Array<Record<string, unknown>>) {
+  if (!rows.length) return '';
+  const headers = Object.keys(rows[0]);
+  return [`\uFEFF${headers.join(',')}`, ...rows.map((row) => csvRow(headers, row))].join('\n');
+}
+
+function csvRow(headers: string[], row: Record<string, unknown>) {
+  return headers
+    .map((header) => `"${String(row[header] ?? '').replace(/"/g, '""')}"`)
+    .join(',');
+}
+
+function stringifyJson(value: unknown, spacing?: number) {
+  return JSON.stringify(value, (_key, item) => typeof item === 'bigint' ? item.toString() : item, spacing);
+}
+
+function toAsyncIterable(rows: ExportRowSource): AsyncIterable<Record<string, unknown>> {
+  if (Symbol.asyncIterator in rows) return rows;
+  return Readable.from(rows) as AsyncIterable<Record<string, unknown>>;
+}
+
+function toAsyncIterator(rows: ExportRowSource): AsyncIterator<Record<string, unknown>> {
+  return toAsyncIterable(rows)[Symbol.asyncIterator]();
+}
+
+async function* remainingRows(iterator: AsyncIterator<Record<string, unknown>>) {
+  while (true) {
+    const next = await iterator.next();
+    if (next.done) return;
+    yield next.value;
+  }
+}

@@ -104,7 +104,9 @@
         <el-form-item label="超时 / 配置上限">
           <div class="toolbar">
             <el-input-number v-model="form.timeoutMs" :min="3000" :max="120000" :step="1000" /> ms
-            <el-input-number v-model="form.maxTokens" :min="1" :max="8192" /> Token（必填安全上限）
+            <el-input-number v-model="form.maxTokens" :min="1" :max="8192" placeholder="不限制" />
+            <span>Token（可选；留空由供应商决定）</span>
+            <el-button v-if="form.maxTokens !== undefined" link @click="form.maxTokens = undefined">清除</el-button>
           </div>
         </el-form-item>
         <el-form-item label="月度预算">

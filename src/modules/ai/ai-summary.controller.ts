@@ -1,5 +1,5 @@
 import { Body, Controller, Get, Param, ParseUUIDPipe, Post, Query } from '@nestjs/common';
-import { ApiBearerAuth, ApiCreatedResponse, ApiOkResponse, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiConflictResponse, ApiCreatedResponse, ApiOkResponse, ApiTags } from '@nestjs/swagger';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Permissions } from '../../common/decorators/permissions.decorator';
 import { RequestUser } from '../../common/interfaces/request-user.interface';
@@ -43,6 +43,7 @@ export class AiSummaryController {
   @Post('exams')
   @Permissions('ai.summary.exam.generate')
   @ApiCreatedResponse({ type: AiSummaryTaskResponseDto })
+  @ApiConflictResponse({ description: '相同任务上次失败；必须由用户确认后以 confirmRetry=true 重试' })
   create(@Body() dto: CreateExamSummaryTaskDto, @CurrentUser() user: RequestUser) {
     return this.tasks.create(dto, user);
   }
@@ -61,6 +62,7 @@ export class AiSummaryController {
   @Post('students')
   @Permissions('ai.summary.student.generate')
   @ApiCreatedResponse({ type: AiSummaryTaskResponseDto })
+  @ApiConflictResponse({ description: '相同任务上次失败；必须由用户确认后以 confirmRetry=true 重试' })
   createStudent(@Body() dto: CreateStudentSummaryTaskDto, @CurrentUser() user: RequestUser) {
     return this.studentTasks.create(dto, user);
   }

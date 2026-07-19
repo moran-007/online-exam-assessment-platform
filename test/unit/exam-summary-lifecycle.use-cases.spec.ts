@@ -50,12 +50,12 @@ describe('AiSummaryLifecycleUseCases', () => {
     const deps = dependencies(current, current, 1);
     deps.tasks.create.mockResolvedValue({ id: 'new-task', status: 'succeeded' });
 
-    await deps.service.regenerate(current.id, { maxTokens: 1000 }, user);
+    await deps.service.regenerate(current.id, { maxTokens: 1000, confirmRetry: true }, user);
 
     expect(deps.tasks.create).toHaveBeenCalledWith(
       { examId: current.subjectId, configId: undefined, maxTokens: 1000 },
       user,
-      { generationKey: expect.any(String), sourceSummaryId: current.id },
+      { generationKey: expect.any(String), sourceSummaryId: current.id, confirmRetry: true },
     );
     expect(deps.audit.log).toHaveBeenCalledWith(expect.objectContaining({ action: 'ai:summary-regenerate' }));
   });
