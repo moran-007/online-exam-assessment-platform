@@ -4,6 +4,7 @@ import { ApiBearerAuth, ApiConsumes, ApiTags } from '@nestjs/swagger';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Permissions } from '../../common/decorators/permissions.decorator';
 import { RequestUser } from '../../common/interfaces/request-user.interface';
+import { contentTypeWithCharset } from '../../common/http/content-type';
 import { Public } from '../../common/decorators/public.decorator';
 import { AssetTokenService } from './asset-token.service';
 import { UploadsService } from './uploads.service';
@@ -92,7 +93,7 @@ export class UploadsController {
 
   private setContentHeaders(response: any, mimeType: string, displayName: string, disposition: 'inline' | 'attachment') {
     const encoded = encodeURIComponent(displayName).replace(/['()]/g, escape);
-    response.setHeader('Content-Type', mimeType);
+    response.setHeader('Content-Type', contentTypeWithCharset(mimeType));
     response.setHeader('Content-Disposition', `${disposition}; filename*=UTF-8''${encoded}`);
     response.setHeader('Cache-Control', 'private, no-store');
     response.setHeader('X-Content-Type-Options', 'nosniff');

@@ -3,6 +3,7 @@ import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Permissions } from '../../common/decorators/permissions.decorator';
 import { RequestUser } from '../../common/interfaces/request-user.interface';
+import { contentTypeWithCharset } from '../../common/http/content-type';
 import {
   ApiBinaryResponse,
   ApiCreatedRecordResponse,
@@ -93,7 +94,7 @@ export class ExportsController {
     @Res({ passthrough: true }) response: any,
   ) {
     const file = await this.queries.download(id, user);
-    response.setHeader('Content-Type', file.mimeType);
+    response.setHeader('Content-Type', contentTypeWithCharset(file.mimeType));
     response.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(file.fileName)}`);
     response.setHeader('Cache-Control', 'private, no-store');
     response.setHeader('X-Content-Type-Options', 'nosniff');

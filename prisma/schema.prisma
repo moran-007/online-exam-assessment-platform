@@ -298,6 +298,26 @@ enum LessonHourLedgerType {
   MANUAL_ADJUSTMENT @map("manual_adjustment")
 }
 
+enum LessonRecordStatus {
+  DRAFT     @map("draft")
+  SUBMITTED @map("submitted")
+  PUBLISHED @map("published")
+}
+
+enum LessonRecordVersionAction {
+  SAVE_DRAFT   @map("save_draft")
+  SUBMIT       @map("submit")
+  PUBLISH      @map("publish")
+  ASSET_ADD    @map("asset_add")
+  ASSET_REMOVE @map("asset_remove")
+  IMPORT       @map("import")
+}
+
+enum LessonAssetAudience {
+  INTERNAL @map("internal")
+  LEARNER  @map("learner")
+}
+
 model User {
   id                 String     @id @default(uuid()) @db.Uuid
   username           String     @unique @db.VarChar(64)
@@ -714,6 +734,7 @@ model LessonSession {
   derivedSessions LessonSession[]     @relation("SessionDerivation")
   attendance      AttendanceRecord[]
   hourEntries     LessonHourLedger[]
+  lessonRecord    LessonRecord?
 
   @@unique([sourceSystem, legacyId])
   @@index([classId, startsAt])
@@ -721,6 +742,80 @@ model LessonSession {
   @@index([status, startsAt])
   @@index([scheduleRuleId, startsAt])
   @@map("lesson_sessions")
+}
+
+model LessonRecord {
+  id                       String             @id @default(uuid()) @db.Uuid
+  sessionId                String             @unique @map("session_id") @db.Uuid
+  status                   LessonRecordStatus @default(DRAFT)
+  version                  Int                @default(1)
+  internalTeachingNotes    String?            @map("internal_teaching_notes") @db.Text
+  internalClassPerformance String?            @map("internal_class_performance") @db.Text
+  publicTeachingContent    String?            @map("public_teaching_content") @db.Text
+  publicLearningGoal       String?            @map("public_learning_goal") @db.Text
+  publicClassPerformance   String?            @map("public_class_performance") @db.Text
+  publicHomework           String?            @map("public_homework") @db.Text
+  publicNextPlan           String?            @map("public_next_plan") @db.Text
+  publicMaterials          String?            @map("public_materials") @db.Text
+  submittedBy              String?            @map("submitted_by") @db.Uuid
+  submittedAt              DateTime?          @map("submitted_at") @db.Timestamptz(3)
+  publishedBy              String?            @map("published_by") @db.Uuid
+  publishedAt              DateTime?          @map("published_at") @db.Timestamptz(3)
+  sourceSystem             String?            @map("source_system") @db.VarChar(64)
+  legacyId                 String?            @map("legacy_id") @db.VarChar(128)
+  createdBy                String?            @map("created_by") @db.Uuid
+  updatedBy                String?            @map("updated_by") @db.Uuid
+  createdAt                DateTime           @default(now()) @map("created_at")
+  updatedAt                DateTime           @updatedAt @map("updated_at")
+
+  session  LessonSession         @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  versions LessonRecordVersion[]
+  assets   LessonAsset[]
+
+  @@unique([sourceSystem, legacyId])
+  @@index([status, publishedAt])
+  @@map("lesson_records")
+}
+
+model LessonRecordVersion {
+  id           String                    @id @default(uuid()) @db.Uuid
+  recordId     String                    @map("record_id") @db.Uuid
+  version      Int
+  status       LessonRecordStatus
+  action       LessonRecordVersionAction
+  snapshotJson Json                      @map("snapshot_json")
+  reason       String?                   @db.Text
+  createdBy    String?                   @map("created_by") @db.Uuid
+  createdAt    DateTime                  @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  record LessonRecord @relation(fields: [recordId], references: [id], onDelete: Restrict)
+
+  @@unique([recordId, version])
+  @@index([createdBy, createdAt])
+  @@map("lesson_record_versions")
+}
+
+model LessonAsset {
+  id           String              @id @default(uuid()) @db.Uuid
+  recordId     String              @map("record_id") @db.Uuid
+  fileAssetId  String              @map("file_asset_id") @db.Uuid
+  audience     LessonAssetAudience @default(INTERNAL)
+  title        String?             @db.VarChar(180)
+  note         String?             @db.Text
+  sortOrder    Int                 @default(0) @map("sort_order")
+  sourceSystem String?             @map("source_system") @db.VarChar(64)
+  legacyId     String?             @map("legacy_id") @db.VarChar(128)
+  createdBy    String?             @map("created_by") @db.Uuid
+  createdAt    DateTime            @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  record    LessonRecord @relation(fields: [recordId], references: [id], onDelete: Cascade)
+  fileAsset FileAsset    @relation(fields: [fileAssetId], references: [id], onDelete: Restrict)
+
+  @@unique([recordId, fileAssetId])
+  @@unique([sourceSystem, legacyId])
+  @@index([recordId, audience, sortOrder])
+  @@index([fileAssetId])
+  @@map("lesson_assets")
 }
 
 model AttendanceRecord {
@@ -1668,6 +1763,8 @@ model FileAsset {
   createdBy  String?        @map("created_by") @db.Uuid
   createdAt  DateTime       @default(now()) @map("created_at")
   deletedAt  DateTime?      @map("deleted_at")
+
+  lessonAssets LessonAsset[]
 
   @@map("files")
 }

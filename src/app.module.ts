@@ -25,6 +25,7 @@ import { HealthModule } from './modules/health/health.module';
 import { HydroModule } from './modules/hydro/hydro.module';
 import { KnowledgePointsModule } from './modules/knowledge-points/knowledge-points.module';
 import { LegacyMigrationModule } from './modules/legacy-migration/legacy-migration.module';
+import { LessonRecordsModule } from './modules/lesson-records/lesson-records.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
 import { PapersModule } from './modules/papers/papers.module';
 import { PrismaModule } from './modules/prisma/prisma.module';
@@ -105,6 +106,7 @@ import { ObservabilityModule } from './observability/observability.module';
     AuditModule,
     AcademicProfilesModule,
     AcademicOperationsModule,
+    LessonRecordsModule,
     AiModule,
     UsersModule,
     AuthModule,

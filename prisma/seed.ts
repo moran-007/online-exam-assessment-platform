@@ -52,6 +52,11 @@ const permissions = [
   ['lesson-hour:read', '按数据范围查看课时余额与台账'],
   ['lesson-hour:adjust', '新增购买、赠送、退款和人工调整'],
   ['lesson-hour:reconcile', '重算并核对课时台账'],
+  ['lesson-record:read', '按数据范围查看教学记录和已发布学习内容'],
+  ['lesson-record:manage', '保存草稿、提交教学记录和维护附件'],
+  ['lesson-record:publish', '审核并发布教学记录'],
+  ['lesson-asset:manage', '上传和移除课次附件'],
+  ['lesson-asset:download', '在教学记录数据范围内预览和下载附件'],
   ['statistics:read', '查看统计'], ['audit-log:read', '查看审计日志'],
 ] as const;
 
@@ -148,6 +153,11 @@ async function main() {
         'attendance:confirm',
         'attendance:correct',
         'lesson-hour:read',
+        'lesson-record:read',
+        'lesson-record:manage',
+        'lesson-record:publish',
+        'lesson-asset:manage',
+        'lesson-asset:download',
       ],
     },
     {
@@ -155,13 +165,16 @@ async function main() {
       name: '学生',
       permissions: [
         'course:read', 'knowledge-point:read', 'tag:read', 'ai.summary.view-own', 'academic-profile:read',
-        'schedule:read', 'attendance:read', 'lesson-hour:read',
+        'schedule:read', 'attendance:read', 'lesson-hour:read', 'lesson-record:read', 'lesson-asset:download',
       ],
     },
     {
       code: 'parent',
       name: '家长',
-      permissions: ['academic-profile:read', 'ai.summary.view-own', 'schedule:read', 'attendance:read', 'lesson-hour:read'],
+      permissions: [
+        'academic-profile:read', 'ai.summary.view-own', 'schedule:read', 'attendance:read', 'lesson-hour:read',
+        'lesson-record:read', 'lesson-asset:download',
+      ],
     },
   ];
 

@@ -59,6 +59,28 @@ export class NotificationsService {
     return { count: result.count };
   }
 
+  async notifyMany(input: {
+    userIds: string[];
+    title: string;
+    content?: string;
+    type: string;
+    bizType?: string;
+    bizId?: string;
+  }) {
+    const userIds = [...new Set(input.userIds.filter(Boolean))];
+    if (!userIds.length) return { count: 0 };
+    return this.prisma.notification.createMany({
+      data: userIds.map((userId) => ({
+        userId,
+        title: input.title,
+        content: input.content,
+        type: input.type,
+        bizType: input.bizType,
+        bizId: input.bizId,
+      })),
+    });
+  }
+
   private isTruthy(value: unknown) {
     return value === true || value === 'true' || value === '1';
   }

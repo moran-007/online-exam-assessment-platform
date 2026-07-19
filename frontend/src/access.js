@@ -9,11 +9,13 @@ export const studentMenuItems = [
   { path: '/student/wrong-questions', label: '错题本', icon: 'Notebook' },
   { path: '/student/profile', label: '个人信息', icon: 'User' },
   { path: '/teaching-operations', label: '课表与课时', icon: 'Calendar' },
+  { path: '/learning-portal', label: '学习门户', icon: 'Reading' },
 ];
 
 export const parentMenuItems = [
   { path: '/profile', label: '关联学生', icon: 'User' },
   { path: '/teaching-operations', label: '课表与课时', icon: 'Calendar' },
+  { path: '/learning-portal', label: '学习门户', icon: 'Reading' },
 ];
 
 export const adminMenuItems = [

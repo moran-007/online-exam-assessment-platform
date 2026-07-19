@@ -6,7 +6,12 @@ import { PrismaService } from '../prisma/prisma.service';
 import { RequestUser } from '../../common/interfaces/request-user.interface';
 import { hasPermission } from '../../common/security/permission-policy';
 import { OBJECT_STORAGE, type ObjectStorage } from '../../storage/object-storage.interface';
-import { assertUploadFileContent, isBlockedUploadExtension, resolveUploadExtension } from './upload-file.validator';
+import {
+  assertUploadFileContent,
+  isBlockedUploadExtension,
+  normalizeUploadFileName,
+  resolveUploadExtension,
+} from './upload-file.validator';
 
 @Injectable()
 export class UploadsService {
@@ -261,7 +266,7 @@ export class UploadsService {
       url,
       filename,
       displayName,
-      originalName: file?.originalname || filename,
+      originalName: normalizeUploadFileName(file?.originalname) || filename,
       mimeType: file?.mimetype || '',
       size: file?.size ?? 0,
       isImage,
@@ -270,7 +275,7 @@ export class UploadsService {
   }
 
   private resolveDisplayName(originalName?: string) {
-    return this.cleanDisplayName((originalName || '题目附件').replace(/\.[^.]+$/, ''));
+    return this.cleanDisplayName((normalizeUploadFileName(originalName) || '题目附件').replace(/\.[^.]+$/, ''));
   }
 
   private cleanDisplayName(value: string) {

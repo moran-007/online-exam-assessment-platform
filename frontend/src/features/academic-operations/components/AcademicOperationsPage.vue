@@ -39,7 +39,7 @@
             <el-table-column label="课次" min-width="220"><template #default="{ row }"><strong>{{ row.title }}</strong><div class="muted">{{ row.lessonType.name }} · {{ row.lessonHours }} 课时</div></template></el-table-column>
             <el-table-column label="教师 / 教室" min-width="170"><template #default="{ row }">{{ row.teacher?.realName || row.teacher?.username || '待安排' }}<div class="muted">{{ row.classroom || '未设置教室' }}</div></template></el-table-column>
             <el-table-column label="状态" width="110"><template #default="{ row }"><el-tag :type="sessionStatusType(row.status)">{{ sessionStatus(row.status) }}</el-tag></template></el-table-column>
-            <el-table-column label="考勤" width="100" fixed="right"><template #default="{ row }"><el-button link type="primary" @click="openAttendanceRow(row)">打开考勤</el-button></template></el-table-column>
+            <el-table-column label="操作" width="190" fixed="right"><template #default="{ row }"><el-button v-if="canManageLessonRecords" link type="primary" data-testid="open-lesson-record" @click="openLessonRecordRow(row)">教学记录</el-button><el-button link type="primary" aria-label="打开考勤" @click="openAttendanceRow(row)">考勤</el-button></template></el-table-column>
           </el-table>
         </el-tab-pane>
 
@@ -148,13 +148,16 @@
     <el-dialog v-model="lessonTypeVisible" title="新增课型" width="520px" destroy-on-close><el-form :model="lessonTypeForm" label-width="100px"><el-form-item label="名称"><el-input v-model="lessonTypeForm.name" /></el-form-item><el-form-item label="默认课时"><el-input-number v-model="lessonTypeForm.defaultHours" :min="0" :step="0.5" /></el-form-item><el-form-item label="计入统计"><el-switch v-model="lessonTypeForm.countInStatistics" /></el-form-item><el-form-item label="说明"><el-input v-model="lessonTypeForm.description" type="textarea" /></el-form-item></el-form><template #footer><el-button @click="lessonTypeVisible=false">取消</el-button><el-button type="primary" @click="submitLessonType">保存课型</el-button></template></el-dialog>
 
     <el-dialog v-model="unitVisible" title="新增课程单元" width="620px" destroy-on-close><el-form :model="unitForm" label-width="100px"><el-form-item label="编码"><el-input v-model="unitForm.code" /></el-form-item><el-form-item label="名称"><el-input v-model="unitForm.name" /></el-form-item><el-form-item label="课型"><el-select v-model="unitForm.lessonTypeId" style="width:100%"><el-option v-for="item in lessonTypes" :key="item.id" :label="item.name" :value="item.id" /></el-select></el-form-item><div class="form-row"><el-form-item label="分类"><el-input v-model="unitForm.category" /></el-form-item><el-form-item label="阶段"><el-input v-model="unitForm.stage" /></el-form-item></div><div class="form-row"><el-form-item label="序号"><el-input-number v-model="unitForm.unitNo" :min="0" /></el-form-item><el-form-item label="默认课时"><el-input-number v-model="unitForm.defaultHours" :min="0" :step="0.5" /></el-form-item></div><el-form-item label="教学内容"><el-input v-model="unitForm.teachingContent" type="textarea" :rows="3" /></el-form-item></el-form><template #footer><el-button @click="unitVisible=false">取消</el-button><el-button type="primary" @click="submitUnit">保存单元</el-button></template></el-dialog>
+    <LessonRecordDrawer v-model="lessonRecordVisible" :session-id="lessonRecordSessionId" @changed="load" />
   </div>
 </template>
 
 <script setup lang="ts">
 import { Refresh } from '@element-plus/icons-vue';
+import { ref } from 'vue';
 import type { AcademicOperationRecord } from '../api';
 import { useAcademicOperations } from '../composables/useAcademicOperations';
+import LessonRecordDrawer from '../../lesson-records/components/LessonRecordDrawer.vue';
 
 const attendanceOptions = [
   { label: '待确认', value: 'UNCONFIRMED' }, { label: '出勤', value: 'PRESENT' },
@@ -164,7 +167,7 @@ const attendanceOptions = [
 
 const {
   activeTab, adjustmentForm, adjustmentVisible, attendance, balances, canAdjustHours,
-  canConfirmAttendance, canCorrectAttendance, canManageCatalog, canManageSchedule, canReconcile,
+  canConfirmAttendance, canCorrectAttendance, canManageCatalog, canManageLessonRecords, canManageSchedule, canReconcile,
   classes, correctionForm, correctionVisible, dateRange, generateForm, generateVisible, ledger,
   lessonTypeForm, lessonTypeVisible, lessonTypes, loading, openAdjustment, openAttendance,
   openCorrection, openGenerate, openLessonType, openRule, openSession, openUnit, reconciliation,
@@ -177,6 +180,13 @@ const {
 const openAttendanceRow = (row: unknown) => openAttendance(row as AcademicOperationRecord);
 const openCorrectionRow = (row: unknown) => openCorrection(row as AcademicOperationRecord);
 const openAdjustmentRow = (row: unknown) => openAdjustment(row as AcademicOperationRecord);
+const lessonRecordVisible = ref(false);
+const lessonRecordSessionId = ref('');
+const openLessonRecord = (row: AcademicOperationRecord) => {
+  lessonRecordSessionId.value = row.id;
+  lessonRecordVisible.value = true;
+};
+const openLessonRecordRow = (row: unknown) => openLessonRecord(row as AcademicOperationRecord);
 
 const sessionStatus = (value: string) => ({ PLANNED: '待上课', COMPLETED: '已完成', CANCELLED: '已取消', RESCHEDULED: '已调课' }[value] || value);
 const sessionStatusType = (value: string): 'success' | 'warning' | 'danger' | 'info' => ({ COMPLETED: 'success', CANCELLED: 'danger', RESCHEDULED: 'warning' }[value] || 'info') as 'success' | 'warning' | 'danger' | 'info';

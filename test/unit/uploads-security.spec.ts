@@ -3,6 +3,7 @@ import { UploadsService } from '../../src/modules/uploads/uploads.service';
 import {
   assertUploadFileContent,
   isBlockedUploadExtension,
+  normalizeUploadFileName,
   resolveUploadExtension,
 } from '../../src/modules/uploads/upload-file.validator';
 
@@ -49,5 +50,24 @@ describe('UploadsService security validation', () => {
     expect(() => resolveUploadExtension({ originalname: 'file.bin', mimetype: 'application/octet-stream' })).toThrow('不支持');
     expect(isBlockedUploadExtension('.EXE')).toBe(true);
     expect(isBlockedUploadExtension('.txt')).toBe(false);
+  });
+
+  it('accepts Scratch projects only when the .sb3 extension contains a ZIP payload', () => {
+    const buffer = Buffer.from([0x50, 0x4b, 0x03, 0x04, 1, 2, 3]);
+    expect(resolveUploadExtension({ originalname: 'project.sb3', mimetype: 'application/octet-stream' })).toBe('.sb3');
+    expect(() => assertUploadFileContent({
+      originalname: 'project.sb3', mimetype: 'application/octet-stream', size: buffer.length, buffer,
+    })).not.toThrow();
+    expect(() => assertUploadFileContent({
+      originalname: 'project.sb3', mimetype: 'application/octet-stream', buffer: Buffer.from('not-a-zip'),
+    })).toThrow('声明的类型');
+  });
+
+  it('repairs UTF-8 upload names decoded as Latin-1 without damaging genuine Latin-1 names', () => {
+    const chineseName = '题目批量录入模板.md';
+    const mojibakeName = Buffer.from(chineseName, 'utf8').toString('latin1');
+    expect(normalizeUploadFileName(mojibakeName)).toBe(chineseName);
+    expect(normalizeUploadFileName('résumé.pdf')).toBe('résumé.pdf');
+    expect(normalizeUploadFileName('notes.md')).toBe('notes.md');
   });
 });

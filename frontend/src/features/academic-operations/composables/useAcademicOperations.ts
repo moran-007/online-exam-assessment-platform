@@ -31,6 +31,7 @@ export function useAcademicOperations() {
   const canCorrectAttendance = hasAnyPermission(user, ['attendance:correct']);
   const canAdjustHours = hasAnyPermission(user, ['lesson-hour:adjust']);
   const canReconcile = hasAnyPermission(user, ['lesson-hour:reconcile']);
+  const canManageLessonRecords = hasAnyPermission(user, ['lesson-record:manage']);
   const canReadClasses = hasAnyPermission(user, ['class:read']);
 
   const activeTab = ref('calendar');
@@ -322,7 +323,7 @@ export function useAcademicOperations() {
   onMounted(load);
   return {
     activeTab, adjustmentForm, adjustmentVisible, attendance, balances, canAdjustHours,
-    canConfirmAttendance, canCorrectAttendance, canManageCatalog, canManageSchedule, canReconcile,
+    canConfirmAttendance, canCorrectAttendance, canManageCatalog, canManageLessonRecords, canManageSchedule, canReconcile,
     classes, correctionForm, correctionVisible, dateRange, generateForm, generateVisible,
     ledger, lessonTypeForm, lessonTypeVisible, lessonTypes, loading, openAdjustment,
     openAttendance, openCorrection, openGenerate, openLessonType, openRule, openSession, openUnit,

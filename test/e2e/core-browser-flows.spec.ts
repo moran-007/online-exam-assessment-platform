@@ -273,10 +273,13 @@ test('question and paper exports download files that match their declared format
   await expect(page.getByRole('heading', { name: '题库管理' })).toBeVisible();
 
   await page.locator('.question-toolbar .el-switch').click();
+  await page.getByRole('tab', { name: '考试中' }).click();
+  await page.getByPlaceholder('题目关键词').fill('E2E autosave question');
+  await page.getByRole('button', { name: '查询' }).click();
   const questionRow = page.getByRole('row', { name: /E2E autosave question/ });
   await expect(page.locator('.question-table-panel')).toContainText(/E2E autosave question|No Data/);
-  if (await questionRow.count() === 0) {
-    await page.getByRole('tab', { name: '考试中' }).click();
+  if (!(await questionRow.isVisible())) {
+    await page.getByRole('tab', { name: '已公开' }).click();
     await expect(questionRow).toBeVisible();
   }
   await questionRow.getByRole('button', { name: '操作' }).click();
