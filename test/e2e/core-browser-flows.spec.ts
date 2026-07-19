@@ -401,6 +401,75 @@ test('privileged users can open AI settings while students are denied', async ({
   await studentContext.close();
 });
 
+test('course and nested knowledge items support create, view, edit, and delete through clicks', async ({ page }) => {
+  const suffix = Date.now();
+  const courseName = `E2E CRUD Course ${suffix}`;
+  const editedCourseName = `${courseName} Updated`;
+  await login(page, 'e2e_admin');
+  await page.goto('/courses');
+  const academicsMenu = page.getByTestId('menu-group-academics');
+  const assessmentMenu = page.getByTestId('menu-group-assessment');
+  await expect(academicsMenu).toHaveClass(/is-open/);
+  await assessmentMenu.locator('.el-sub-menu__title').click();
+  await expect(assessmentMenu).toHaveClass(/is-open/);
+  await expect(academicsMenu).not.toHaveClass(/is-open/);
+  await academicsMenu.locator('.el-sub-menu__title').click();
+  await expect(academicsMenu).toHaveClass(/is-open/);
+  await page.getByRole('button', { name: '新增课程' }).click();
+  const createCourseDialog = page.getByRole('dialog', { name: '新增课程' });
+  await formInput(createCourseDialog, '名称').fill(courseName);
+  await createCourseDialog.locator('textarea').fill('课程与教务、测评共用的点击验收课程');
+  await createCourseDialog.getByRole('button', { name: '新增课程' }).click();
+  await expect(page.getByText('已新增课程')).toBeVisible();
+
+  let courseRow = page.getByRole('row', { name: new RegExp(courseName) });
+  await courseRow.click();
+  const editCourseDialog = page.getByRole('dialog', { name: '编辑课程' });
+  await formInput(editCourseDialog, '名称').fill(editedCourseName);
+  await editCourseDialog.locator('textarea').fill('已修改：课程关联和子项维护验收');
+  await editCourseDialog.getByRole('button', { name: '保存课程' }).click();
+  await expect(page.getByText('课程已保存')).toBeVisible();
+  await expect(page.getByRole('row', { name: new RegExp(editedCourseName) })).toContainText('已修改');
+
+  await page.goto('/knowledge');
+  await page.locator('.knowledge-course-item').filter({ hasText: editedCourseName }).click();
+  await expect(page.locator('.knowledge-main-head')).toContainText(editedCourseName);
+  await page.getByRole('button', { name: '新增一级' }).click();
+  const rootDialog = page.getByRole('dialog', { name: '新增知识点' });
+  await formInput(rootDialog, '名称').fill('E2E 根知识点');
+  await rootDialog.getByRole('button', { name: '新增知识点' }).click();
+  await expect(page.getByText('已新增')).toBeVisible();
+
+  const rootNode = page.locator('.knowledge-node').filter({ hasText: 'E2E 根知识点' }).first();
+  await rootNode.getByRole('button', { name: '添加子级' }).click();
+  const childDialog = page.getByRole('dialog', { name: '新增知识点' });
+  await formInput(childDialog, '名称').fill('E2E 子知识点');
+  await childDialog.getByRole('button', { name: '新增知识点' }).click();
+  await expect(page.getByText('E2E 子知识点', { exact: true })).toBeVisible();
+
+  let childNode = page.locator('.knowledge-node').filter({ hasText: 'E2E 子知识点' }).first();
+  await childNode.getByRole('button', { name: '编辑' }).click();
+  const editChildDialog = page.getByRole('dialog', { name: '编辑知识点' });
+  await formInput(editChildDialog, '名称').fill('E2E 子知识点（已修改）');
+  await editChildDialog.getByRole('button', { name: '保存知识点' }).click();
+  await expect(page.getByText('知识点已保存')).toBeVisible();
+  childNode = page.locator('.knowledge-node').filter({ hasText: 'E2E 子知识点（已修改）' }).first();
+  await childNode.getByRole('button', { name: '删除' }).click();
+  await page.getByRole('dialog', { name: '删除知识点' }).locator('.el-message-box__btns .el-button--primary').click();
+  await expect(page.getByText('知识点已删除')).toBeVisible();
+  await rootNode.getByRole('button', { name: '删除' }).click();
+  await page.getByRole('dialog', { name: '删除知识点' }).locator('.el-message-box__btns .el-button--primary').click();
+  await expect(page.getByText('E2E 根知识点', { exact: true })).toHaveCount(0);
+
+  await page.goto('/courses');
+  courseRow = page.getByRole('row', { name: new RegExp(editedCourseName) });
+  await courseRow.getByRole('button', { name: '操作' }).click();
+  await page.locator('.el-dropdown-menu:visible').getByText('删除', { exact: true }).click();
+  await page.getByRole('dialog', { name: '删除课程' }).locator('.el-message-box__btns .el-button--primary').click();
+  await expect(page.getByText('课程已删除')).toBeVisible();
+  await expect(page.getByRole('row', { name: new RegExp(editedCourseName) })).toHaveCount(0);
+});
+
 test('academic profiles, parent scope and Gate C are operable through browser clicks', async ({ browser }) => {
   const adminContext = await browser.newContext();
   const parentContext = await browser.newContext();
@@ -488,7 +557,8 @@ test('academic profiles, parent scope and Gate C are operable through browser cl
   await studentContext.close();
 });
 
-test('Gate D schedule, attendance, reversal ledger and reconciliation work through browser clicks', async ({ browser }) => {
+test('Gate D completes reschedule, lesson material change, attendance, reversal, and learner visibility through clicks', async ({ browser }) => {
+  test.setTimeout(120_000);
   const adminContext = await browser.newContext();
   const studentContext = await browser.newContext();
   const adminPage = await adminContext.newPage();
@@ -497,14 +567,15 @@ test('Gate D schedule, attendance, reversal ledger and reconciliation work throu
   await login(adminPage, 'e2e_admin');
   await adminPage.goto('/teaching-operations');
   await expect(adminPage.getByRole('heading', { name: '教学运营' })).toBeVisible();
+  await expect(adminPage.getByTestId('menu-group-academics')).toHaveClass(/is-open/);
   await adminPage.getByTestId('generate-sessions').click();
   const generateDialog = adminPage.getByRole('dialog', { name: '批量生成课次' });
   await expect(generateDialog).toBeVisible();
   await generateDialog.getByTestId('submit-generate').click();
   await expect(adminPage.getByText(/生成 1 节，跳过重复 0 节/)).toBeVisible();
 
-  const sessionRow = adminPage.getByTestId('session-table').getByRole('row', { name: /E2E Browser Class课程/ });
-  await expect(sessionRow).toContainText('E2E Browser Class课程');
+  const sessionRow = await rescheduleGeneratedLesson(adminPage);
+  await publishChangedLessonMaterial(adminPage, sessionRow);
   await sessionRow.getByRole('button', { name: '打开考勤' }).click();
   const attendanceRow = adminPage.getByTestId('attendance-table').getByRole('row', { name: /E2E Student/ });
   await attendanceRow.locator('.el-select').click();
@@ -544,6 +615,14 @@ test('Gate D schedule, attendance, reversal ledger and reconciliation work throu
   await studentPage.getByRole('tab', { name: '课时台账' }).click();
   await expect(studentPage.getByTestId('balance-table').getByRole('row', { name: /E2E Student/ })).toContainText('5');
   await expect(studentPage.getByRole('button', { name: '登记课时变动' })).toHaveCount(0);
+  await studentPage.goto('/learning-portal');
+  const portalRow = studentPage.getByTestId('portal-lessons').getByRole('row')
+    .filter({ hasText: 'E2E Browser Class课程' }).filter({ hasText: '调课后实际讲授内容' });
+  await expect(portalRow).toBeVisible();
+  await portalRow.getByTestId('open-portal-lesson').click();
+  await expect(studentPage.getByText('素材已由 v1 替换为 v2', { exact: true })).toBeVisible();
+  await expect(studentPage.getByTestId('portal-assets')).toContainText('lesson-material-v2.txt');
+  await expect(studentPage.getByTestId('portal-assets')).not.toContainText('lesson-material-v1.txt');
 
   await adminContext.close();
   await studentContext.close();
@@ -769,6 +848,82 @@ test('Stage 8 Scratch classroom runs teacher, student and parent clicks without 
   await studentContext.close();
   await parentContext.close();
 });
+
+async function rescheduleGeneratedLesson(page: Page) {
+  const table = page.getByTestId('session-table');
+  const original = table.getByRole('row', { name: /E2E Browser Class课程/ });
+  await expect(original).toContainText('E2E Browser Class课程');
+  await original.getByRole('button', { name: '调课' }).click();
+  const dialog = page.getByRole('dialog', { name: '调整上课安排' });
+  const dateInputs = dialog.locator('.el-date-editor input');
+  await dateInputs.nth(0).fill(`${operationsDate} 20:00:00`);
+  await dateInputs.nth(1).fill(`${operationsDate} 21:00:00`);
+  await formInput(dialog, '教室').fill('E2E Changed Lab');
+  await dialog.locator('textarea').fill('浏览器验收：临时调整上课时间和教室');
+  await dialog.getByTestId('submit-session-change').click();
+  await expect(page.getByText('调课完成，原课次已保留追溯记录')).toBeVisible();
+
+  const matchingRows = table.getByRole('row').filter({ hasText: 'E2E Browser Class课程' });
+  await expect(matchingRows).toHaveCount(2);
+  await expect(matchingRows.filter({ hasText: '已调课' })).toBeVisible();
+  const replacement = matchingRows.filter({ hasText: '待上课' });
+  await expect(replacement).toContainText('E2E Changed Lab');
+  await expect(replacement).toContainText('20:00');
+  return replacement;
+}
+
+async function publishChangedLessonMaterial(page: Page, sessionRow: Locator) {
+  await sessionRow.getByTestId('open-lesson-record').click();
+  const editor = page.getByTestId('lesson-record-editor');
+  const drawer = page.locator('.el-drawer').filter({ has: editor });
+  await expect(editor).toBeVisible();
+  await lessonRecordField(editor, '本节课内容').fill('课程原始讲授内容');
+  await lessonRecordField(editor, '学习材料说明').fill('原始素材说明');
+  await editor.getByTestId('save-lesson-record').click();
+  await expect(page.getByText('教学记录草稿已保存')).toBeVisible();
+
+  await editor.getByRole('tab', { name: '课次附件' }).click();
+  await drawer.locator('input[type="file"]').setInputFiles({
+    name: 'lesson-material-v1.txt', mimeType: 'text/plain', buffer: Buffer.from('material version one'),
+  });
+  await editor.getByTestId('upload-lesson-asset').click();
+  await expect(page.getByText('附件已上传，记录已退回草稿')).toBeVisible();
+  const firstAsset = editor.getByTestId('lesson-asset-table').getByRole('row', { name: /lesson-material-v1.txt/ });
+  await firstAsset.getByRole('button', { name: '移除' }).click();
+  const removeDialog = page.getByRole('dialog', { name: '移除附件' });
+  await removeDialog.locator('.el-message-box__btns .el-button--primary').click();
+  await expect(page.getByText('附件已移除，记录已退回草稿')).toBeVisible();
+
+  await drawer.locator('input[type="file"]').setInputFiles({
+    name: 'lesson-material-v2.txt', mimeType: 'text/plain', buffer: Buffer.from('material version two'),
+  });
+  await editor.getByTestId('upload-lesson-asset').click();
+  await expect(editor.getByTestId('lesson-asset-table')).toContainText('lesson-material-v2.txt');
+  await expect(editor.getByTestId('lesson-asset-table')).not.toContainText('lesson-material-v1.txt');
+
+  await editor.getByRole('tab', { name: '学生/家长可见' }).click();
+  await lessonRecordField(editor, '本节课内容').fill('调课后实际讲授内容');
+  await lessonRecordField(editor, '学习材料说明').fill('素材已由 v1 替换为 v2');
+  const [saveResponse] = await Promise.all([
+    page.waitForResponse((response) => response.request().method() === 'PUT' && response.url().includes('/lesson-records/') && response.url().endsWith('/draft')),
+    editor.getByTestId('save-lesson-record').click(),
+  ]);
+  expect(saveResponse.ok()).toBeTruthy();
+  await editor.getByTestId('submit-lesson-record').click();
+  await page.getByRole('dialog', { name: '提交教学记录' }).locator('.el-message-box__btns .el-button--primary').click();
+  await expect(page.getByText('教学记录已提交')).toBeVisible();
+  await editor.getByTestId('publish-lesson-record').click();
+  await page.getByRole('dialog', { name: '发布教学记录' }).locator('.el-message-box__btns .el-button--primary').click();
+  await expect(page.getByText('教学记录已发布，通知已发送')).toBeVisible();
+  await editor.getByRole('tab', { name: '版本历史' }).click();
+  await expect(editor.getByTestId('lesson-record-versions')).toContainText('移除附件');
+  await drawer.locator('.el-drawer__close-btn').click();
+  await expect(editor).not.toBeVisible();
+}
+
+function lessonRecordField(editor: Locator, label: string) {
+  return editor.locator('.el-form-item').filter({ hasText: label }).first().locator('textarea');
+}
 
 async function login(page: Page, username: string) {
   await page.goto('/login');

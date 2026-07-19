@@ -28,7 +28,7 @@ export function useLessonRecordEditor(sessionId: Ref<string>, changed: () => voi
     loading.value = true;
     try {
       detail.value = await getLessonRecord(sessionId.value);
-      Object.assign(form, emptyForm(), detail.value.record ?? {});
+      Object.assign(form, editableRecordFields(detail.value.record));
       versions.value = detail.value.record ? await listLessonRecordVersions(sessionId.value) : [];
     } finally {
       loading.value = false;
@@ -39,7 +39,7 @@ export function useLessonRecordEditor(sessionId: Ref<string>, changed: () => voi
     saving.value = true;
     try {
       detail.value = await saveLessonRecordDraft(sessionId.value, { ...form });
-      Object.assign(form, emptyForm(), detail.value.record ?? {});
+      Object.assign(form, editableRecordFields(detail.value.record));
       await refreshVersions();
       ElMessage.success('教学记录草稿已保存');
       changed();
@@ -51,7 +51,7 @@ export function useLessonRecordEditor(sessionId: Ref<string>, changed: () => voi
   async function submit() {
     await ElMessageBox.confirm('提交后进入待发布状态；继续编辑会自动退回草稿。', '提交教学记录', { type: 'warning' });
     detail.value = await submitLessonRecord(sessionId.value);
-    Object.assign(form, emptyForm(), detail.value.record ?? {});
+    Object.assign(form, editableRecordFields(detail.value.record));
     await refreshVersions();
     ElMessage.success('教学记录已提交');
     changed();
@@ -60,7 +60,7 @@ export function useLessonRecordEditor(sessionId: Ref<string>, changed: () => voi
   async function publish() {
     await ElMessageBox.confirm('发布后学生与已关联家长可查看公开字段和公开附件。', '发布教学记录', { type: 'warning' });
     detail.value = await publishLessonRecord(sessionId.value);
-    Object.assign(form, emptyForm(), detail.value.record ?? {});
+    Object.assign(form, editableRecordFields(detail.value.record));
     await refreshVersions();
     ElMessage.success('教学记录已发布，通知已发送');
     changed();
@@ -156,4 +156,13 @@ function emptyForm() {
     publicNextPlan: '',
     publicMaterials: '',
   };
+}
+
+function editableRecordFields(record: unknown) {
+  const result = emptyForm();
+  const source = record && typeof record === 'object' ? record as Record<string, unknown> : {};
+  for (const key of Object.keys(result) as Array<keyof typeof result>) {
+    result[key] = typeof source[key] === 'string' ? source[key] : '';
+  }
+  return result;
 }

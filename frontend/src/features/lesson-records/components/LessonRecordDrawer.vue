@@ -47,7 +47,7 @@
         </el-tab-pane>
         <el-tab-pane label="课次附件">
           <div class="asset-upload">
-            <el-upload :auto-upload="false" :show-file-list="false" :limit="1" :on-change="selectFile">
+            <el-upload ref="assetUpload" :auto-upload="false" :show-file-list="false" :limit="1" :on-change="selectFile">
               <el-button>选择附件</el-button>
             </el-upload>
             <span class="muted">{{ uploadFile?.name || '支持图片、PDF、Office、ZIP、文本和 Scratch .sb3，单个不超过 50MB' }}</span>
@@ -85,6 +85,7 @@
 
 <script setup lang="ts">
 import { ref, toRef, watch } from 'vue';
+import type { UploadInstance } from 'element-plus';
 import { useLessonRecordEditor } from '../composables/useLessonRecordEditor';
 import type { LessonAssetView } from '../api';
 import AiSummaryDialog from '../../ai/components/AiSummaryDialog.vue';
@@ -94,10 +95,16 @@ const props = defineProps<{ modelValue: boolean; sessionId: string }>();
 const emit = defineEmits<{ 'update:modelValue': [value: boolean]; changed: [] }>();
 const sessionId = toRef(props, 'sessionId');
 const lessonAssistantDialog = ref<InstanceType<typeof AiSummaryDialog>>();
+const assetUpload = ref<UploadInstance>();
 const {
   applyAiDraft, detail, form, load, loading, openLessonAsset, publish, removeAsset, save, saving,
-  selectFile, submit, upload, uploadFile, uploadForm, versions,
+  selectFile, submit, upload: uploadAsset, uploadFile, uploadForm, versions,
 } = useLessonRecordEditor(sessionId, () => emit('changed'));
+
+async function upload() {
+  await uploadAsset();
+  if (!uploadFile.value) assetUpload.value?.clearFiles();
+}
 
 function openLessonAssistant() {
   const name = detail.value?.session?.title || '当前课次';

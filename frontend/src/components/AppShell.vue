@@ -10,10 +10,18 @@
           <el-button class="side-toggle" text :icon="sideCollapsed ? Expand : Fold" @click="toggleSide" />
         </el-tooltip>
       </div>
-      <el-menu :default-active="$route.path" router class="side-menu" :collapse="sideCollapsed" :collapse-transition="false">
-        <el-menu-item v-for="item in visibleMenuItems" :key="item.path" :index="item.path">
-          <el-icon><component :is="item.icon" /></el-icon><span>{{ item.label }}</span>
-        </el-menu-item>
+      <el-menu :default-active="$route.path" :default-openeds="defaultOpenGroups" router unique-opened class="side-menu" :collapse="sideCollapsed" :collapse-transition="false">
+        <template v-for="group in visibleMenuGroups" :key="group.id">
+          <el-menu-item v-if="group.items.length === 1" :index="group.items[0].path">
+            <el-icon><component :is="group.items[0].icon" /></el-icon><span>{{ group.items[0].label }}</span>
+          </el-menu-item>
+          <el-sub-menu v-else :index="`group:${group.id}`" :data-testid="`menu-group-${group.id}`">
+            <template #title><el-icon><component :is="group.icon" /></el-icon><span>{{ group.label }}</span></template>
+            <el-menu-item v-for="item in group.items" :key="item.path" :index="item.path">
+              <el-icon><component :is="item.icon" /></el-icon><span>{{ item.label }}</span>
+            </el-menu-item>
+          </el-sub-menu>
+        </template>
       </el-menu>
     </el-aside>
     <el-container>
@@ -64,7 +72,7 @@ import { computed, onMounted, onUnmounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { ElMessage } from 'element-plus';
 import { Bell, Expand, Fold, Reading, SwitchButton } from '@element-plus/icons-vue';
-import { menuForUser } from '../access';
+import { menuGroupsForUser } from '../access';
 import {
   clearSession,
   getCurrentUser,
@@ -88,7 +96,10 @@ const notifications = ref([]);
 const notificationUnread = ref(0);
 const notificationsLoading = ref(false);
 const sideCollapsed = ref(localStorage.getItem('smart-assessment-side-collapsed') === 'true');
-const visibleMenuItems = computed(() => menuForUser(user.value));
+const visibleMenuGroups = computed(() => menuGroupsForUser(user.value));
+const defaultOpenGroups = computed(() => visibleMenuGroups.value
+  .filter((group) => group.items.length > 1 && group.items.some((item) => item.path === route.path))
+  .map((group) => `group:${group.id}`));
 const roleName = computed(() => {
   const names = {
     SUPER_ADMIN: '超级管理员',

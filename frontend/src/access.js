@@ -1,45 +1,54 @@
 export const publicMenuItems = [
-  { path: '/question-bank', label: '公开题库', icon: 'EditPen' },
+  { path: '/question-bank', label: '公开题库', icon: 'EditPen', section: 'assessment' },
 ];
 
 export const studentMenuItems = [
-  { path: '/dashboard', label: '学习看板', icon: 'DataBoard', permissions: ['dashboard:read'] },
-  { path: '/question-bank', label: '题库', icon: 'EditPen' },
-  { path: '/student/papers', label: '试卷题库', icon: 'Document' },
-  { path: '/student/exams', label: '我的考试', icon: 'Calendar' },
-  { path: '/student/wrong-questions', label: '错题本', icon: 'Notebook' },
-  { path: '/student/profile', label: '个人信息', icon: 'User' },
-  { path: '/teaching-operations', label: '课表与课时', icon: 'Calendar' },
-  { path: '/learning-portal', label: '学习门户', icon: 'Reading' },
+  { path: '/dashboard', label: '学习看板', icon: 'DataBoard', permissions: ['dashboard:read'], section: 'overview' },
+  { path: '/question-bank', label: '题库', icon: 'EditPen', section: 'assessment' },
+  { path: '/student/papers', label: '试卷题库', icon: 'Document', section: 'assessment' },
+  { path: '/student/exams', label: '我的考试', icon: 'Calendar', section: 'assessment' },
+  { path: '/student/wrong-questions', label: '错题本', icon: 'Notebook', section: 'assessment' },
+  { path: '/student/profile', label: '个人信息', icon: 'User', section: 'account' },
+  { path: '/teaching-operations', label: '课表与课时', icon: 'Calendar', section: 'academics' },
+  { path: '/learning-portal', label: '学习门户', icon: 'Reading', section: 'academics' },
 ];
 
 export const parentMenuItems = [
-  { path: '/dashboard', label: '学习看板', icon: 'DataBoard', permissions: ['dashboard:read'] },
-  { path: '/profile', label: '关联学生', icon: 'User' },
-  { path: '/teaching-operations', label: '课表与课时', icon: 'Calendar' },
-  { path: '/learning-portal', label: '学习门户', icon: 'Reading' },
+  { path: '/dashboard', label: '学习看板', icon: 'DataBoard', permissions: ['dashboard:read'], section: 'overview' },
+  { path: '/profile', label: '关联学生', icon: 'User', section: 'account' },
+  { path: '/teaching-operations', label: '课表与课时', icon: 'Calendar', section: 'academics' },
+  { path: '/learning-portal', label: '学习门户', icon: 'Reading', section: 'academics' },
 ];
 
 export const adminMenuItems = [
-  { path: '/dashboard', label: '融合看板', icon: 'DataBoard', permissions: ['dashboard:read'] },
-  { path: '/courses', label: '课程', icon: 'Collection', permissions: ['course:read'] },
-  { path: '/classes', label: '班级', icon: 'UserFilled', permissions: ['class:read'] },
-  { path: '/users', label: '用户权限', icon: 'Setting', userTypes: ['SUPER_ADMIN'] },
-  { path: '/academic-profiles', label: '教务档案', icon: 'Postcard', userTypes: ['SUPER_ADMIN', 'ADMIN'] },
-  { path: '/ai-settings', label: 'AI 配置', icon: 'Setting', userTypes: ['SUPER_ADMIN', 'ADMIN', 'TEACHER', 'ASSISTANT'] },
-  { path: '/teaching-operations', label: '教学运营', icon: 'Calendar', permissions: ['schedule:read'] },
-  { path: '/knowledge', label: '课程知识点', icon: 'Share', permissions: ['knowledge-point:read'] },
-  { path: '/tags', label: '标签', icon: 'PriceTag', permissions: ['tag:read'] },
-  { path: '/questions', label: '题库', icon: 'EditPen', permissions: ['question:read'] },
-  { path: '/question-import', label: '题目导入', icon: 'Upload', permissions: ['question:create'] },
-  { path: '/papers', label: '试卷', icon: 'Document', permissions: ['paper:read'] },
-  { path: '/exams', label: '考试', icon: 'Timer', permissions: ['exam:read'] },
-  { path: '/grading', label: '批改', icon: 'Checked', permissions: ['grading:score:read', 'grading:read'] },
-  { path: '/exports', label: '导出', icon: 'Download', permissions: ['export:task:read', 'exam:result:export'] },
-  { path: '/statistics', label: '统计', icon: 'TrendCharts', permissions: ['statistics:read'] },
-  { path: '/external-accounts', label: '外部账号', icon: 'Link', userTypes: ['SUPER_ADMIN', 'ADMIN', 'TEACHER', 'ASSISTANT'] },
-  { path: '/profile', label: '个人信息', icon: 'User' },
+  { path: '/dashboard', label: '融合看板', icon: 'DataBoard', permissions: ['dashboard:read'], section: 'overview' },
+  { path: '/courses', label: '课程', icon: 'Collection', permissions: ['course:read'], section: 'academics' },
+  { path: '/classes', label: '班级', icon: 'UserFilled', permissions: ['class:read'], section: 'academics' },
+  { path: '/users', label: '用户权限', icon: 'Setting', userTypes: ['SUPER_ADMIN'], section: 'platform' },
+  { path: '/academic-profiles', label: '教务档案', icon: 'Postcard', userTypes: ['SUPER_ADMIN', 'ADMIN'], section: 'academics' },
+  { path: '/ai-settings', label: 'AI 配置', icon: 'Setting', userTypes: ['SUPER_ADMIN', 'ADMIN', 'TEACHER', 'ASSISTANT'], section: 'platform' },
+  { path: '/teaching-operations', label: '教学运营', icon: 'Calendar', permissions: ['schedule:read'], section: 'academics' },
+  { path: '/knowledge', label: '课程知识点', icon: 'Share', permissions: ['knowledge-point:read'], section: 'assessment' },
+  { path: '/tags', label: '标签', icon: 'PriceTag', permissions: ['tag:read'], section: 'assessment' },
+  { path: '/questions', label: '题库', icon: 'EditPen', permissions: ['question:read'], section: 'assessment' },
+  { path: '/question-import', label: '题目导入', icon: 'Upload', permissions: ['question:create'], section: 'assessment' },
+  { path: '/papers', label: '试卷', icon: 'Document', permissions: ['paper:read'], section: 'assessment' },
+  { path: '/exams', label: '考试', icon: 'Timer', permissions: ['exam:read'], section: 'assessment' },
+  { path: '/grading', label: '批改', icon: 'Checked', permissions: ['grading:score:read', 'grading:read'], section: 'assessment' },
+  { path: '/exports', label: '导出', icon: 'Download', permissions: ['export:task:read', 'exam:result:export'], section: 'insights' },
+  { path: '/statistics', label: '统计', icon: 'TrendCharts', permissions: ['statistics:read'], section: 'insights' },
+  { path: '/external-accounts', label: '外部账号', icon: 'Link', userTypes: ['SUPER_ADMIN', 'ADMIN', 'TEACHER', 'ASSISTANT'], section: 'platform' },
+  { path: '/profile', label: '个人信息', icon: 'User', section: 'platform' },
 ];
+
+const menuSections = {
+  overview: { label: '概览', icon: 'DataBoard' },
+  academics: { label: '教务与学习', icon: 'Reading' },
+  assessment: { label: '测评中心', icon: 'Document' },
+  insights: { label: '数据与导出', icon: 'TrendCharts' },
+  platform: { label: '平台设置', icon: 'Setting' },
+  account: { label: '个人中心', icon: 'User' },
+};
 
 export function isStudent(user) {
   return user?.userType === 'STUDENT';
@@ -77,6 +86,15 @@ export function menuForUser(user) {
   return adminMenuItems.filter(
     (item) => (!item.userTypes?.length || item.userTypes.includes(user.userType)) && hasAnyPermission(user, item.permissions),
   );
+}
+
+export function menuGroupsForUser(user) {
+  const groups = new Map(Object.entries(menuSections).map(([id, section]) => [id, { id, ...section, items: [] }]));
+  for (const item of menuForUser(user)) {
+    const id = item.section || 'platform';
+    groups.get(id).items.push(item);
+  }
+  return [...groups.values()].filter((group) => group.items.length);
 }
 
 export function firstAccessiblePath(user) {

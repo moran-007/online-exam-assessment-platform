@@ -18,7 +18,10 @@ import {
 import {
   lessonScheduleCreateRule,
   lessonScheduleCreateSession,
+  lessonScheduleCancel,
   lessonScheduleGenerate,
+  lessonScheduleMakeup,
+  lessonScheduleReschedule,
   lessonScheduleRules,
   lessonScheduleSessions,
 } from '../../api/generated/academic-operations-schedule/academic-operations-schedule';
@@ -33,6 +36,7 @@ export interface AcademicOperationRecord {
   realName: string;
   name: string;
   className: string;
+  classroom: string;
   lessonTypeName: string;
   code: string;
   title: string;
@@ -46,6 +50,7 @@ export interface AcademicOperationRecord {
   effectiveFrom: string;
   effectiveTo: string | null;
   lessonHours: number;
+  kind: string;
   defaultHours: number;
   deductHours: number;
   draftDeductHours: number;
@@ -95,6 +100,12 @@ export const listSessions = (params: AcademicOperationBody = {}) =>
   data<AcademicOperationPage>(lessonScheduleSessions({ pageSize: 100, ...params }));
 export const createSession = (body: AcademicOperationBody) =>
   data<AcademicOperationRecord>(lessonScheduleCreateSession(body as never));
+export const cancelSession = (id: string, body: AcademicOperationBody) =>
+  data<AcademicOperationRecord>(lessonScheduleCancel(id, body as never));
+export const createMakeupSession = (id: string, body: AcademicOperationBody) =>
+  data<AcademicOperationRecord>(lessonScheduleMakeup(id, body as never));
+export const rescheduleSession = (id: string, body: AcademicOperationBody) =>
+  data<AcademicOperationRecord>(lessonScheduleReschedule(id, body as never));
 
 export const getAttendance = (sessionId: string) =>
   data<AcademicOperationRecord>(attendanceList(sessionId));

@@ -5,10 +5,12 @@ import { getCurrentUser } from '../../../api';
 import { hasAnyPermission } from '../../../access';
 import {
   adjustHours,
+  cancelSession,
   confirmAttendance,
   correctAttendance,
   createCourseUnit,
   createLessonType,
+  createMakeupSession,
   createRule,
   createSession,
   generateSessions,
@@ -21,6 +23,7 @@ import {
   listRules,
   listSessions,
   reconcileHours,
+  rescheduleSession,
   type AcademicOperationRecord,
 } from '../api';
 
@@ -54,6 +57,9 @@ export function useAcademicOperations() {
   const ruleVisible = ref(false);
   const generateVisible = ref(false);
   const sessionVisible = ref(false);
+  const sessionChangeVisible = ref(false);
+  const sessionChangeMode = ref<'reschedule' | 'makeup'>('reschedule');
+  const sessionChangeSource = ref<AcademicOperationRecord | null>(null);
   const lessonTypeVisible = ref(false);
   const unitVisible = ref(false);
   const adjustmentVisible = ref(false);
@@ -63,6 +69,7 @@ export function useAcademicOperations() {
   const ruleForm = reactive(baseRuleForm());
   const generateForm = reactive({ ruleId: '', classId: '', from: dateRange.value[0], to: dateRange.value[1] });
   const sessionForm = reactive(baseSessionForm());
+  const sessionChangeForm = reactive(baseSessionChangeForm());
   const lessonTypeForm = reactive({ name: '', defaultHours: 1, countInStatistics: true, active: true, description: '' });
   const unitForm = reactive({ code: '', lessonTypeId: '', category: '', stage: '', unitNo: 1, name: '', defaultHours: 1, teachingContent: '' });
   const adjustmentForm = reactive({ studentId: '', type: 'PURCHASE', amount: 1, note: '' });
@@ -245,6 +252,56 @@ export function useAcademicOperations() {
     await load();
   }
 
+  function openSessionChange(row: AcademicOperationRecord, mode: 'reschedule' | 'makeup') {
+    sessionChangeMode.value = mode;
+    sessionChangeSource.value = row;
+    const offset = mode === 'makeup' ? 7 * 24 * 60 * 60 * 1_000 : 0;
+    Object.assign(sessionChangeForm, {
+      startsAt: new Date(new Date(row.startsAt).getTime() + offset).toISOString(),
+      endsAt: new Date(new Date(row.endsAt).getTime() + offset).toISOString(),
+      classroom: row.classroom ?? '',
+      reason: '',
+    });
+    sessionChangeVisible.value = true;
+  }
+
+  async function submitSessionChange() {
+    const source = sessionChangeSource.value;
+    if (!source || !sessionChangeForm.startsAt || !sessionChangeForm.endsAt || !sessionChangeForm.reason.trim()) {
+      ElMessage.warning('请完整填写变更时间和原因');
+      return;
+    }
+    const body = {
+      startsAt: new Date(sessionChangeForm.startsAt).toISOString(),
+      endsAt: new Date(sessionChangeForm.endsAt).toISOString(),
+      classroom: compact(sessionChangeForm.classroom),
+      reason: sessionChangeForm.reason.trim(),
+    };
+    saving.value = true;
+    try {
+      if (sessionChangeMode.value === 'reschedule') await rescheduleSession(source.id, body);
+      else await createMakeupSession(source.id, body);
+      sessionChangeVisible.value = false;
+      ElMessage.success(sessionChangeMode.value === 'reschedule' ? '调课完成，原课次已保留追溯记录' : '补课课次已创建');
+      await load();
+    } finally {
+      saving.value = false;
+    }
+  }
+
+  async function cancelScheduledSession(row: AcademicOperationRecord) {
+    const result = await ElMessageBox.prompt('取消后原课次仍会保留，便于审计和后续补课。', '取消课次', {
+      confirmButtonText: '确认取消',
+      cancelButtonText: '返回',
+      inputPlaceholder: '填写取消原因',
+      inputValidator: (value) => Boolean(value?.trim()) || '请填写取消原因',
+      type: 'warning',
+    });
+    await cancelSession(row.id, { reason: result.value.trim() });
+    ElMessage.success('课次已取消，可从原记录创建补课');
+    await load();
+  }
+
   function openLessonType() {
     Object.assign(lessonTypeForm, { name: '', defaultHours: 1, countInStatistics: true, active: true, description: '' });
     lessonTypeVisible.value = true;
@@ -326,12 +383,13 @@ export function useAcademicOperations() {
   return {
     activeTab, adjustmentForm, adjustmentVisible, attendance, balances, canAdjustHours,
     canConfirmAttendance, canCorrectAttendance, canManageCatalog, canManageLessonRecords, canManageSchedule, canReconcile,
-    classes, correctionForm, correctionVisible, dateRange, generateForm, generateVisible,
+    cancelScheduledSession, classes, correctionForm, correctionVisible, dateRange, generateForm, generateVisible,
     ledger, lessonTypeForm, lessonTypeVisible, lessonTypes, loading, openAdjustment,
-    openAttendance, openCorrection, openGenerate, openLessonType, openRule, openSession, openUnit,
+    openAttendance, openCorrection, openGenerate, openLessonType, openRule, openSession, openSessionChange, openUnit,
     reconciliation, ruleForm, ruleVisible, rules, saving, selectedClassId, selectedSession,
-    selectedSessionId, sessionForm, sessionVisible, sessions, submitAdjustment, submitAttendance,
-    submitCorrection, submitGenerate, submitLessonType, submitRule, submitSession, submitUnit,
+    selectedSessionId, sessionChangeForm, sessionChangeMode, sessionChangeSource, sessionChangeVisible,
+    sessionForm, sessionVisible, sessions, submitAdjustment, submitAttendance,
+    submitCorrection, submitGenerate, submitLessonType, submitRule, submitSession, submitSessionChange, submitUnit,
     unitForm, unitVisible, units, load, loadAttendance, runReconciliation,
   };
 }
@@ -354,6 +412,10 @@ function baseSessionForm() {
   return {
     classId: '', lessonTypeId: '', unitTemplateId: '', title: '', startsAt: '', endsAt: '', lessonHours: 1, classroom: '',
   };
+}
+
+function baseSessionChangeForm() {
+  return { startsAt: '', endsAt: '', classroom: '', reason: '' };
 }
 
 function defaultDateRange() {

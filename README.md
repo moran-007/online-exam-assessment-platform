@@ -157,5 +157,8 @@ powershell -ExecutionPolicy Bypass -File scripts/deploy-server.ps1 -Server aliyu
 - [AI 与教务融合完整目标及执行计划](./docs/2026-07-16-AI与教务融合完整目标及执行计划.md)
 - [worker 切换与归档运行手册](./docs/operations/worker-cutover-runbook.md)
 - [融合平台故障定位与维护手册](./docs/operations/troubleshooting-and-maintenance.md)
+- [教务系统部署与运维参考](./docs/operations/academic-system-deployment.md)
+- [测评系统部署与运维参考](./docs/operations/assessment-system-deployment.md)
+- [最终点击验收记录](./docs/implementation/2026-07-19-final-click-acceptance.md)
 
 Markdown、Word、PDF 等文档都可以提交到 GitHub；当前需求文档使用 Markdown，GitHub 可直接在线渲染、查看历史和评审变更。

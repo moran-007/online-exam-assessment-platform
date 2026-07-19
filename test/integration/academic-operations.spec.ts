@@ -117,6 +117,43 @@ describe('academic operations', () => {
     expect(session.startsAt.toISOString()).toBe('2026-07-20T10:00:00.000Z');
   });
 
+  it('keeps reschedule, cancellation, and makeup history traceable', async () => {
+    const source = await api('post', '/api/v1/lesson-sessions', teacherToken, {
+      classId,
+      lessonTypeId,
+      title: '可变更课次',
+      startsAt: '2026-07-22T10:00:00.000Z',
+      endsAt: '2026-07-22T11:00:00.000Z',
+      timezone: 'Asia/Shanghai',
+      lessonHours: 1,
+      classroom: 'A101',
+    });
+    const replacement = await api('post', `/api/v1/lesson-sessions/${source.id}/reschedule`, teacherToken, {
+      startsAt: '2026-07-22T12:00:00.000Z',
+      endsAt: '2026-07-22T13:00:00.000Z',
+      classroom: 'B202',
+      reason: '学生临时冲突',
+    });
+    expect(replacement).toMatchObject({ sourceSessionId: source.id, status: 'PLANNED', classroom: 'B202' });
+    expect(await prisma.lessonSession.findUniqueOrThrow({ where: { id: source.id } }))
+      .toMatchObject({ status: 'RESCHEDULED', cancelReason: '学生临时冲突' });
+
+    const cancelled = await api('patch', `/api/v1/lesson-sessions/${replacement.id}/cancel`, teacherToken, {
+      reason: '场地临时不可用',
+    });
+    expect(cancelled).toEqual({ id: replacement.id, status: 'CANCELLED' });
+    const makeup = await api('post', `/api/v1/lesson-sessions/${replacement.id}/makeup`, teacherToken, {
+      startsAt: '2026-07-29T12:00:00.000Z',
+      endsAt: '2026-07-29T13:00:00.000Z',
+      classroom: 'C303',
+      reason: '补回取消课次',
+    });
+    expect(makeup).toMatchObject({ sourceSessionId: replacement.id, kind: 'MAKEUP', status: 'PLANNED', classroom: 'C303' });
+    expect(await prisma.auditLog.count({
+      where: { action: { in: ['lesson-session:reschedule', 'lesson-session:cancel', 'lesson-session:makeup'] } },
+    })).toBe(3);
+  });
+
   it('confirms attendance and hours in one transaction, then corrects through reversal', async () => {
     await api('post', '/api/v1/lesson-hours/adjustments', adminToken, {
       studentId,
