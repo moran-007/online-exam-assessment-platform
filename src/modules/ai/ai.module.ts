@@ -23,10 +23,25 @@ import { AiSummaryLifecycleController } from './ai-summary-lifecycle.controller'
 import { AiSummaryLifecycleUseCases } from './ai-summary-lifecycle.use-cases';
 import { AiSummaryAccessService } from './ai-summary-access.service';
 import { AiSummaryQueryUseCases } from './ai-summary-query.use-cases';
+import { ClassSummaryDatasetBuilder } from './datasets/class-summary-dataset.builder';
+import { ParentReportDatasetBuilder } from './datasets/parent-report-dataset.builder';
+import { LessonAssistantDatasetBuilder } from './datasets/lesson-assistant-dataset.builder';
+import { IntegratedSummaryController } from './integrated-summary.controller';
+import { IntegratedSummaryUseCases } from './integrated-summary.use-cases';
+import { AiQualityController } from './ai-quality.controller';
+import { AiFeedbackUseCases } from './ai-feedback.use-cases';
+import { AiQualityDashboardUseCases } from './ai-quality-dashboard.use-cases';
+import { AiRegressionUseCases } from './ai-regression.use-cases';
 
 @Module({
   imports: [AuditModule, StatisticsModule],
-  controllers: [AiController, AiSummaryController, AiSummaryLifecycleController],
+  controllers: [
+    AiController,
+    AiSummaryController,
+    AiSummaryLifecycleController,
+    IntegratedSummaryController,
+    AiQualityController,
+  ],
   providers: [
     AiProviderGateway,
     AiProviderCapabilityRegistry,
@@ -47,6 +62,13 @@ import { AiSummaryQueryUseCases } from './ai-summary-query.use-cases';
     AiSummaryLifecycleUseCases,
     AiSummaryAccessService,
     AiSummaryQueryUseCases,
+    ClassSummaryDatasetBuilder,
+    ParentReportDatasetBuilder,
+    LessonAssistantDatasetBuilder,
+    IntegratedSummaryUseCases,
+    AiFeedbackUseCases,
+    AiQualityDashboardUseCases,
+    AiRegressionUseCases,
   ],
   exports: [
     AiProviderGateway,

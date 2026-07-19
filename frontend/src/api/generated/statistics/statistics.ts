@@ -14,6 +14,8 @@ import type {
   StatisticsExamDetail200,
   StatisticsExams200,
   StatisticsExamsParams,
+  StatisticsFusionDashboard200,
+  StatisticsFusionDashboardParams,
   StatisticsKnowledge200,
   StatisticsKnowledgeParams,
   StatisticsKnowledgeTrend200,
@@ -318,6 +320,82 @@ export const getStatisticsExamDetailUrl = (examId: string,) => {
 export const statisticsExamDetail = async (examId: string, options?: RequestInit): Promise<statisticsExamDetailResponse> => {
 
   return apiMutator<statisticsExamDetailResponse>(getStatisticsExamDetailUrl(examId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+export type statisticsFusionDashboardResponse200 = {
+  data: StatisticsFusionDashboard200
+  status: 200
+}
+
+export type statisticsFusionDashboardResponse400 = {
+  data: ApiErrorResponse
+  status: 400
+}
+
+export type statisticsFusionDashboardResponse401 = {
+  data: ApiErrorResponse
+  status: 401
+}
+
+export type statisticsFusionDashboardResponse403 = {
+  data: ApiErrorResponse
+  status: 403
+}
+
+export type statisticsFusionDashboardResponse404 = {
+  data: ApiErrorResponse
+  status: 404
+}
+
+export type statisticsFusionDashboardResponse409 = {
+  data: ApiErrorResponse
+  status: 409
+}
+
+export type statisticsFusionDashboardResponse429 = {
+  data: ApiErrorResponse
+  status: 429
+}
+
+export type statisticsFusionDashboardResponse500 = {
+  data: ApiErrorResponse
+  status: 500
+}
+
+export type statisticsFusionDashboardResponseSuccess = (statisticsFusionDashboardResponse200) & {
+  headers: Headers;
+};
+export type statisticsFusionDashboardResponseError = (statisticsFusionDashboardResponse400 | statisticsFusionDashboardResponse401 | statisticsFusionDashboardResponse403 | statisticsFusionDashboardResponse404 | statisticsFusionDashboardResponse409 | statisticsFusionDashboardResponse429 | statisticsFusionDashboardResponse500) & {
+  headers: Headers;
+};
+
+export type statisticsFusionDashboardResponse = (statisticsFusionDashboardResponseSuccess | statisticsFusionDashboardResponseError)
+
+export const getStatisticsFusionDashboardUrl = (params?: StatisticsFusionDashboardParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/v1/statistics/fusion-dashboard?${stringifiedParams}` : `/api/v1/statistics/fusion-dashboard`
+}
+
+export const statisticsFusionDashboard = async (params?: StatisticsFusionDashboardParams, options?: RequestInit): Promise<statisticsFusionDashboardResponse> => {
+
+  return apiMutator<statisticsFusionDashboardResponse>(getStatisticsFusionDashboardUrl(params),
   {
     ...options,
     method: 'GET'

@@ -6,8 +6,11 @@
  * OpenAPI spec version: 1.0
  */
 import type {
+  AiSummaryLifecycleClassHistory200,
   AiSummaryLifecycleDetail200,
   AiSummaryLifecycleHistory200,
+  AiSummaryLifecycleLessonHistory200,
+  AiSummaryLifecycleParentReportHistory200,
   AiSummaryLifecyclePublish201,
   AiSummaryLifecyclePublishedFor200,
   AiSummaryLifecycleRegenerate201,
@@ -508,6 +511,75 @@ export const aiSummaryLifecycleTask = async (id: string, options?: RequestInit):
 );}
 
 
+export type aiSummaryLifecycleClassHistoryResponse200 = {
+  data: AiSummaryLifecycleClassHistory200
+  status: 200
+}
+
+export type aiSummaryLifecycleClassHistoryResponse400 = {
+  data: ApiErrorResponse
+  status: 400
+}
+
+export type aiSummaryLifecycleClassHistoryResponse401 = {
+  data: ApiErrorResponse
+  status: 401
+}
+
+export type aiSummaryLifecycleClassHistoryResponse403 = {
+  data: ApiErrorResponse
+  status: 403
+}
+
+export type aiSummaryLifecycleClassHistoryResponse404 = {
+  data: ApiErrorResponse
+  status: 404
+}
+
+export type aiSummaryLifecycleClassHistoryResponse409 = {
+  data: ApiErrorResponse
+  status: 409
+}
+
+export type aiSummaryLifecycleClassHistoryResponse429 = {
+  data: ApiErrorResponse
+  status: 429
+}
+
+export type aiSummaryLifecycleClassHistoryResponse500 = {
+  data: ApiErrorResponse
+  status: 500
+}
+
+export type aiSummaryLifecycleClassHistoryResponseSuccess = (aiSummaryLifecycleClassHistoryResponse200) & {
+  headers: Headers;
+};
+export type aiSummaryLifecycleClassHistoryResponseError = (aiSummaryLifecycleClassHistoryResponse400 | aiSummaryLifecycleClassHistoryResponse401 | aiSummaryLifecycleClassHistoryResponse403 | aiSummaryLifecycleClassHistoryResponse404 | aiSummaryLifecycleClassHistoryResponse409 | aiSummaryLifecycleClassHistoryResponse429 | aiSummaryLifecycleClassHistoryResponse500) & {
+  headers: Headers;
+};
+
+export type aiSummaryLifecycleClassHistoryResponse = (aiSummaryLifecycleClassHistoryResponseSuccess | aiSummaryLifecycleClassHistoryResponseError)
+
+export const getAiSummaryLifecycleClassHistoryUrl = (classId: string,) => {
+
+
+
+
+  return `/api/v1/classes/${classId}/ai-summaries`
+}
+
+export const aiSummaryLifecycleClassHistory = async (classId: string, options?: RequestInit): Promise<aiSummaryLifecycleClassHistoryResponse> => {
+
+  return apiMutator<aiSummaryLifecycleClassHistoryResponse>(getAiSummaryLifecycleClassHistoryUrl(classId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
 export type aiSummaryLifecycleHistoryResponse200 = {
   data: AiSummaryLifecycleHistory200
   status: 200
@@ -568,6 +640,75 @@ export const getAiSummaryLifecycleHistoryUrl = (examId: string,) => {
 export const aiSummaryLifecycleHistory = async (examId: string, options?: RequestInit): Promise<aiSummaryLifecycleHistoryResponse> => {
 
   return apiMutator<aiSummaryLifecycleHistoryResponse>(getAiSummaryLifecycleHistoryUrl(examId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+export type aiSummaryLifecycleLessonHistoryResponse200 = {
+  data: AiSummaryLifecycleLessonHistory200
+  status: 200
+}
+
+export type aiSummaryLifecycleLessonHistoryResponse400 = {
+  data: ApiErrorResponse
+  status: 400
+}
+
+export type aiSummaryLifecycleLessonHistoryResponse401 = {
+  data: ApiErrorResponse
+  status: 401
+}
+
+export type aiSummaryLifecycleLessonHistoryResponse403 = {
+  data: ApiErrorResponse
+  status: 403
+}
+
+export type aiSummaryLifecycleLessonHistoryResponse404 = {
+  data: ApiErrorResponse
+  status: 404
+}
+
+export type aiSummaryLifecycleLessonHistoryResponse409 = {
+  data: ApiErrorResponse
+  status: 409
+}
+
+export type aiSummaryLifecycleLessonHistoryResponse429 = {
+  data: ApiErrorResponse
+  status: 429
+}
+
+export type aiSummaryLifecycleLessonHistoryResponse500 = {
+  data: ApiErrorResponse
+  status: 500
+}
+
+export type aiSummaryLifecycleLessonHistoryResponseSuccess = (aiSummaryLifecycleLessonHistoryResponse200) & {
+  headers: Headers;
+};
+export type aiSummaryLifecycleLessonHistoryResponseError = (aiSummaryLifecycleLessonHistoryResponse400 | aiSummaryLifecycleLessonHistoryResponse401 | aiSummaryLifecycleLessonHistoryResponse403 | aiSummaryLifecycleLessonHistoryResponse404 | aiSummaryLifecycleLessonHistoryResponse409 | aiSummaryLifecycleLessonHistoryResponse429 | aiSummaryLifecycleLessonHistoryResponse500) & {
+  headers: Headers;
+};
+
+export type aiSummaryLifecycleLessonHistoryResponse = (aiSummaryLifecycleLessonHistoryResponseSuccess | aiSummaryLifecycleLessonHistoryResponseError)
+
+export const getAiSummaryLifecycleLessonHistoryUrl = (sessionId: string,) => {
+
+
+
+
+  return `/api/v1/lesson-sessions/${sessionId}/ai-assistant`
+}
+
+export const aiSummaryLifecycleLessonHistory = async (sessionId: string, options?: RequestInit): Promise<aiSummaryLifecycleLessonHistoryResponse> => {
+
+  return apiMutator<aiSummaryLifecycleLessonHistoryResponse>(getAiSummaryLifecycleLessonHistoryUrl(sessionId),
   {
     ...options,
     method: 'GET'
@@ -706,6 +847,75 @@ export const getAiSummaryLifecycleStudentHistoryUrl = (studentId: string,) => {
 export const aiSummaryLifecycleStudentHistory = async (studentId: string, options?: RequestInit): Promise<aiSummaryLifecycleStudentHistoryResponse> => {
 
   return apiMutator<aiSummaryLifecycleStudentHistoryResponse>(getAiSummaryLifecycleStudentHistoryUrl(studentId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+export type aiSummaryLifecycleParentReportHistoryResponse200 = {
+  data: AiSummaryLifecycleParentReportHistory200
+  status: 200
+}
+
+export type aiSummaryLifecycleParentReportHistoryResponse400 = {
+  data: ApiErrorResponse
+  status: 400
+}
+
+export type aiSummaryLifecycleParentReportHistoryResponse401 = {
+  data: ApiErrorResponse
+  status: 401
+}
+
+export type aiSummaryLifecycleParentReportHistoryResponse403 = {
+  data: ApiErrorResponse
+  status: 403
+}
+
+export type aiSummaryLifecycleParentReportHistoryResponse404 = {
+  data: ApiErrorResponse
+  status: 404
+}
+
+export type aiSummaryLifecycleParentReportHistoryResponse409 = {
+  data: ApiErrorResponse
+  status: 409
+}
+
+export type aiSummaryLifecycleParentReportHistoryResponse429 = {
+  data: ApiErrorResponse
+  status: 429
+}
+
+export type aiSummaryLifecycleParentReportHistoryResponse500 = {
+  data: ApiErrorResponse
+  status: 500
+}
+
+export type aiSummaryLifecycleParentReportHistoryResponseSuccess = (aiSummaryLifecycleParentReportHistoryResponse200) & {
+  headers: Headers;
+};
+export type aiSummaryLifecycleParentReportHistoryResponseError = (aiSummaryLifecycleParentReportHistoryResponse400 | aiSummaryLifecycleParentReportHistoryResponse401 | aiSummaryLifecycleParentReportHistoryResponse403 | aiSummaryLifecycleParentReportHistoryResponse404 | aiSummaryLifecycleParentReportHistoryResponse409 | aiSummaryLifecycleParentReportHistoryResponse429 | aiSummaryLifecycleParentReportHistoryResponse500) & {
+  headers: Headers;
+};
+
+export type aiSummaryLifecycleParentReportHistoryResponse = (aiSummaryLifecycleParentReportHistoryResponseSuccess | aiSummaryLifecycleParentReportHistoryResponseError)
+
+export const getAiSummaryLifecycleParentReportHistoryUrl = (studentId: string,) => {
+
+
+
+
+  return `/api/v1/students/${studentId}/parent-reports`
+}
+
+export const aiSummaryLifecycleParentReportHistory = async (studentId: string, options?: RequestInit): Promise<aiSummaryLifecycleParentReportHistoryResponse> => {
+
+  return apiMutator<aiSummaryLifecycleParentReportHistoryResponse>(getAiSummaryLifecycleParentReportHistoryUrl(studentId),
   {
     ...options,
     method: 'GET'

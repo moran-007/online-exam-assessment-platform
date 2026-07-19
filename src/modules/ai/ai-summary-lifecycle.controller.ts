@@ -94,6 +94,27 @@ export class AiSummaryLifecycleController {
     return this.queries.studentHistory(studentId, user);
   }
 
+  @Get('classes/:classId/ai-summaries')
+  @Permissions('ai.summary.view-class')
+  @ApiOkResponse({ type: [AiSummaryLifecycleRecordDto] })
+  classHistory(@Param('classId', ParseUUIDPipe) classId: string, @CurrentUser() user: RequestUser) {
+    return this.queries.classHistory(classId, user);
+  }
+
+  @Get('students/:studentId/parent-reports')
+  @Permissions('ai.summary.view-class')
+  @ApiOkResponse({ type: [AiSummaryLifecycleRecordDto] })
+  parentReportHistory(@Param('studentId', ParseUUIDPipe) studentId: string, @CurrentUser() user: RequestUser) {
+    return this.queries.parentReportHistory(studentId, user);
+  }
+
+  @Get('lesson-sessions/:sessionId/ai-assistant')
+  @Permissions('ai.summary.view-class')
+  @ApiOkResponse({ type: [AiSummaryLifecycleRecordDto] })
+  lessonHistory(@Param('sessionId', ParseUUIDPipe) sessionId: string, @CurrentUser() user: RequestUser) {
+    return this.queries.lessonHistory(sessionId, user);
+  }
+
   @Get('me/ai-summaries')
   @Permissions('ai.summary.view-own')
   @ApiOkResponse({ type: [PublishedAiSummaryDto] })

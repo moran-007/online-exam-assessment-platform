@@ -23,7 +23,12 @@ import {
   notificationsMarkRead,
   notificationsUnreadCount,
 } from '../../../api/generated/notification/notification';
-import { statisticsExams, statisticsOverview } from '../../../api/generated/statistics/statistics';
+import {
+  statisticsExams,
+  statisticsFusionDashboard,
+  statisticsOverview,
+} from '../../../api/generated/statistics/statistics';
+import type { FusionDashboardDto } from '../../../api/generated/models';
 import { tagsCreate, tagsList, tagsRemove, tagsUpdate } from '../../../api/generated/tag/tag';
 import {
   usersBatchCreateStudents,
@@ -106,3 +111,5 @@ export const batchCreateTeachers = (body: Parameters<typeof usersBatchCreateTeac
 
 export const getDashboardOverview = () => data<PlatformRecord>(statisticsOverview({}));
 export const getDashboardExams = () => data<PlatformPage>(statisticsExams({ pageSize: 10 }));
+export const getFusionDashboard = (params?: Parameters<typeof statisticsFusionDashboard>[0]) =>
+  data<FusionDashboardDto>(statisticsFusionDashboard(params));

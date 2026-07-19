@@ -21,6 +21,7 @@
           <span v-if="detail?.record" class="muted">版本 v{{ detail.record.version }}</span>
         </div>
         <div>
+          <el-button type="primary" plain @click="openLessonAssistant">AI 课堂助手</el-button>
           <el-button data-testid="save-lesson-record" :loading="saving" @click="save">保存草稿</el-button>
           <el-button v-if="detail?.record?.status === 'DRAFT'" data-testid="submit-lesson-record" type="warning" @click="submit">提交</el-button>
           <el-button v-if="detail?.record?.status === 'SUBMITTED'" data-testid="publish-lesson-record" type="success" @click="publish">发布</el-button>
@@ -76,20 +77,28 @@
       </el-tabs>
     </div>
   </el-drawer>
+  <AiSummaryDialog ref="lessonAssistantDialog" kind="lesson" @apply-lesson="applyAiDraft" />
 </template>
 
 <script setup lang="ts">
-import { toRef, watch } from 'vue';
+import { ref, toRef, watch } from 'vue';
 import { useLessonRecordEditor } from '../composables/useLessonRecordEditor';
 import type { LessonAssetView } from '../api';
+import AiSummaryDialog from '../../ai/components/AiSummaryDialog.vue';
 
 const props = defineProps<{ modelValue: boolean; sessionId: string }>();
 const emit = defineEmits<{ 'update:modelValue': [value: boolean]; changed: [] }>();
 const sessionId = toRef(props, 'sessionId');
+const lessonAssistantDialog = ref<InstanceType<typeof AiSummaryDialog>>();
 const {
-  detail, form, load, loading, openLessonAsset, publish, removeAsset, save, saving,
+  applyAiDraft, detail, form, load, loading, openLessonAsset, publish, removeAsset, save, saving,
   selectFile, submit, upload, uploadFile, uploadForm, versions,
 } = useLessonRecordEditor(sessionId, () => emit('changed'));
+
+function openLessonAssistant() {
+  const name = detail.value?.session?.title || '当前课次';
+  void lessonAssistantDialog.value?.open(sessionId.value, name);
+}
 
 watch(() => [props.modelValue, props.sessionId], ([visible, id]) => {
   if (visible && id) void load();

@@ -8,9 +8,14 @@
 import type { AiEvidencedNumberDto } from './aiEvidencedNumberDto';
 
 export interface AiStudentCoverageMetricsDto {
+  attendanceRecordCount: AiEvidencedNumberDto;
+  completedLessonCount: AiEvidencedNumberDto;
   gradedAnswerCount: AiEvidencedNumberDto;
   gradedExamCount: AiEvidencedNumberDto;
+  homeworkAssignmentCount: AiEvidencedNumberDto;
   notSubmittedExamCount: AiEvidencedNumberDto;
+  publishedLessonRecordCount: AiEvidencedNumberDto;
+  scheduledLessonCount: AiEvidencedNumberDto;
   selectedExamCount: AiEvidencedNumberDto;
   ungradedExamCount: AiEvidencedNumberDto;
 }

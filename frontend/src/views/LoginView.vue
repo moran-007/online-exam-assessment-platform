@@ -36,6 +36,7 @@ import { reactive, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { ElMessage } from 'element-plus';
 import { setSession } from '../api';
+import { firstAccessiblePath } from '../access';
 import { login as loginSession } from '../features/platform/api';
 
 const router = useRouter();
@@ -53,7 +54,7 @@ async function login() {
     const data = await loginSession({ ...form });
     setSession(data, { rememberMe: form.rememberMe });
     ElMessage.success('登录成功');
-    router.replace(data.user.userType === 'STUDENT' ? '/student/exams' : '/dashboard');
+    router.replace(firstAccessiblePath(data.user));
   } catch (error) {
     ElMessage.error(error.message);
   } finally {

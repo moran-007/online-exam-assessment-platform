@@ -35,7 +35,7 @@ const routes = [
   { path: '/question-bank', component: PublicQuestionView, meta: { public: true } },
   { path: '/public/questions', redirect: '/question-bank', meta: { public: true } },
   { path: '/', redirect: () => firstAccessiblePath(getCurrentUser()) },
-  { path: '/dashboard', component: DashboardView, meta: { adminOnly: true, permissions: ['statistics:read'] } },
+  { path: '/dashboard', component: DashboardView, meta: { permissions: ['dashboard:read'] } },
   { path: '/courses', component: CourseView, meta: { adminOnly: true, permissions: ['course:read'] } },
   { path: '/classes', component: ClassView, meta: { adminOnly: true, permissions: ['class:read'] } },
   { path: '/users', component: UserManagementView, meta: { adminOnly: true, userTypes: ['SUPER_ADMIN'] } },

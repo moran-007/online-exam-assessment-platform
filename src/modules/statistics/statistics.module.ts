@@ -4,6 +4,7 @@ import { ExamStatisticsQuery } from './queries/exam-statistics.query';
 import { KnowledgeStatisticsQuery } from './queries/knowledge-statistics.query';
 import { QuestionDiagnosticsQuery } from './queries/question-diagnostics.query';
 import { WrongQuestionStatisticsQuery } from './queries/wrong-question-statistics.query';
+import { FusionDashboardQuery } from './queries/fusion-dashboard.query';
 import { StatisticsController } from './statistics.controller';
 import { StatisticsScopeService } from './statistics-scope.service';
 import { StatisticsService } from './statistics.service';
@@ -18,6 +19,7 @@ import { StatisticsService } from './statistics.service';
     KnowledgeStatisticsQuery,
     QuestionDiagnosticsQuery,
     WrongQuestionStatisticsQuery,
+    FusionDashboardQuery,
   ],
   exports: [StatisticsService, ExamStatisticsQuery, KnowledgeStatisticsQuery],
 })

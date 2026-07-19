@@ -13,6 +13,11 @@ export interface CreateAiProviderConfigDto {
   /** @maxLength 500 */
   baseUrl: string;
   enabled?: boolean;
+  /**
+     * 每百万输入 Token 的估算成本
+     * @minimum 0
+     */
+  inputCostPerMillion?: number;
   isDefault?: boolean;
   /**
      * @minimum 1
@@ -28,6 +33,11 @@ export interface CreateAiProviderConfigDto {
   monthlyTokenBudget?: number;
   /** @maxLength 100 */
   name: string;
+  /**
+     * 每百万输出 Token 的估算成本
+     * @minimum 0
+     */
+  outputCostPerMillion?: number;
   /** @maxLength 50 */
   provider: string;
   /** 系统共享配置仅超级管理员可创建 */

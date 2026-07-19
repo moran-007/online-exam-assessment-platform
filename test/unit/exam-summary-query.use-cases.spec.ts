@@ -14,6 +14,7 @@ describe('AiSummaryQueryUseCases', () => {
     };
     const prisma = {
       examAttempt: { findMany: jest.fn().mockResolvedValue([{ examId: published.subjectId }]) },
+      classStudent: { findMany: jest.fn().mockResolvedValue([]) },
       aiSummary: { findMany: jest.fn().mockResolvedValue([published]) },
     };
     const service = new AiSummaryQueryUseCases(prisma as never, {} as never);
@@ -32,7 +33,7 @@ describe('AiSummaryQueryUseCases', () => {
         reviewStatus: AiSummaryReviewStatus.PUBLISHED,
         publishedAt: { not: null },
         OR: expect.arrayContaining([
-          { type: AiSummaryType.STUDENT, subjectId: user.id },
+          { type: AiSummaryType.STUDENT, subjectId: { in: [user.id] } },
           { type: AiSummaryType.EXAM, subjectId: { in: [published.subjectId] } },
         ]),
       }),

@@ -8,7 +8,11 @@ export type EvidenceSourceType =
   | 'knowledge_point'
   | 'wrong_question'
   | 'class'
-  | 'student';
+  | 'student'
+  | 'lesson_session'
+  | 'lesson_record'
+  | 'attendance'
+  | 'lesson_hour_ledger';
 
 export type EvidenceRef = {
   refId: string;

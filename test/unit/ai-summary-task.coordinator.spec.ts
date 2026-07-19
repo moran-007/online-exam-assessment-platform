@@ -1,5 +1,6 @@
 import { AiSummaryTaskStatus, AiSummaryType } from '@prisma/client';
 import { AiSummaryTaskCoordinator } from '../../src/modules/ai/ai-summary-task.coordinator';
+import type { SupportedSummaryDataset } from '../../src/modules/ai/datasets/summary-dataset';
 
 describe('AiSummaryTaskCoordinator', () => {
   it('returns a successful idempotent task without calling the model again', async () => {
@@ -33,6 +34,7 @@ describe('AiSummaryTaskCoordinator', () => {
     const prisma = {
       aiSummaryPromptTemplate: { findFirst: jest.fn().mockResolvedValue(template()) },
       aiSummaryTask: { findFirst: jest.fn().mockResolvedValue(existing), create: jest.fn() },
+      aiSummaryCacheEvent: { create: jest.fn().mockResolvedValue({}) },
       aiUsageEvent: { findFirst: jest.fn().mockResolvedValue({
         requestedOutputTokens: 1000, totalTokens: 20, usageReported: true,
       }) },
@@ -53,7 +55,7 @@ describe('AiSummaryTaskCoordinator', () => {
       type: AiSummaryType.EXAM,
       subjectId: '00000000-0000-0000-0000-000000000005',
       scope: { examId: '00000000-0000-0000-0000-000000000005' },
-      dataset: dataset(),
+      dataset: dataset() as unknown as SupportedSummaryDataset,
       templateCode: 'exam-summary',
       schemaVersion: 'exam-summary-output/v1',
       minOutputTokens: 100,

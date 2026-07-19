@@ -100,10 +100,49 @@ export function useLessonRecordEditor(sessionId: Ref<string>, changed: () => voi
     versions.value = await listLessonRecordVersions(sessionId.value);
   }
 
+  async function applyAiDraft(content: Record<string, unknown>) {
+    const replacement = aiLessonFields(content);
+    const willReplace = Object.entries(replacement).some(([key, value]) => value && form[key as keyof typeof form]);
+    if (willReplace) {
+      await ElMessageBox.confirm('AI 草稿会覆盖对应的非空教学记录字段，是否继续？', '应用课堂助手草稿', {
+        type: 'warning',
+      });
+    }
+    Object.assign(form, Object.fromEntries(Object.entries(replacement).filter(([, value]) => value)));
+    ElMessage.success('AI 内容已应用到本地草稿，请检查后点击“保存草稿”');
+  }
+
   return {
-    detail, form, load, loading, openLessonAsset, publish, removeAsset, save, saving,
+    applyAiDraft, detail, form, load, loading, openLessonAsset, publish, removeAsset, save, saving,
     selectFile, submit, upload, uploadFile, uploadForm, versions,
   };
+}
+
+function aiLessonFields(content: Record<string, unknown>) {
+  const headline = claimText(content.headline);
+  const overview = claimList(content.overview);
+  const strengths = claimList(content.strengths);
+  const risks = claimList(content.risks);
+  const actions = claimList(content.actions);
+  const needsReview = claimList(content.needsReview);
+  return {
+    publicTeachingContent: overview.join('\n'),
+    publicLearningGoal: headline,
+    publicClassPerformance: strengths.join('\n'),
+    publicHomework: actions[0] ?? '',
+    publicNextPlan: actions.slice(1).join('\n'),
+    internalTeachingNotes: [...risks, ...needsReview].join('\n'),
+  };
+}
+
+function claimText(value: unknown) {
+  if (!value || typeof value !== 'object') return '';
+  const text = (value as { text?: unknown }).text;
+  return typeof text === 'string' ? text.trim() : '';
+}
+
+function claimList(value: unknown) {
+  return Array.isArray(value) ? value.map(claimText).filter(Boolean) : [];
 }
 
 function emptyForm() {

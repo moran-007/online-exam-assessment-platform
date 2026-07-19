@@ -7,24 +7,30 @@
  */
 import type { AiDataCoverageDto } from './aiDataCoverageDto';
 import type { AiEvidenceRefDto } from './aiEvidenceRefDto';
+import type { AiStudentAttendanceFactDto } from './aiStudentAttendanceFactDto';
 import type { AiStudentContextDto } from './aiStudentContextDto';
 import type { AiStudentCoverageMetricsDto } from './aiStudentCoverageMetricsDto';
 import type { AiStudentExamPerformanceDto } from './aiStudentExamPerformanceDto';
 import type { AiStudentKnowledgePointFactDto } from './aiStudentKnowledgePointFactDto';
+import type { AiStudentLessonFactDto } from './aiStudentLessonFactDto';
 import type { AiStudentProgrammingFactDto } from './aiStudentProgrammingFactDto';
 import type { AiStudentQuestionTypeFactDto } from './aiStudentQuestionTypeFactDto';
 import type { AiStudentSummaryScopeDto } from './aiStudentSummaryScopeDto';
 import type { AiStudentWrongQuestionFactDto } from './aiStudentWrongQuestionFactDto';
+import type { StudentSummaryDatasetPreviewDtoGenerationMode } from './studentSummaryDatasetPreviewDtoGenerationMode';
 
 export interface StudentSummaryDatasetPreviewDto {
+  attendance: AiStudentAttendanceFactDto;
   coverage: AiStudentCoverageMetricsDto;
   dataCoverage: AiDataCoverageDto;
   datasetVersion: string;
   evidence: AiEvidenceRefDto[];
   examPerformance: AiStudentExamPerformanceDto[];
   generatedAt: string;
+  generationMode: StudentSummaryDatasetPreviewDtoGenerationMode;
   inputHash: string;
   knowledgePoints: AiStudentKnowledgePointFactDto[];
+  lessons: AiStudentLessonFactDto[];
   programming: AiStudentProgrammingFactDto;
   questionTypes: AiStudentQuestionTypeFactDto[];
   scope: AiStudentSummaryScopeDto;

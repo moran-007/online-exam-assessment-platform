@@ -44,6 +44,9 @@
         <el-table-column label="本月 Token" min-width="170">
           <template #default="{ row }">{{ formatTokenQuota(row.tokenQuota) }}</template>
         </el-table-column>
+        <el-table-column label="估算单价 / 百万 Token" min-width="210">
+          <template #default="{ row }">输入 {{ row.inputCostPerMillion }} / 输出 {{ row.outputCostPerMillion }}</template>
+        </el-table-column>
         <el-table-column label="操作" width="220" fixed="right">
           <template #default="{ row }">
             <template v-if="row.canManage">
@@ -110,15 +113,24 @@
             <span class="muted">本地预算，留空表示不限制</span>
           </div>
         </el-form-item>
+        <el-form-item label="估算单价">
+          <div class="toolbar">
+            <span>输入</span><el-input-number v-model="form.inputCostPerMillion" :min="0" :precision="4" />
+            <span>输出</span><el-input-number v-model="form.outputCostPerMillion" :min="0" :precision="4" />
+            <span class="muted">每百万 Token，币种由管理员统一约定</span>
+          </div>
+        </el-form-item>
         <el-form-item label="状态"><el-switch v-model="form.enabled" active-text="启用" /><el-switch v-model="form.isDefault" active-text="设为默认" class="ai-default-switch" /></el-form-item>
       </el-form>
       <template #footer><el-button @click="dialogVisible = false">取消</el-button><el-button type="primary" :loading="saving" @click="save">保存</el-button></template>
     </el-dialog>
+    <AiQualityPanel :configurations="configurations" />
   </div>
 </template>
 
 <script setup lang="ts">
 import { useAiSettingsPage } from '../composables/useAiSettingsPage';
+import AiQualityPanel from './AiQualityPanel.vue';
 const {
   activeConfigurations, applyPreset, canCreateSystem, configurations, dialogVisible, form, formatTokenQuota, load, loading,
   openCreate, openEdit, presets, remove, save, saving, selectedPresetProvider, summarize,

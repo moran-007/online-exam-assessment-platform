@@ -1,5 +1,15 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
-import { AttemptStatus, ClassMemberStatus, Prisma, UserStatus, UserType, WrongQuestionSourceType } from '@prisma/client';
+import {
+  AttemptStatus,
+  AttendanceStatus,
+  ClassMemberStatus,
+  LessonRecordStatus,
+  LessonSessionStatus,
+  Prisma,
+  UserStatus,
+  UserType,
+  WrongQuestionSourceType,
+} from '@prisma/client';
 import { RequestUser } from '../../../common/interfaces/request-user.interface';
 import { ratio } from '../../statistics/statistics-math';
 import { DataScopeService } from '../../data-scope/data-scope.service';
@@ -59,9 +69,29 @@ const WRONG_QUESTION_SELECT = {
   question: { select: { title: true, type: true } },
 } satisfies Prisma.WrongQuestionSelect;
 
+const STUDENT_LESSON_SELECT = {
+  id: true,
+  title: true,
+  startsAt: true,
+  status: true,
+  lessonHours: true,
+  classGroup: { select: { courseId: true, course: { select: { name: true } } } },
+  attendance: { select: { id: true, status: true, confirmedAt: true } },
+  lessonRecord: {
+    select: {
+      id: true,
+      status: true,
+      publicLearningGoal: true,
+      publicClassPerformance: true,
+      publicHomework: true,
+    },
+  },
+} satisfies Prisma.LessonSessionSelect;
+
 type StudentExam = Prisma.ExamGetPayload<{ select: typeof STUDENT_EXAM_SELECT }>;
 type StudentAttempt = Prisma.ExamAttemptGetPayload<{ select: typeof STUDENT_ATTEMPT_SELECT }>;
 type StudentWrongQuestion = Prisma.WrongQuestionGetPayload<{ select: typeof WRONG_QUESTION_SELECT }>;
+type StudentLesson = Prisma.LessonSessionGetPayload<{ select: typeof STUDENT_LESSON_SELECT }>;
 
 export type StudentSummaryScopeInput = {
   studentId: string;
@@ -107,12 +137,13 @@ export class StudentSummaryDatasetBuilder {
     const answers = gradedAttempts.flatMap((attempt) => attempt.answers);
     const answerFacts = this.answerFacts(answers);
     const attemptIds = gradedAttempts.map((attempt) => attempt.id);
-    const [wrongQuestions, judgeSubmissions] = await Promise.all([
+    const [wrongQuestions, judgeSubmissions, lessons] = await Promise.all([
       this.wrongQuestions(scope, examIds),
       attemptIds.length ? this.prisma.judgeSubmission.findMany({
         where: { studentId: student.id, attemptId: { in: attemptIds } },
         select: { status: true, score: true },
       }) : [],
+      this.lessons(scope),
     ]);
 
     return this.dataset({
@@ -124,6 +155,7 @@ export class StudentSummaryDatasetBuilder {
       answers: answerFacts,
       wrongQuestions,
       judgeSubmissions,
+      lessons,
     });
   }
 
@@ -192,6 +224,32 @@ export class StudentSummaryDatasetBuilder {
     });
   }
 
+  private lessons(scope: NormalizedScope): Promise<StudentLesson[]> {
+    const startsAt = {
+      ...(scope.from ? { gte: scope.from } : {}),
+      ...(scope.to ? { lte: scope.to } : {}),
+    };
+    return this.prisma.lessonSession.findMany({
+      where: {
+        ...(Object.keys(startsAt).length ? { startsAt } : {}),
+        classGroup: {
+          deletedAt: null,
+          ...(scope.courseId ? { courseId: scope.courseId } : {}),
+          students: { some: { studentId: scope.studentId, status: ClassMemberStatus.ACTIVE } },
+        },
+      },
+      orderBy: [{ startsAt: 'desc' }, { id: 'desc' }],
+      take: 50,
+      select: {
+        ...STUDENT_LESSON_SELECT,
+        attendance: {
+          where: { studentId: scope.studentId },
+          select: STUDENT_LESSON_SELECT.attendance.select,
+        },
+      },
+    });
+  }
+
   private answerFacts(answers: StudentAttempt['answers']): StudentAnswerFact[] {
     return answers.map((answer) => ({
       type: answer.question.type.toLowerCase(),
@@ -217,10 +275,27 @@ export class StudentSummaryDatasetBuilder {
       status: item.status,
       score: item.score === null ? null : Number(item.score),
     })));
+    const publishedLessons = input.lessons.filter((lesson) => lesson.lessonRecord?.status === LessonRecordStatus.PUBLISHED);
+    const attendance = input.lessons.flatMap((lesson) => lesson.attendance).filter((item) => item.confirmedAt);
+    const attendanceCount = (status: AttendanceStatus) => attendance.filter((item) => item.status === status).length;
+    const attendedStatuses = new Set<AttendanceStatus>([
+      AttendanceStatus.PRESENT,
+      AttendanceStatus.LATE,
+      AttendanceStatus.EARLY_LEAVE,
+      AttendanceStatus.MAKEUP,
+    ]);
+    const attendedCount = attendance.filter((item) => attendedStatuses.has(item.status)).length;
+    const scheduledLessonCount = input.lessons.filter((lesson) => lesson.status !== LessonSessionStatus.CANCELLED).length;
+    const completedLessonCount = input.lessons.filter((lesson) => lesson.status === LessonSessionStatus.COMPLETED).length;
+    const homeworkAssignmentCount = publishedLessons.filter((lesson) => lesson.lessonRecord?.publicHomework?.trim()).length;
+    const evidenceDensity = statusCounts.graded + publishedLessons.length + attendance.length;
     const course = input.exams.find((exam) => exam.courseId === input.scope.courseId) ?? input.exams[0];
+    const lessonCourse = input.lessons.find((lesson) => lesson.classGroup.courseId === input.scope.courseId)
+      ?? input.lessons[0];
     const dataset: StudentSummaryDataset = {
       type: 'student',
-      datasetVersion: 'student-summary/v1',
+      generationMode: evidenceDensity >= 3 ? 'analysis' : 'fact_card',
+      datasetVersion: 'student-summary/v2',
       generatedAt,
       dataCoverage: {
         from: input.scope.from?.toISOString() ?? null,
@@ -228,17 +303,21 @@ export class StudentSummaryDatasetBuilder {
         includes: [
           'selected_exams', 'latest_submitted_attempt_per_exam', 'graded_scores',
           'question_type_performance', 'knowledge_point_performance',
-          'wrong_question_counters', 'programming_judge_results',
+          'wrong_question_counters', 'programming_judge_results', 'lesson_sessions',
+          'confirmed_attendance', 'published_learning_goals', 'published_class_performance',
+          'published_homework_assignments',
         ],
         excludes: [
-          'attendance', 'lessons', 'homework', 'classroom_behavior', 'teaching_notes',
-          'answer_text', 'ungraded_scores', 'parent_data',
+          'unpublished_lesson_records', 'internal_teaching_notes', 'internal_class_performance',
+          'homework_submission_results', 'answer_text', 'ungraded_scores', 'parent_data',
         ],
       },
       student: { id: input.studentId, alias: '该学生' },
       scope: {
         courseId: input.scope.courseId ?? null,
-        courseName: input.scope.courseId ? course?.course.name ?? null : null,
+        courseName: input.scope.courseId
+          ? course?.course.name ?? lessonCourse?.classGroup.course?.name ?? null
+          : null,
         examIds: input.exams.map((exam) => exam.id),
       },
       coverage: {
@@ -247,6 +326,11 @@ export class StudentSummaryDatasetBuilder {
         notSubmittedExamCount: this.studentValue(evidence, input.studentId, 'notSubmittedExamCount', statusCounts.notSubmitted, 'exam'),
         ungradedExamCount: this.studentValue(evidence, input.studentId, 'ungradedExamCount', statusCounts.ungraded, 'exam'),
         gradedAnswerCount: this.studentValue(evidence, input.studentId, 'gradedAnswerCount', input.answers.length, 'answer'),
+        scheduledLessonCount: this.studentValue(evidence, input.studentId, 'scheduledLessonCount', scheduledLessonCount, 'lesson'),
+        completedLessonCount: this.studentValue(evidence, input.studentId, 'completedLessonCount', completedLessonCount, 'lesson'),
+        attendanceRecordCount: this.studentValue(evidence, input.studentId, 'attendanceRecordCount', attendance.length, 'attendance'),
+        publishedLessonRecordCount: this.studentValue(evidence, input.studentId, 'publishedLessonRecordCount', publishedLessons.length, 'lesson_record'),
+        homeworkAssignmentCount: this.studentValue(evidence, input.studentId, 'homeworkAssignmentCount', homeworkAssignmentCount, 'homework'),
       },
       examPerformance: input.exams.map((exam) => this.examPerformance(evidence, input.studentId, exam, byExam.get(exam.id))),
       questionTypes: questionTypes.map((item) => ({
@@ -282,10 +366,80 @@ export class StudentSummaryDatasetBuilder {
         acceptedRate: this.studentValue(evidence, input.studentId, 'programming.acceptedRate', programming.acceptedRate, 'ratio'),
         averageScore: this.studentValue(evidence, input.studentId, 'programming.averageScore', programming.averageScore, 'score'),
       },
+      attendance: {
+        confirmedCount: this.studentValue(evidence, input.studentId, 'attendance.confirmedCount', attendance.length, 'attendance'),
+        presentCount: this.studentValue(evidence, input.studentId, 'attendance.presentCount', attendanceCount(AttendanceStatus.PRESENT), 'attendance'),
+        lateCount: this.studentValue(evidence, input.studentId, 'attendance.lateCount', attendanceCount(AttendanceStatus.LATE), 'attendance'),
+        leaveCount: this.studentValue(evidence, input.studentId, 'attendance.leaveCount', attendanceCount(AttendanceStatus.LEAVE), 'attendance'),
+        absentCount: this.studentValue(evidence, input.studentId, 'attendance.absentCount', attendanceCount(AttendanceStatus.ABSENT), 'attendance'),
+        attendanceRate: this.studentValue(evidence, input.studentId, 'attendance.attendanceRate', ratio(attendedCount, attendance.length), 'ratio'),
+      },
+      lessons: input.lessons.map((lesson) => this.lessonActivity(evidence, input.studentId, lesson)),
       evidenceIndex: evidence.index,
     };
     assertSummaryDataset(dataset);
     return dataset;
+  }
+
+  private lessonActivity(
+    evidence: EvidenceCollector,
+    studentId: string,
+    lesson: StudentLesson,
+  ): StudentSummaryDataset['lessons'][number] {
+    const attendance = lesson.attendance[0];
+    const record = lesson.lessonRecord?.status === LessonRecordStatus.PUBLISHED
+      ? lesson.lessonRecord
+      : null;
+    return {
+      sessionId: lesson.id,
+      title: lesson.title,
+      startsAt: lesson.startsAt.toISOString(),
+      status: evidence.collect({
+        sourceType: 'lesson_session', sourceId: lesson.id, metric: 'status',
+        path: `/students/${studentId}/lessons/${lesson.id}/status`,
+        value: lesson.status.toLowerCase(), unit: 'status',
+      }),
+      lessonHours: evidence.collect({
+        sourceType: 'lesson_session', sourceId: lesson.id, metric: 'lessonHours',
+        path: `/students/${studentId}/lessons/${lesson.id}/lessonHours`,
+        value: Number(lesson.lessonHours), unit: 'hour',
+      }),
+      attendanceStatus: evidence.collect({
+        sourceType: attendance ? 'attendance' : 'lesson_session',
+        sourceId: attendance?.id ?? lesson.id,
+        metric: 'attendanceStatus',
+        path: `/students/${studentId}/lessons/${lesson.id}/attendanceStatus`,
+        value: attendance?.status.toLowerCase() ?? null,
+        unit: 'status',
+      }),
+      learningGoal: this.lessonRecordValue(
+        evidence, studentId, lesson.id, record?.id, 'learningGoal', record?.publicLearningGoal ?? null,
+      ),
+      classPerformance: this.lessonRecordValue(
+        evidence, studentId, lesson.id, record?.id, 'classPerformance', record?.publicClassPerformance ?? null,
+      ),
+      homework: this.lessonRecordValue(
+        evidence, studentId, lesson.id, record?.id, 'homework', record?.publicHomework ?? null,
+      ),
+    };
+  }
+
+  private lessonRecordValue(
+    evidence: EvidenceCollector,
+    studentId: string,
+    sessionId: string,
+    recordId: string | undefined,
+    metric: string,
+    value: string | null,
+  ) {
+    return evidence.collect({
+      sourceType: recordId ? 'lesson_record' : 'lesson_session',
+      sourceId: recordId ?? sessionId,
+      metric,
+      path: `/students/${studentId}/lessons/${sessionId}/${metric}`,
+      value,
+      unit: 'text',
+    });
   }
 
   private examPerformance(
@@ -374,4 +528,5 @@ type DatasetInput = {
   answers: StudentAnswerFact[];
   wrongQuestions: StudentWrongQuestion[];
   judgeSubmissions: Array<{ status: string; score: Prisma.Decimal | null }>;
+  lessons: StudentLesson[];
 };

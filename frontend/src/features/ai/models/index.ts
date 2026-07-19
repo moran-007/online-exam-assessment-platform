@@ -16,6 +16,11 @@ export type {
   RegenerateAiSummaryDto as RegenerateAiSummary,
   PublishedAiSummaryDto as PublishedAiSummary,
   PublishedAiSummaryDto as StudentPublishedAiSummary,
+  IntegratedSummaryDatasetPreviewDto as IntegratedSummaryDatasetPreview,
+  AiQualityDashboardDto as AiQualityDashboard,
+  AiFeedbackListDto as AiFeedbackList,
+  AiFeedbackRecordDto as AiFeedbackRecord,
+  AiRegressionRunDto as AiRegressionRun,
 } from '../../../api/generated/models';
 
 export type AiSummaryClaim = { text: string; evidenceRefs: string[] };

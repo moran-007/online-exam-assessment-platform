@@ -12,4 +12,7 @@ export type AiSummaryLifecycleTaskDtoType = typeof AiSummaryLifecycleTaskDtoType
 export const AiSummaryLifecycleTaskDtoType = {
   exam: 'exam',
   student: 'student',
+  class: 'class',
+  parent_report: 'parent_report',
+  lesson: 'lesson',
 } as const;

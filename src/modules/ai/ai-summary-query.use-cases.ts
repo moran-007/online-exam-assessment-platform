@@ -1,5 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { AiSummaryReviewStatus, AiSummaryType } from '@prisma/client';
+import { AiSummaryReviewStatus, AiSummaryType, ClassMemberStatus, UserType } from '@prisma/client';
 import { RequestUser } from '../../common/interfaces/request-user.interface';
 import { PrismaService } from '../prisma/prisma.service';
 import { AiSummaryAccessService } from './ai-summary-access.service';
@@ -17,7 +17,13 @@ export class AiSummaryQueryUseCases {
       where: { id },
       include: { summary: { select: { id: true } } },
     });
-    const supportedTypes: AiSummaryType[] = [AiSummaryType.EXAM, AiSummaryType.STUDENT];
+    const supportedTypes: AiSummaryType[] = [
+      AiSummaryType.EXAM,
+      AiSummaryType.STUDENT,
+      AiSummaryType.CLASS,
+      AiSummaryType.PARENT_REPORT,
+      AiSummaryType.LESSON,
+    ];
     if (!task || !supportedTypes.includes(task.type)) {
       throw new NotFoundException('AI 总结任务不存在');
     }
@@ -50,23 +56,51 @@ export class AiSummaryQueryUseCases {
     return this.history(AiSummaryType.STUDENT, studentId, user);
   }
 
+  classHistory(classId: string, user: RequestUser) {
+    return this.history(AiSummaryType.CLASS, classId, user);
+  }
+
+  parentReportHistory(studentId: string, user: RequestUser) {
+    return this.history(AiSummaryType.PARENT_REPORT, studentId, user);
+  }
+
+  lessonHistory(sessionId: string, user: RequestUser) {
+    return this.history(AiSummaryType.LESSON, sessionId, user);
+  }
+
   async publishedFor(user: RequestUser) {
-    const attempts = await this.prisma.examAttempt.findMany({
-      where: { userId: user.id },
-      select: { examId: true },
-      distinct: ['examId'],
-    });
+    const learnerIds = await this.learnerIds(user);
+    if (!learnerIds.length) return [];
+    const [attempts, memberships] = await Promise.all([
+      this.prisma.examAttempt.findMany({
+        where: { userId: { in: learnerIds } },
+        select: { examId: true },
+        distinct: ['examId'],
+      }),
+      this.prisma.classStudent.findMany({
+        where: { studentId: { in: learnerIds }, status: ClassMemberStatus.ACTIVE },
+        select: { classId: true },
+        distinct: ['classId'],
+      }),
+    ]);
+    const visibleTypes = [
+      { type: AiSummaryType.STUDENT, subjectId: { in: learnerIds } },
+      ...(user.userType === UserType.PARENT
+        ? [{ type: AiSummaryType.PARENT_REPORT, subjectId: { in: learnerIds } }]
+        : []),
+      ...(user.userType === UserType.STUDENT && memberships.length
+        ? [{ type: AiSummaryType.CLASS, subjectId: { in: memberships.map((item) => item.classId) } }]
+        : []),
+      ...(attempts.length ? [{
+        type: AiSummaryType.EXAM,
+        subjectId: { in: attempts.map((attempt) => attempt.examId) },
+      }] : []),
+    ];
     const rows = await this.prisma.aiSummary.findMany({
       where: {
         reviewStatus: AiSummaryReviewStatus.PUBLISHED,
         publishedAt: { not: null },
-        OR: [
-          { type: AiSummaryType.STUDENT, subjectId: user.id },
-          ...(attempts.length ? [{
-            type: AiSummaryType.EXAM,
-            subjectId: { in: attempts.map((attempt) => attempt.examId) },
-          }] : []),
-        ],
+        OR: visibleTypes,
       },
       orderBy: { publishedAt: 'desc' },
     });
@@ -87,5 +121,15 @@ export class AiSummaryQueryUseCases {
       orderBy: { createdAt: 'desc' },
     });
     return rows.map(presentSummary);
+  }
+
+  private async learnerIds(user: RequestUser) {
+    if (user.userType === UserType.STUDENT) return [user.id];
+    if (user.userType !== UserType.PARENT) return [];
+    const relations = await this.prisma.parentStudent.findMany({
+      where: { parentId: user.id, status: ClassMemberStatus.ACTIVE },
+      select: { studentId: true },
+    });
+    return relations.map((relation) => relation.studentId);
   }
 }

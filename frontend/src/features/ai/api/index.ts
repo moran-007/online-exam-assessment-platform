@@ -15,7 +15,10 @@ import {
   aiSummaryStudentPreview,
 } from '../../../api/generated/ai-summary/ai-summary';
 import {
+  aiSummaryLifecycleClassHistory,
   aiSummaryLifecycleHistory,
+  aiSummaryLifecycleLessonHistory,
+  aiSummaryLifecycleParentReportHistory,
   aiSummaryLifecyclePublishedFor,
   aiSummaryLifecyclePublish,
   aiSummaryLifecycleRegenerate,
@@ -24,7 +27,23 @@ import {
   aiSummaryLifecycleStudentHistory,
   aiSummaryLifecycleUpdate,
 } from '../../../api/generated/ai-summary-lifecycle/ai-summary-lifecycle';
+import {
+  integratedSummaryCreateClass,
+  integratedSummaryCreateLesson,
+  integratedSummaryCreateParent,
+  integratedSummaryPreviewClass,
+  integratedSummaryPreviewLesson,
+  integratedSummaryPreviewParent,
+} from '../../../api/generated/ai-integrated-summary/ai-integrated-summary';
 import { asGenerated, generatedData } from '../../../api/generated-data';
+import {
+  aiQualityCreateFeedback,
+  aiQualityDashboard,
+  aiQualityFeedback,
+  aiQualityRegressions,
+  aiQualityResolveFeedback,
+  aiQualityRunRegression,
+} from '../../../api/generated/ai-quality/ai-quality';
 import type {
   AiProviderConfig,
   AiProviderPreset,
@@ -40,6 +59,10 @@ import type {
   AiSummaryTask,
   RegenerateAiSummary,
   PublishedAiSummary,
+  IntegratedSummaryDatasetPreview,
+  AiQualityDashboard,
+  AiFeedbackList,
+  AiRegressionRun,
 } from '../models';
 
 export const listAiPresets = () => generatedData(asGenerated<AiProviderPreset[]>(aiPresets()));
@@ -62,12 +85,34 @@ export const previewStudentSummaryDataset = (
 ) => generatedData(asGenerated<StudentSummaryDatasetPreview>(aiSummaryStudentPreview(studentId, params)));
 export const createStudentSummary = (body: Parameters<typeof aiSummaryCreateStudent>[0]) =>
   generatedData(asGenerated<AiSummaryTask>(aiSummaryCreateStudent(body)));
+export const previewClassSummaryDataset = (
+  classId: string,
+  params?: Parameters<typeof integratedSummaryPreviewClass>[1],
+) => generatedData(asGenerated<IntegratedSummaryDatasetPreview>(integratedSummaryPreviewClass(classId, params)));
+export const createClassSummary = (body: Parameters<typeof integratedSummaryCreateClass>[0]) =>
+  generatedData(asGenerated<AiSummaryTask>(integratedSummaryCreateClass(body)));
+export const previewParentReportDataset = (
+  studentId: string,
+  params?: Parameters<typeof integratedSummaryPreviewParent>[1],
+) => generatedData(asGenerated<IntegratedSummaryDatasetPreview>(integratedSummaryPreviewParent(studentId, params)));
+export const createParentReport = (body: Parameters<typeof integratedSummaryCreateParent>[0]) =>
+  generatedData(asGenerated<AiSummaryTask>(integratedSummaryCreateParent(body)));
+export const previewLessonAssistantDataset = (sessionId: string) =>
+  generatedData(asGenerated<IntegratedSummaryDatasetPreview>(integratedSummaryPreviewLesson(sessionId)));
+export const createLessonAssistant = (body: Parameters<typeof integratedSummaryCreateLesson>[0]) =>
+  generatedData(asGenerated<AiSummaryTask>(integratedSummaryCreateLesson(body)));
 export const estimateStudentSummaryBatch = (body: Parameters<typeof aiSummaryEstimateStudentBatch>[0]) =>
   generatedData(asGenerated<StudentSummaryBatchEstimate>(aiSummaryEstimateStudentBatch(body)));
 export const listExamSummaryHistory = (examId: string) =>
   generatedData(asGenerated<AiSummaryLifecycleRecord[]>(aiSummaryLifecycleHistory(examId)));
 export const listStudentSummaryHistory = (studentId: string) =>
   generatedData(asGenerated<AiSummaryLifecycleRecord[]>(aiSummaryLifecycleStudentHistory(studentId)));
+export const listClassSummaryHistory = (classId: string) =>
+  generatedData(asGenerated<AiSummaryLifecycleRecord[]>(aiSummaryLifecycleClassHistory(classId)));
+export const listParentReportHistory = (studentId: string) =>
+  generatedData(asGenerated<AiSummaryLifecycleRecord[]>(aiSummaryLifecycleParentReportHistory(studentId)));
+export const listLessonAssistantHistory = (sessionId: string) =>
+  generatedData(asGenerated<AiSummaryLifecycleRecord[]>(aiSummaryLifecycleLessonHistory(sessionId)));
 export const updateExamSummary = (id: string, content: Record<string, unknown>) =>
   generatedData(asGenerated<AiSummaryLifecycleRecord>(aiSummaryLifecycleUpdate(id, { content })));
 export const reviewExamSummary = (id: string) =>
@@ -80,4 +125,18 @@ export const regenerateExamSummary = (id: string, body: RegenerateAiSummary) =>
   generatedData(asGenerated<AiSummaryTask>(aiSummaryLifecycleRegenerate(id, body)));
 export const listPublishedSummaries = () =>
   generatedData(asGenerated<PublishedAiSummary[]>(aiSummaryLifecyclePublishedFor()));
+export const createSummaryFeedback = (
+  id: string,
+  body: Parameters<typeof aiQualityCreateFeedback>[1],
+) => generatedData(asGenerated(aiQualityCreateFeedback(id, body)));
+export const getAiQualityDashboard = (params?: Parameters<typeof aiQualityDashboard>[0]) =>
+  generatedData(asGenerated<AiQualityDashboard>(aiQualityDashboard(params)));
+export const listAiFeedback = (params?: Parameters<typeof aiQualityFeedback>[0]) =>
+  generatedData(asGenerated<AiFeedbackList>(aiQualityFeedback(params)));
+export const resolveAiFeedback = (id: string, body: Parameters<typeof aiQualityResolveFeedback>[1]) =>
+  generatedData(asGenerated(aiQualityResolveFeedback(id, body)));
+export const listAiRegressions = () =>
+  generatedData(asGenerated<AiRegressionRun[]>(aiQualityRegressions()));
+export const runAiRegression = (body: Parameters<typeof aiQualityRunRegression>[0]) =>
+  generatedData(asGenerated<AiRegressionRun>(aiQualityRunRegression(body)));
 export const listPublishedExamSummaries = listPublishedSummaries;

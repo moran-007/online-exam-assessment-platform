@@ -52,6 +52,8 @@ export class AiConfigUseCases {
       timeoutMs: dto.timeoutMs ?? 30_000,
       maxTokens: dto.maxTokens ?? 1000,
       monthlyTokenBudget: dto.monthlyTokenBudget,
+      inputCostPerMillion: dto.inputCostPerMillion ?? 0,
+      outputCostPerMillion: dto.outputCostPerMillion ?? 0,
       ...ownership,
       createdBy: user.id,
       updatedBy: user.id,
@@ -79,6 +81,8 @@ export class AiConfigUseCases {
       timeoutMs: dto.timeoutMs,
       maxTokens: dto.maxTokens,
       monthlyTokenBudget: dto.monthlyTokenBudget,
+      inputCostPerMillion: dto.inputCostPerMillion,
+      outputCostPerMillion: dto.outputCostPerMillion,
       updatedBy: user.id,
       ...(encrypted ? {
         apiKeyCiphertext: encrypted.ciphertext,
@@ -157,7 +161,10 @@ export class AiConfigUseCases {
       id: row.id, name: row.name, provider: row.provider, baseUrl: row.baseUrl, model: row.model,
       scope: row.scope.toLowerCase(), canManage: this.access.canManage(row, user),
       enabled: row.enabled, isDefault: row.isDefault, timeoutMs: row.timeoutMs, maxTokens: row.maxTokens,
-      monthlyTokenBudget: row.monthlyTokenBudget, tokenQuota,
+      monthlyTokenBudget: row.monthlyTokenBudget,
+      inputCostPerMillion: Number(row.inputCostPerMillion),
+      outputCostPerMillion: Number(row.outputCostPerMillion),
+      tokenQuota,
       hasApiKey: Boolean(row.apiKeyCiphertext), apiKeyMasked: '••••••••',
       lastTestStatus: row.lastTestStatus, lastTestMessage: row.lastTestMessage, lastTestAt: row.lastTestAt,
       createdAt: row.createdAt, updatedAt: row.updatedAt,
@@ -168,6 +175,7 @@ export class AiConfigUseCases {
     return {
       id: row.id, name: row.name, provider: row.provider, baseUrl: row.baseUrl, model: row.model,
       scope: row.scope.toLowerCase(), enabled: row.enabled, isDefault: row.isDefault,
+      inputCostPerMillion: Number(row.inputCostPerMillion), outputCostPerMillion: Number(row.outputCostPerMillion),
     };
   }
 }

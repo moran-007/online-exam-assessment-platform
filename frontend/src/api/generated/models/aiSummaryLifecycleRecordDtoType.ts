@@ -12,4 +12,7 @@ export type AiSummaryLifecycleRecordDtoType = typeof AiSummaryLifecycleRecordDto
 export const AiSummaryLifecycleRecordDtoType = {
   exam: 'exam',
   student: 'student',
+  class: 'class',
+  parent_report: 'parent_report',
+  lesson: 'lesson',
 } as const;

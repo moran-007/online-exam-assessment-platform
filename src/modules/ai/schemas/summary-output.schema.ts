@@ -57,6 +57,12 @@ function createSummarySchema(schemaVersion: string) {
 
 export const EXAM_SUMMARY_OUTPUT_SCHEMA_VERSION = 'exam-summary-output/v1';
 export const STUDENT_SUMMARY_OUTPUT_SCHEMA_VERSION = 'student-summary-output/v1';
+export const CLASS_SUMMARY_OUTPUT_SCHEMA_VERSION = 'class-summary-output/v1';
+export const PARENT_REPORT_OUTPUT_SCHEMA_VERSION = 'parent-report-output/v1';
+export const LESSON_ASSISTANT_OUTPUT_SCHEMA_VERSION = 'lesson-assistant-output/v1';
 
 export const EXAM_SUMMARY_OUTPUT_SCHEMA = createSummarySchema(EXAM_SUMMARY_OUTPUT_SCHEMA_VERSION);
 export const STUDENT_SUMMARY_OUTPUT_SCHEMA = createSummarySchema(STUDENT_SUMMARY_OUTPUT_SCHEMA_VERSION);
+export const CLASS_SUMMARY_OUTPUT_SCHEMA = createSummarySchema(CLASS_SUMMARY_OUTPUT_SCHEMA_VERSION);
+export const PARENT_REPORT_OUTPUT_SCHEMA = createSummarySchema(PARENT_REPORT_OUTPUT_SCHEMA_VERSION);
+export const LESSON_ASSISTANT_OUTPUT_SCHEMA = createSummarySchema(LESSON_ASSISTANT_OUTPUT_SCHEMA_VERSION);

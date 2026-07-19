@@ -12,6 +12,8 @@ export interface UpdateAiProviderConfigDto {
   /** @maxLength 500 */
   baseUrl?: string;
   enabled?: boolean;
+  /** @minimum 0 */
+  inputCostPerMillion?: number;
   isDefault?: boolean;
   /**
      * @minimum 1
@@ -27,6 +29,8 @@ export interface UpdateAiProviderConfigDto {
   monthlyTokenBudget?: number | null;
   /** @maxLength 100 */
   name?: string;
+  /** @minimum 0 */
+  outputCostPerMillion?: number;
   /** @maxLength 50 */
   provider?: string;
   /**

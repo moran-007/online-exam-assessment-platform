@@ -11,6 +11,7 @@ import { RegenerateAiSummaryDto, UpdateAiSummaryDraftDto } from './dto/ai-summar
 import { ExamSummaryTaskUseCases } from './exam-summary-task.use-cases';
 import { SummaryOutputValidator } from './schemas/summary-output.validator';
 import { StudentSummaryTaskUseCases } from './student-summary-task.use-cases';
+import { IntegratedSummaryUseCases } from './integrated-summary.use-cases';
 
 const EDITABLE_STATUSES = [
   AiSummaryReviewStatus.DRAFT,
@@ -28,6 +29,7 @@ export class AiSummaryLifecycleUseCases {
     private readonly examTasks: ExamSummaryTaskUseCases,
     private readonly studentTasks: StudentSummaryTaskUseCases,
     private readonly access: AiSummaryAccessService,
+    private readonly integratedTasks: IntegratedSummaryUseCases,
   ) {}
 
   async update(id: string, dto: UpdateAiSummaryDraftDto, user: RequestUser) {
@@ -67,6 +69,9 @@ export class AiSummaryLifecycleUseCases {
 
   async publish(id: string, user: RequestUser) {
     const current = await this.access.require(id, user);
+    if (current.type === AiSummaryType.LESSON) {
+      throw new ForbiddenException('课堂助手只生成教师草稿，请应用到教学记录后再走教学记录发布流程');
+    }
     this.validator.validate(current.summaryJson, evidenceIndex(current.evidenceIndexJson));
     const updated = await this.transition(
       id,
@@ -96,17 +101,7 @@ export class AiSummaryLifecycleUseCases {
     const current = await this.access.require(id, user);
     this.assertGenerationPermission(current.type, user);
     const options = { generationKey: randomUUID(), sourceSummaryId: current.id };
-    const task = current.type === AiSummaryType.EXAM
-      ? await this.examTasks.create({
-        examId: current.subjectId,
-        configId: dto.configId,
-        maxTokens: dto.maxTokens,
-      }, user, options)
-      : await this.studentTasks.create({
-        ...studentScope(current.task.scopeJson, current.subjectId),
-        configId: dto.configId,
-        maxTokens: dto.maxTokens,
-      }, user, options);
+    const task = await this.regenerateTask(current, dto, user, options);
     await this.audit.log({
       userId: user.id,
       action: 'ai:summary-regenerate',
@@ -119,10 +114,40 @@ export class AiSummaryLifecycleUseCases {
   }
 
   private assertGenerationPermission(type: AiSummaryType, user: RequestUser) {
-    const required = type === AiSummaryType.STUDENT
-      ? 'ai.summary.student.generate'
-      : 'ai.summary.exam.generate';
+    const required = {
+      [AiSummaryType.EXAM]: 'ai.summary.exam.generate',
+      [AiSummaryType.STUDENT]: 'ai.summary.student.generate',
+      [AiSummaryType.CLASS]: 'ai.summary.class.generate',
+      [AiSummaryType.PARENT_REPORT]: 'ai.summary.parent-report.generate',
+      [AiSummaryType.LESSON]: 'ai.summary.lesson.generate',
+    }[type];
     if (!hasPermission(user, required)) throw new ForbiddenException('无权限重新生成该总结');
+  }
+
+  private regenerateTask(
+    current: Awaited<ReturnType<AiSummaryAccessService['require']>>,
+    dto: RegenerateAiSummaryDto,
+    user: RequestUser,
+    options: { generationKey: string; sourceSummaryId: string },
+  ) {
+    const generation = { configId: dto.configId, maxTokens: dto.maxTokens };
+    if (current.type === AiSummaryType.EXAM) {
+      return this.examTasks.create({ examId: current.subjectId, ...generation }, user, options);
+    }
+    if (current.type === AiSummaryType.STUDENT) {
+      return this.studentTasks.create({
+        ...studentScope(current.task.scopeJson, current.subjectId),
+        ...generation,
+      }, user, options);
+    }
+    const range = integratedRange(current.task.scopeJson);
+    if (current.type === AiSummaryType.CLASS) {
+      return this.integratedTasks.createClass({ classId: current.subjectId, ...range, ...generation }, user, options);
+    }
+    if (current.type === AiSummaryType.PARENT_REPORT) {
+      return this.integratedTasks.createParent({ studentId: current.subjectId, ...range, ...generation }, user, options);
+    }
+    return this.integratedTasks.createLesson({ sessionId: current.subjectId, ...generation }, user, options);
   }
 
   private async transition(
@@ -168,6 +193,16 @@ function studentScope(value: Prisma.JsonValue, studentId: string) {
     ...(Array.isArray(record.examIds)
       ? { examIds: record.examIds.filter((item): item is string => typeof item === 'string') }
       : {}),
+    ...(typeof record.from === 'string' ? { from: record.from } : {}),
+    ...(typeof record.to === 'string' ? { to: record.to } : {}),
+  };
+}
+
+function integratedRange(value: Prisma.JsonValue) {
+  const record = value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, Prisma.JsonValue>
+    : {};
+  return {
     ...(typeof record.from === 'string' ? { from: record.from } : {}),
     ...(typeof record.to === 'string' ? { to: record.to } : {}),
   };

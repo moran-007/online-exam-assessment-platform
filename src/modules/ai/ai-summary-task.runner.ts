@@ -10,17 +10,14 @@ import { MAX_AI_OUTPUT_TOKENS } from './ai-summary-limits';
 import type { SummaryTaskWithRelations } from './ai-summary-task.coordinator';
 import { AiTokenUsage, AiTokenUsageService } from './ai-token-usage.service';
 import { assertSummaryDataset } from './datasets/dataset-validator';
-import type { ExamSummaryDataset, StudentSummaryDataset } from './datasets/summary-dataset';
-import { buildExamSummaryUserPrompt } from './exam-summary-prompt';
+import type { SupportedSummaryDataset } from './datasets/summary-dataset';
 import { SummaryOutputValidationError, SummaryOutputValidator } from './schemas/summary-output.validator';
 import { parseSummaryJson, responseFormatFor, SummaryParseError } from './summary-prompt';
-import { buildStudentSummaryUserPrompt } from './student-summary-prompt';
+import { buildSummaryPrompt } from './summary-prompt.factory';
 
 const STALE_AFTER_MS = 5 * 60 * 1000;
 
 class AiSummaryTaskError extends Error {}
-
-type SupportedSummaryDataset = ExamSummaryDataset | StudentSummaryDataset;
 
 @Injectable()
 export class AiSummaryTaskRunner {
@@ -61,7 +58,7 @@ export class AiSummaryTaskRunner {
     try {
       if (!task.providerConfig.enabled) throw new AiSummaryTaskError('所选 AI 配置已停用');
       const dataset = this.dataset(task.inputSnapshotJson, task.type);
-      const prompt = this.prompt(dataset);
+      const prompt = buildSummaryPrompt(dataset);
       const capability = await this.capabilities.resolve(task.providerConfig.provider, task.modelSnapshot);
       authorizedOutputTokens = Math.min(
         task.requestedOutputTokens,
@@ -89,6 +86,7 @@ export class AiSummaryTaskRunner {
         dataset.evidenceIndex,
       );
       const { evidenceIndex, ...sourceSnapshot } = dataset;
+      const estimatedCost = this.estimatedCost(task.providerConfig, usage);
       await this.prisma.$transaction([
         this.prisma.aiSummary.create({
           data: {
@@ -106,6 +104,7 @@ export class AiSummaryTaskRunner {
             status: AiSummaryTaskStatus.SUCCEEDED,
             inputTokens: usage.promptTokens,
             outputTokens: usage.completionTokens,
+            estimatedCost,
             finishedAt: new Date(),
           },
         }),
@@ -123,6 +122,7 @@ export class AiSummaryTaskRunner {
           status: AiSummaryTaskStatus.FAILED,
           inputTokens: usage.promptTokens,
           outputTokens: usage.completionTokens,
+          estimatedCost: this.estimatedCost(task.providerConfig, usage),
           finishedAt: new Date(),
           sanitizedError: this.sanitizedError(error),
         },
@@ -141,18 +141,11 @@ export class AiSummaryTaskRunner {
 
   private dataset(value: Prisma.JsonValue, type: AiSummaryType): SupportedSummaryDataset {
     const dataset = value as unknown as SupportedSummaryDataset;
-    if (dataset.type !== type.toLowerCase() || !['exam', 'student'].includes(dataset.type)) {
+    if (dataset.type !== type.toLowerCase() || !['exam', 'student', 'class', 'parent_report', 'lesson'].includes(dataset.type)) {
       throw new AiSummaryTaskError('AI 总结任务的数据集类型无效');
     }
     assertSummaryDataset(dataset);
     return dataset;
-  }
-
-  private prompt(dataset: SupportedSummaryDataset) {
-    if (dataset.type === 'exam') {
-      return { userPrompt: buildExamSummaryUserPrompt(dataset), schemaName: 'exam_summary' };
-    }
-    return { userPrompt: buildStudentSummaryUserPrompt(dataset), schemaName: 'student_summary' };
   }
 
   private decrypt(config: { id: string; apiKeyCiphertext: string; apiKeyIv: string; apiKeyAuthTag: string; apiKeyKeyVersion: number }) {
@@ -205,7 +198,16 @@ export class AiSummaryTaskRunner {
       durationSeconds: (Date.now() - startedAt) / 1000,
       inputTokens: usage.promptTokens,
       outputTokens: usage.completionTokens,
-      estimatedCost: Number(task.estimatedCost),
+      estimatedCost: this.estimatedCost(task.providerConfig, usage),
     });
+  }
+
+  private estimatedCost(
+    config: { inputCostPerMillion: Prisma.Decimal; outputCostPerMillion: Prisma.Decimal },
+    usage: AiTokenUsage,
+  ) {
+    const cost = usage.promptTokens * Number(config.inputCostPerMillion)
+      + usage.completionTokens * Number(config.outputCostPerMillion);
+    return Number((cost / 1_000_000).toFixed(6));
   }
 }

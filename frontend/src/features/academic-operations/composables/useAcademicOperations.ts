@@ -1,5 +1,6 @@
 import { computed, onMounted, reactive, ref } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
+import { useRoute } from 'vue-router';
 import { getCurrentUser } from '../../../api';
 import { hasAnyPermission } from '../../../access';
 import {
@@ -24,6 +25,7 @@ import {
 } from '../api';
 
 export function useAcademicOperations() {
+  const route = useRoute();
   const user = getCurrentUser();
   const canManageCatalog = hasAnyPermission(user, ['lesson-type:manage', 'course-unit:manage']);
   const canManageSchedule = hasAnyPermission(user, ['schedule:manage']);
@@ -34,7 +36,7 @@ export function useAcademicOperations() {
   const canManageLessonRecords = hasAnyPermission(user, ['lesson-record:manage']);
   const canReadClasses = hasAnyPermission(user, ['class:read']);
 
-  const activeTab = ref('calendar');
+  const activeTab = ref(academicTab(route.query.tab));
   const loading = ref(false);
   const classes = ref<AcademicOperationRecord[]>([]);
   const lessonTypes = ref<AcademicOperationRecord[]>([]);
@@ -332,6 +334,12 @@ export function useAcademicOperations() {
     submitCorrection, submitGenerate, submitLessonType, submitRule, submitSession, submitUnit,
     unitForm, unitVisible, units, load, loadAttendance, runReconciliation,
   };
+}
+
+function academicTab(value: unknown) {
+  const requested = Array.isArray(value) ? value[0] : value;
+  const key = typeof requested === 'string' ? requested : 'schedule';
+  return ({ schedule: 'calendar', calendar: 'calendar', attendance: 'attendance', ledger: 'ledger', catalog: 'catalog' } as Record<string, string>)[key] ?? 'calendar';
 }
 
 function baseRuleForm() {

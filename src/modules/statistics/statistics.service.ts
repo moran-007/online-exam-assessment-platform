@@ -1,6 +1,8 @@
 import { Injectable } from '@nestjs/common';
 import { RequestUser } from '../../common/interfaces/request-user.interface';
 import { QueryStatisticsDto } from './dto/query-statistics.dto';
+import { FusionDashboardQueryDto } from './dto/fusion-dashboard.dto';
+import { FusionDashboardQuery } from './queries/fusion-dashboard.query';
 import { ClassStatisticsQuery } from './queries/class-statistics.query';
 import { ExamStatisticsQuery } from './queries/exam-statistics.query';
 import { KnowledgeStatisticsQuery } from './queries/knowledge-statistics.query';
@@ -15,7 +17,12 @@ export class StatisticsService {
     private readonly knowledgeQuery: KnowledgeStatisticsQuery,
     private readonly diagnosticQuery: QuestionDiagnosticsQuery,
     private readonly wrongQuestionQuery: WrongQuestionStatisticsQuery,
+    private readonly fusionDashboardQuery: FusionDashboardQuery,
   ) {}
+
+  fusionDashboard(query: FusionDashboardQueryDto, user: RequestUser) {
+    return this.fusionDashboardQuery.execute(query, user);
+  }
 
   overview(query: QueryStatisticsDto, user: RequestUser) {
     return this.examQuery.overview(query, user);

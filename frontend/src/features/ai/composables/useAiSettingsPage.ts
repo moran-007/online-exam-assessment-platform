@@ -17,6 +17,7 @@ type AiConfigForm = CreateAiProviderConfig & { id: string };
 const emptyForm = (scope: 'system' | 'personal'): AiConfigForm => ({
   id: '', name: '', provider: 'custom', baseUrl: '', model: '', apiKey: '',
   scope, enabled: true, isDefault: false, timeoutMs: 30_000, maxTokens: 1000, monthlyTokenBudget: undefined,
+  inputCostPerMillion: 0, outputCostPerMillion: 0,
 });
 
 export function useAiSettingsPage() {
@@ -86,6 +87,8 @@ export function useAiSettingsPage() {
       scope: row.scope,
       apiKey: '', enabled: row.enabled, isDefault: row.isDefault, timeoutMs: row.timeoutMs, maxTokens: row.maxTokens,
       monthlyTokenBudget: row.monthlyTokenBudget ?? undefined,
+      inputCostPerMillion: row.inputCostPerMillion,
+      outputCostPerMillion: row.outputCostPerMillion,
     });
     selectedPresetProvider.value = presets.value.some((item) => item.provider === row.provider) ? row.provider : '';
     dialogVisible.value = true;
@@ -109,6 +112,8 @@ export function useAiSettingsPage() {
         ...(form.apiKey.trim() ? { apiKey: form.apiKey.trim() } : {}),
         enabled: form.enabled, isDefault: form.isDefault,
         timeoutMs: Number(form.timeoutMs), maxTokens: configuredMaxTokens,
+        inputCostPerMillion: Number(form.inputCostPerMillion || 0),
+        outputCostPerMillion: Number(form.outputCostPerMillion || 0),
         ...(form.monthlyTokenBudget ? { monthlyTokenBudget: Number(form.monthlyTokenBudget) } : {}),
         ...(form.id && !form.monthlyTokenBudget ? { monthlyTokenBudget: null } : {}),
       };

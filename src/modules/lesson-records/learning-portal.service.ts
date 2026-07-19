@@ -2,15 +2,14 @@ import { Injectable } from '@nestjs/common';
 import {
   AiSummaryReviewStatus,
   AiSummaryType,
-  AttemptStatus,
   ClassMemberStatus,
-  ShowScoreMode,
   UserType,
 } from '@prisma/client';
 import { RequestUser } from '../../common/interfaces/request-user.interface';
 import { PrismaService } from '../prisma/prisma.service';
 import { LessonRecordAccessService } from './lesson-record-access.service';
 import { LessonRecordsService } from './lesson-records.service';
+import { isLearnerScoreVisible } from '../ai/datasets/learner-visibility';
 
 @Injectable()
 export class LearningPortalService {
@@ -67,13 +66,24 @@ export class LearningPortalService {
       }),
     ]);
     const examIds = [...new Set(attempts.map((attempt) => attempt.examId))];
+    const classIds = student.studentClasses.map((membership) => membership.classGroup.id);
     const summaries = await this.prisma.aiSummary.findMany({
       where: {
         reviewStatus: AiSummaryReviewStatus.PUBLISHED,
         publishedAt: { not: null },
         OR: [
-          { type: { in: [AiSummaryType.STUDENT, AiSummaryType.PARENT_REPORT] }, subjectId: learnerId },
+          {
+            type: {
+              in: actor.userType === UserType.PARENT
+                ? [AiSummaryType.STUDENT, AiSummaryType.PARENT_REPORT]
+                : [AiSummaryType.STUDENT],
+            },
+            subjectId: learnerId,
+          },
           ...(examIds.length ? [{ type: AiSummaryType.EXAM, subjectId: { in: examIds } }] : []),
+          ...(actor.userType === UserType.STUDENT && classIds.length
+            ? [{ type: AiSummaryType.CLASS, subjectId: { in: classIds } }]
+            : []),
         ],
       },
       orderBy: { publishedAt: 'desc' },
@@ -89,7 +99,7 @@ export class LearningPortalService {
         courseName: attempt.exam.course.name,
         status: attempt.status,
         submittedAt: attempt.submittedAt,
-        score: this.scoreVisible(attempt.exam.showScoreMode, attempt.status, attempt.submittedAt, attempt.exam.endTime)
+        score: isLearnerScoreVisible(attempt.exam.showScoreMode, attempt.status, attempt.submittedAt, attempt.exam.endTime)
           ? Number(attempt.totalScore)
           : null,
       })),
@@ -119,11 +129,4 @@ export class LearningPortalService {
     });
   }
 
-  private scoreVisible(mode: ShowScoreMode, status: AttemptStatus, submittedAt: Date | null, endTime: Date) {
-    if (mode === ShowScoreMode.NEVER) return false;
-    if (mode === ShowScoreMode.AFTER_SUBMIT) return Boolean(submittedAt);
-    if (mode === ShowScoreMode.AFTER_EXAM_END) return endTime <= new Date();
-    return status === AttemptStatus.GRADED;
-  }
 }
-

@@ -12,12 +12,12 @@ const apiProxy = {
   },
 };
 
-export default defineConfig({
+export default defineConfig(({ command }) => ({
   plugins: [
     vue(),
     Components({
       resolvers: [ElementPlusResolver()],
-      dts: 'src/components.d.ts',
+      dts: command === 'serve' ? 'src/components.d.ts' : false,
     }),
   ],
   build: {
@@ -55,4 +55,4 @@ export default defineConfig({
     strictPort: true,
     proxy: apiProxy,
   },
-});
+}));

@@ -102,6 +102,7 @@
         <div class="detail-summary">
           <strong>{{ detail.name }}</strong>
           <span class="muted">{{ detail.courseName || '未绑定课程' }} · {{ statusLabel(detail.status) }}</span>
+          <el-button size="small" type="primary" plain @click="openClassAi">AI 班级总结</el-button>
         </div>
         <div class="member-tools">
           <el-select v-model="selectedStudentIds" data-testid="class-student-select" multiple filterable placeholder="选择已有学生" no-data-text="暂无可选学生">
@@ -121,9 +122,10 @@
           <el-table-column type="selection" width="46" />
           <el-table-column prop="realName" label="学生" min-width="150" />
           <el-table-column prop="username" label="账号" min-width="150" />
-          <el-table-column label="操作" width="150">
+          <el-table-column label="操作" width="230">
             <template #default="{ row }">
               <el-button link type="primary" @click="openStudentAi(row)">AI 总结</el-button>
+              <el-button link type="primary" @click="openParentReport(row)">家长报告</el-button>
               <el-button link type="danger" @click="removeStudent(row)">移除</el-button>
             </template>
           </el-table-column>
@@ -222,6 +224,8 @@
       </template>
     </el-dialog>
     <StudentAiSummaryDialog ref="studentAiDialog" />
+    <AiSummaryDialog ref="classAiDialog" kind="class" />
+    <AiSummaryDialog ref="parentReportDialog" kind="parent_report" />
   </div>
 </template>
 
@@ -231,6 +235,7 @@ import { ElMessage, ElMessageBox } from 'element-plus';
 import { Plus, Refresh, Search, Upload } from '@element-plus/icons-vue';
 import { useClassManagementPage } from '../composables/useClassManagementPage';
 import StudentAiSummaryDialog from '../../ai/components/StudentAiSummaryDialog.vue';
+import AiSummaryDialog from '../../ai/components/AiSummaryDialog.vue';
 import { estimateStudentSummaryBatch } from '../../ai/api';
 
 const {
@@ -247,10 +252,21 @@ const {
 } = useClassManagementPage();
 
 const studentAiDialog = ref();
+const classAiDialog = ref();
+const parentReportDialog = ref();
 const batchStudents = ref([]);
 function openStudentAi(student) {
   const name = student.realName || student.username || '学生';
   void studentAiDialog.value?.open(student.id, name, { courseId: detail.value?.courseId || undefined });
+}
+
+function openClassAi() {
+  if (detail.value) void classAiDialog.value?.open(detail.value.id, detail.value.name);
+}
+
+function openParentReport(student) {
+  const name = student.realName || student.username || '学生';
+  void parentReportDialog.value?.open(student.id, `${name}的家长报告`);
 }
 
 async function estimateAiBatch() {

@@ -4,6 +4,7 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Permissions } from '../../common/decorators/permissions.decorator';
 import { RequestUser } from '../../common/interfaces/request-user.interface';
 import { QueryStatisticsDto } from './dto/query-statistics.dto';
+import { FusionDashboardDto, FusionDashboardQueryDto } from './dto/fusion-dashboard.dto';
 import {
   ClassPerformanceDto,
   ExamPerformancePageDto,
@@ -22,6 +23,13 @@ import { StatisticsService } from './statistics.service';
 @Controller('statistics')
 export class StatisticsController {
   constructor(private readonly statisticsService: StatisticsService) {}
+
+  @Get('fusion-dashboard')
+  @Permissions('dashboard:read')
+  @ApiOkResponse({ type: FusionDashboardDto })
+  fusionDashboard(@Query() query: FusionDashboardQueryDto, @CurrentUser() user: RequestUser) {
+    return this.statisticsService.fusionDashboard(query, user);
+  }
 
   @Get('overview')
   @Permissions('statistics:read')

@@ -61,6 +61,7 @@ export type ExamSummaryDataset = SummaryDatasetBase & {
 
 export type StudentSummaryDataset = SummaryDatasetBase & {
   type: 'student';
+  generationMode: 'analysis' | 'fact_card';
   student: {
     id: string;
     alias: string;
@@ -76,6 +77,11 @@ export type StudentSummaryDataset = SummaryDatasetBase & {
     notSubmittedExamCount: EvidencedValue<number>;
     ungradedExamCount: EvidencedValue<number>;
     gradedAnswerCount: EvidencedValue<number>;
+    scheduledLessonCount: EvidencedValue<number>;
+    completedLessonCount: EvidencedValue<number>;
+    attendanceRecordCount: EvidencedValue<number>;
+    publishedLessonRecordCount: EvidencedValue<number>;
+    homeworkAssignmentCount: EvidencedValue<number>;
   };
   examPerformance: Array<{
     examId: string;
@@ -113,4 +119,119 @@ export type StudentSummaryDataset = SummaryDatasetBase & {
     acceptedRate: EvidencedValue<number>;
     averageScore: EvidencedValue<number>;
   };
+  attendance: {
+    confirmedCount: EvidencedValue<number>;
+    presentCount: EvidencedValue<number>;
+    lateCount: EvidencedValue<number>;
+    leaveCount: EvidencedValue<number>;
+    absentCount: EvidencedValue<number>;
+    attendanceRate: EvidencedValue<number>;
+  };
+  lessons: Array<{
+    sessionId: string;
+    title: string;
+    startsAt: string;
+    status: EvidencedValue<string>;
+    lessonHours: EvidencedValue<number>;
+    attendanceStatus: EvidencedValue<string | null>;
+    learningGoal: EvidencedValue<string | null>;
+    classPerformance: EvidencedValue<string | null>;
+    homework: EvidencedValue<string | null>;
+  }>;
 };
+
+export type ClassSummaryDataset = SummaryDatasetBase & {
+  type: 'class';
+  class: { id: string; alias: string; courseName: string };
+  coverage: {
+    studentCount: EvidencedValue<number>;
+    examCount: EvidencedValue<number>;
+    gradedAttemptCount: EvidencedValue<number>;
+    lessonCount: EvidencedValue<number>;
+    publishedLessonRecordCount: EvidencedValue<number>;
+    homeworkAssignmentCount: EvidencedValue<number>;
+  };
+  assessment: {
+    averageScore: EvidencedValue<number>;
+    knowledgePoints: Array<{
+      knowledgePointId: string;
+      name: string;
+      answerCount: EvidencedValue<number>;
+      correctRate: EvidencedValue<number>;
+      scoreRate: EvidencedValue<number>;
+    }>;
+  };
+  attendance: {
+    confirmedCount: EvidencedValue<number>;
+    presentCount: EvidencedValue<number>;
+    lateCount: EvidencedValue<number>;
+    leaveCount: EvidencedValue<number>;
+    absentCount: EvidencedValue<number>;
+    attendanceRate: EvidencedValue<number>;
+  };
+  lessons: {
+    completedCount: EvidencedValue<number>;
+    completedHours: EvidencedValue<number>;
+    publishedRecordCount: EvidencedValue<number>;
+    homeworkAssignmentCount: EvidencedValue<number>;
+  };
+};
+
+export type ParentReportDataset = SummaryDatasetBase & {
+  type: 'parent_report';
+  student: { id: string; alias: string };
+  coverage: {
+    visibleExamCount: EvidencedValue<number>;
+    publishedLessonRecordCount: EvidencedValue<number>;
+    confirmedAttendanceCount: EvidencedValue<number>;
+  };
+  exams: Array<{
+    examId: string;
+    examName: string;
+    submittedAt: string;
+    score: EvidencedValue<number | null>;
+    scoreVisible: EvidencedValue<boolean>;
+  }>;
+  attendance: {
+    presentCount: EvidencedValue<number>;
+    lateCount: EvidencedValue<number>;
+    leaveCount: EvidencedValue<number>;
+    absentCount: EvidencedValue<number>;
+  };
+  publishedLessons: Array<{
+    sessionId: string;
+    title: string;
+    startsAt: string;
+    learningGoal: EvidencedValue<string | null>;
+    classPerformance: EvidencedValue<string | null>;
+    homework: EvidencedValue<string | null>;
+    nextPlan: EvidencedValue<string | null>;
+  }>;
+};
+
+export type LessonAssistantDataset = SummaryDatasetBase & {
+  type: 'lesson';
+  session: {
+    id: string;
+    title: string;
+    startsAt: string;
+    classAlias: string;
+  };
+  currentRecord: {
+    status: EvidencedValue<string>;
+    teachingContent: EvidencedValue<string | null>;
+    learningGoal: EvidencedValue<string | null>;
+    classPerformance: EvidencedValue<string | null>;
+    homework: EvidencedValue<string | null>;
+    nextPlan: EvidencedValue<string | null>;
+    internalTeachingNotes: EvidencedValue<string | null>;
+    internalClassPerformance: EvidencedValue<string | null>;
+  };
+};
+
+export type SupportedSummaryDataset =
+  | ExamSummaryDataset
+  | StudentSummaryDataset
+  | ClassSummaryDataset
+  | ParentReportDataset
+  | LessonAssistantDataset;

@@ -29,7 +29,7 @@ export class RegenerateAiSummaryDto {
 
 export class AiSummaryLifecycleTaskDto {
   @ApiProperty({ format: 'uuid' }) id: string;
-  @ApiProperty({ enum: ['exam', 'student'] }) type: string;
+  @ApiProperty({ enum: ['exam', 'student', 'class', 'parent_report', 'lesson'] }) type: string;
   @ApiProperty({ format: 'uuid' }) subjectId: string;
   @ApiProperty({ enum: ['pending', 'processing', 'succeeded', 'failed', 'cancelled'] }) status: string;
   @ApiProperty() attemptCount: number;
@@ -44,7 +44,7 @@ export class AiSummaryLifecycleTaskDto {
 
 export class AiSummaryLifecycleRecordDto {
   @ApiProperty({ format: 'uuid' }) id: string;
-  @ApiProperty({ enum: ['exam', 'student'] }) type: string;
+  @ApiProperty({ enum: ['exam', 'student', 'class', 'parent_report', 'lesson'] }) type: string;
   @ApiProperty({ format: 'uuid' }) subjectId: string;
   @ApiProperty({ enum: ['draft', 'in_review', 'approved', 'published', 'revoked'] }) reviewStatus: string;
   @ApiProperty() draftVersion: number;
@@ -58,7 +58,7 @@ export class AiSummaryLifecycleRecordDto {
 
 export class PublishedAiSummaryDto {
   @ApiProperty({ format: 'uuid' }) id: string;
-  @ApiProperty({ enum: ['exam', 'student'] }) type: string;
+  @ApiProperty({ enum: ['exam', 'student', 'class', 'parent_report', 'lesson'] }) type: string;
   @ApiProperty({ format: 'uuid' }) subjectId: string;
   @ApiProperty({ type: 'object', additionalProperties: true }) content: Record<string, unknown>;
   @ApiProperty({ type: () => [AiEvidenceRefDto] }) evidence: AiEvidenceRefDto[];

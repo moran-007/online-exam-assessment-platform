@@ -35,9 +35,12 @@ const permissions = [
   ['hydro:account:read', '查看 Hydro 账号'], ['hydro:account:update', '修改 Hydro 账号'], ['hydro:result:write', '写入 Hydro 结果'],
   ['ai.summary.exam.generate', '生成考试总结'], ['ai.summary.student.generate', '生成学生总结'],
   ['ai.summary.class.generate', '生成班级总结'], ['ai.summary.parent-report.generate', '生成家长报告'],
+  ['ai.summary.lesson.generate', '生成课堂助手草稿'],
   ['ai.summary.review', '审核 AI 总结'], ['ai.summary.publish', '发布 AI 总结'],
   ['ai.summary.revoke', '撤回 AI 总结'], ['ai.summary.view-own', '查看本人已发布 AI 总结'],
   ['ai.summary.view-class', '查看班级 AI 总结'], ['ai.prompt.manage', '管理 AI 提示模板'],
+  ['ai.feedback.create', '提交 AI 质量反馈'], ['ai.quality.read', '查看 AI 质量看板'],
+  ['ai.quality.manage', '处置 AI 反馈与模型回归'],
   ['ai.provider.manage', '管理 AI 模型配置'],
   ['ai.provider.manage-own', '管理个人 AI 模型配置'],
   ['academic-profile:read', '按数据范围查看教务档案'],
@@ -57,7 +60,7 @@ const permissions = [
   ['lesson-record:publish', '审核并发布教学记录'],
   ['lesson-asset:manage', '上传和移除课次附件'],
   ['lesson-asset:download', '在教学记录数据范围内预览和下载附件'],
-  ['statistics:read', '查看统计'], ['audit-log:read', '查看审计日志'],
+  ['statistics:read', '查看统计'], ['dashboard:read', '按数据范围查看融合看板'], ['audit-log:read', '查看审计日志'],
 ] as const;
 
 async function main() {
@@ -135,14 +138,19 @@ async function main() {
         'hydro:account:update',
         'hydro:result:write',
         'statistics:read',
+        'dashboard:read',
         'ai.summary.exam.generate',
         'ai.summary.student.generate',
         'ai.summary.class.generate',
         'ai.summary.parent-report.generate',
+        'ai.summary.lesson.generate',
         'ai.summary.review',
         'ai.summary.publish',
         'ai.summary.revoke',
         'ai.summary.view-class',
+        'ai.feedback.create',
+        'ai.quality.read',
+        'ai.quality.manage',
         'ai.provider.manage-own',
         'academic-profile:read',
         'lesson-type:read',
@@ -164,7 +172,7 @@ async function main() {
       code: 'student',
       name: '学生',
       permissions: [
-        'course:read', 'knowledge-point:read', 'tag:read', 'ai.summary.view-own', 'academic-profile:read',
+        'course:read', 'knowledge-point:read', 'tag:read', 'ai.summary.view-own', 'ai.feedback.create', 'academic-profile:read', 'dashboard:read',
         'schedule:read', 'attendance:read', 'lesson-hour:read', 'lesson-record:read', 'lesson-asset:download',
       ],
     },
@@ -172,7 +180,7 @@ async function main() {
       code: 'parent',
       name: '家长',
       permissions: [
-        'academic-profile:read', 'ai.summary.view-own', 'schedule:read', 'attendance:read', 'lesson-hour:read',
+        'academic-profile:read', 'ai.summary.view-own', 'ai.feedback.create', 'dashboard:read', 'schedule:read', 'attendance:read', 'lesson-hour:read',
         'lesson-record:read', 'lesson-asset:download',
       ],
     },
@@ -272,6 +280,19 @@ async function main() {
       });
     }
   }
+
+  const reviewingAdmin = await prisma.user.findUniqueOrThrow({ where: { username: 'admin' } });
+  await prisma.aiSummaryPromptTemplate.updateMany({
+    where: {
+      code: { in: ['exam-summary', 'student-summary', 'class-summary', 'parent-report', 'lesson-assistant'] },
+      version: { in: [1, 2] },
+    },
+    data: { enabled: true, reviewedBy: reviewingAdmin.id },
+  });
+  await prisma.aiSummaryPromptTemplate.updateMany({
+    where: { code: { in: ['exam-summary', 'student-summary'] }, version: 1 },
+    data: { enabled: false },
+  });
 
   const course = await prisma.course.upsert({
     where: { code: 'python_basic' },

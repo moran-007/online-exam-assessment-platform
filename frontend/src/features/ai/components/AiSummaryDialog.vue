@@ -1,8 +1,10 @@
 <template>
-  <el-dialog v-model="visible" :title="`AI ${kindLabel}总结 · ${subjectName}`" width="min(1120px, 94vw)" destroy-on-close>
+  <el-dialog v-model="visible" :title="`AI ${kindLabel} · ${subjectName}`" width="min(1120px, 94vw)" destroy-on-close>
     <div v-loading="loading" class="ai-summary-dialog">
       <el-alert
-        title="统计预览始终来自确定性查询；AI 只生成草稿，必须人工审核后才能发布。"
+        :title="summaryKind === 'lesson'
+          ? 'AI 只整理教师草稿；应用到教学记录并人工检查后，仍需走教学记录发布流程。'
+          : '统计预览始终来自确定性查询；AI 只生成草稿，必须人工审核后才能发布。'"
         type="info"
         show-icon
         :closable="false"
@@ -17,7 +19,7 @@
           <div><span>题目</span><strong>{{ preview.questions.length }}</strong></div>
           <div><span>证据</span><strong>{{ preview.evidence.length }}</strong></div>
         </template>
-        <template v-else>
+        <template v-else-if="isStudentPreview(preview)">
           <div><span>选择考试</span><strong>{{ preview.coverage.selectedExamCount.value }}</strong></div>
           <div><span>已评分</span><strong>{{ preview.coverage.gradedExamCount.value }}</strong></div>
           <div><span>未提交</span><strong>{{ preview.coverage.notSubmittedExamCount.value }}</strong></div>
@@ -25,12 +27,25 @@
           <div><span>错题</span><strong>{{ preview.wrongQuestions.length }}</strong></div>
           <div><span>证据</span><strong>{{ preview.evidence.length }}</strong></div>
         </template>
+        <template v-else>
+          <div><span>数据版本</span><strong>{{ preview.datasetVersion.replace(/^.*\//, '') }}</strong></div>
+          <div><span>证据</span><strong>{{ integratedEvidenceCount(preview) }}</strong></div>
+          <div><span>纳入范围</span><strong>{{ integratedCoverage(preview).includes.length }}</strong></div>
+          <div><span>排除范围</span><strong>{{ integratedCoverage(preview).excludes.length }}</strong></div>
+        </template>
       </div>
 
       <el-alert
-        v-if="preview && !isExamPreview(preview)"
+        v-if="preview && isStudentPreview(preview)"
         :title="coverageTitle(preview)"
         :description="`不纳入：${preview.dataCoverage.excludes.join('、') || '无'}`"
+        type="info"
+        :closable="false"
+      />
+      <el-alert
+        v-if="preview && isIntegratedPreview(preview)"
+        :title="integratedCoverageTitle(preview)"
+        :description="`明确排除：${integratedCoverage(preview).excludes.join('、') || '无'}`"
         type="info"
         :closable="false"
       />
@@ -92,16 +107,19 @@
               <div><h3>总结草稿</h3><span class="muted">编辑会使旧审核失效，并生成新的草稿版本。</span></div>
               <div class="toolbar">
                 <el-button :disabled="!canEdit" :loading="working" @click="save">保存编辑</el-button>
-                <el-button type="warning" plain :disabled="!canReview" :loading="working" @click="review">审核通过</el-button>
-                <el-button type="success" :disabled="!canPublish" :loading="working" @click="publish">发布</el-button>
-                <el-button type="danger" plain :disabled="!canRevoke" :loading="working" @click="revoke">撤回</el-button>
+                <template v-if="summaryKind !== 'lesson'">
+                  <el-button type="warning" plain :disabled="!canReview" :loading="working" @click="review">审核通过</el-button>
+                  <el-button type="success" :disabled="!canPublish" :loading="working" @click="publish">发布</el-button>
+                  <el-button type="danger" plain :disabled="!canRevoke" :loading="working" @click="revoke">撤回</el-button>
+                </template>
+                <el-button v-else type="primary" :disabled="!canApply" @click="applyLessonDraft">应用到教学记录草稿</el-button>
               </div>
             </div>
             <el-form label-position="top" :disabled="!canEdit">
               <el-form-item label="核心结论"><el-input v-model="editor.headline" type="textarea" :rows="2" maxlength="500" /></el-form-item>
               <div class="ai-summary-editor-grid">
                 <el-form-item label="整体概览（每行一条）"><el-input v-model="editor.overview" type="textarea" :rows="4" /></el-form-item>
-                <el-form-item :label="`${summaryKind === 'exam' ? '班级' : '学习'}优势（每行一条）`"><el-input v-model="editor.strengths" type="textarea" :rows="4" /></el-form-item>
+                <el-form-item :label="`${['exam', 'class'].includes(summaryKind) ? '班级' : '学习'}优势（每行一条）`"><el-input v-model="editor.strengths" type="textarea" :rows="4" /></el-form-item>
                 <el-form-item label="风险与薄弱项（每行一条）"><el-input v-model="editor.risks" type="textarea" :rows="4" /></el-form-item>
                 <el-form-item :label="`${summaryKind === 'exam' ? '教学' : '学习/教学'}行动建议（每行一条）`"><el-input v-model="editor.actions" type="textarea" :rows="4" /></el-form-item>
               </div>
@@ -129,24 +147,33 @@
 import type {
   AiSummaryTask,
   ExamSummaryDatasetPreview,
+  IntegratedSummaryDatasetPreview,
   StudentSummaryDatasetPreview,
 } from '../models';
 import { useAiSummaryDialog, type AiSummaryKind } from '../composables/useAiSummaryDialog';
 
 const props = defineProps<{ kind: AiSummaryKind }>();
+const emit = defineEmits<{ applyLesson: [content: Record<string, unknown>] }>();
 const state = useAiSummaryDialog(props.kind);
 const {
-  active, canEdit, canPublish, canReview, canRevoke, editor, effectiveOutputLimit, enabledConfigs,
+  active, canApply, canEdit, canPublish, canReview, canRevoke, editor, effectiveOutputLimit, enabledConfigs,
   generate, history, lastTask, loading, open, outputLimitHint, preview, publish, regenerate,
-  requestedMaxTokens, review, revoke, save, selectSummary, selectedConfigId, subjectName, visible, working,
+  requestedMaxTokens, review, revoke, save, selectSummary, selectedConfigId, subjectName, visible, working, kindLabel,
 } = state;
-const kindLabel = props.kind === 'student' ? '学生阶段' : '考试';
 const summaryKind = props.kind;
 
 defineExpose({ open });
 
-function isExamPreview(value: ExamSummaryDatasetPreview | StudentSummaryDatasetPreview): value is ExamSummaryDatasetPreview {
+function isExamPreview(value: SummaryPreview): value is ExamSummaryDatasetPreview {
   return 'participation' in value;
+}
+
+function isStudentPreview(value: SummaryPreview): value is StudentSummaryDatasetPreview {
+  return 'coverage' in value && 'wrongQuestions' in value;
+}
+
+function isIntegratedPreview(value: SummaryPreview): value is IntegratedSummaryDatasetPreview {
+  return 'dataset' in value;
 }
 
 function coverageTitle(value: StudentSummaryDatasetPreview) {
@@ -155,6 +182,26 @@ function coverageTitle(value: StudentSummaryDatasetPreview) {
     : '全部可访问考试时间';
   return `数据覆盖：${range}；纳入 ${value.dataCoverage.includes.join('、')}`;
 }
+
+function integratedCoverage(value: IntegratedSummaryDatasetPreview) {
+  const dataset = value.dataset as Record<string, unknown>;
+  return (dataset.dataCoverage ?? { includes: [], excludes: [] }) as { includes: string[]; excludes: string[] };
+}
+
+function integratedEvidenceCount(value: IntegratedSummaryDatasetPreview) {
+  const dataset = value.dataset as Record<string, unknown>;
+  return Array.isArray(dataset.evidence) ? dataset.evidence.length : 0;
+}
+
+function integratedCoverageTitle(value: IntegratedSummaryDatasetPreview) {
+  return `确定性数据范围：纳入 ${integratedCoverage(value).includes.join('、') || '无'}`;
+}
+
+function applyLessonDraft() {
+  if (active.value) emit('applyLesson', active.value.content as Record<string, unknown>);
+}
+
+type SummaryPreview = ExamSummaryDatasetPreview | StudentSummaryDatasetPreview | IntegratedSummaryDatasetPreview;
 
 function statusLabel(value: string) {
   return ({ draft: '草稿', in_review: '待审核', approved: '已审核', published: '已发布', revoked: '已撤回' } as Record<string, string>)[value] ?? value;

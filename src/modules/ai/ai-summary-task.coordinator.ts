@@ -8,14 +8,14 @@ import { AiProviderConfigAccessService } from './ai-provider-config-access.servi
 import { AiSummaryTaskRunner } from './ai-summary-task.runner';
 import { resolveOutputTokenLimit } from './ai-summary-limits';
 import { AiTokenUsageService } from './ai-token-usage.service';
-import type { SummaryDatasetBase } from './datasets/summary-dataset';
+import type { SupportedSummaryDataset } from './datasets/summary-dataset';
 import { createSummaryDatasetInputHash } from './summary-input-hash';
 
 export type SummaryTaskDefinition = {
   type: AiSummaryType;
   subjectId: string;
   scope: Prisma.InputJsonObject;
-  dataset: SummaryDatasetBase & { type: 'exam' | 'student' };
+  dataset: SupportedSummaryDataset;
   templateCode: string;
   schemaVersion: string;
   minOutputTokens: number;
@@ -65,6 +65,9 @@ export class AiSummaryTaskCoordinator {
     if (!task) throw new Error('无法创建或读取 AI 总结任务');
 
     const cacheHit = task.status === AiSummaryTaskStatus.SUCCEEDED;
+    await this.prisma.aiSummaryCacheEvent.create({
+      data: { taskId: task.id, type: definition.type, cacheHit, requestedBy: user.id },
+    });
     this.metrics.recordAiSummary({
       summaryType: definition.dataset.type,
       provider: config.provider,

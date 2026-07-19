@@ -77,7 +77,14 @@ export interface PortalOverview {
   student: PortalStudent;
   lessons: { items: PortalLesson[]; total: number; page: number; pageSize: number };
   exams: Array<{ id: string; name: string; courseName: string; submittedAt: string; score: number | null }>;
-  summaries: Array<{ id: string; type: string; content: unknown; publishedAt: string }>;
+  summaries: PortalSummary[];
+}
+
+export interface PortalSummary {
+  id: string;
+  type: string;
+  content: unknown;
+  publishedAt: string;
 }
 
 const data = async <T>(request: Promise<unknown>) => ((await request) as { data: T }).data;

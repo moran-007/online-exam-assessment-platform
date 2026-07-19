@@ -1,12 +1,21 @@
 import { computed, reactive, ref } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import {
+  createClassSummary,
   createExamSummary,
+  createLessonAssistant,
+  createParentReport,
   createStudentSummary,
   listAiConfigurations,
+  listClassSummaryHistory,
   listExamSummaryHistory,
+  listLessonAssistantHistory,
+  listParentReportHistory,
   listStudentSummaryHistory,
+  previewClassSummaryDataset,
   previewExamSummaryDataset,
+  previewLessonAssistantDataset,
+  previewParentReportDataset,
   previewStudentSummaryDataset,
   publishExamSummary,
   regenerateExamSummary,
@@ -20,13 +29,37 @@ import type {
   AiSummaryLifecycleRecord,
   AiSummaryTask,
   ExamSummaryDatasetPreview,
+  IntegratedSummaryDatasetPreview,
   StudentSummaryDatasetPreview,
 } from '../models';
 import { emptySummaryEditor, populateSummaryEditor, summaryContentFromEditor } from './summary-editor';
 
-export type AiSummaryKind = 'exam' | 'student';
+export type AiSummaryKind = 'exam' | 'student' | 'class' | 'parent_report' | 'lesson';
 export type StudentSummaryScope = { courseId?: string; examIds?: string[]; from?: string; to?: string };
-type SummaryPreview = ExamSummaryDatasetPreview | StudentSummaryDatasetPreview;
+type SummaryPreview = ExamSummaryDatasetPreview | StudentSummaryDatasetPreview | IntegratedSummaryDatasetPreview;
+
+const KIND_META: Record<AiSummaryKind, { label: string; schemaVersion: string; publishMessage: string }> = {
+  exam: {
+    label: '考试', schemaVersion: 'exam-summary-output/v1',
+    publishMessage: '发布后，参加本场考试的学生可以查看该总结。',
+  },
+  student: {
+    label: '学生阶段', schemaVersion: 'student-summary-output/v1',
+    publishMessage: '发布后，仅该学生本人可以查看此阶段总结。',
+  },
+  class: {
+    label: '班级', schemaVersion: 'class-summary-output/v1',
+    publishMessage: '发布后，该班级学生可以查看班级总结。',
+  },
+  parent_report: {
+    label: '家长报告', schemaVersion: 'parent-report-output/v1',
+    publishMessage: '发布后，仅与该学生有效关联的家长可以查看。',
+  },
+  lesson: {
+    label: '课堂助手', schemaVersion: 'lesson-assistant-output/v1',
+    publishMessage: '',
+  },
+};
 
 export function useAiSummaryDialog(kind: AiSummaryKind) {
   const visible = ref(false);
@@ -36,7 +69,7 @@ export function useAiSummaryDialog(kind: AiSummaryKind) {
   const subjectName = ref('');
   const scope = ref<StudentSummaryScope>({});
   const selectedConfigId = ref('');
-  const requestedMaxTokens = ref<number | undefined>(undefined);
+  const requestedMaxTokens = ref<number>();
   const preview = ref<SummaryPreview | null>(null);
   const configs = ref<AiProviderConfig[]>([]);
   const history = ref<AiSummaryLifecycleRecord[]>([]);
@@ -48,8 +81,9 @@ export function useAiSummaryDialog(kind: AiSummaryKind) {
   const enabledConfigs = computed(() => configs.value.filter((item) => item.enabled));
   const canEdit = computed(() => active.value && active.value.reviewStatus !== 'published');
   const canReview = computed(() => ['draft', 'in_review'].includes(active.value?.reviewStatus ?? ''));
-  const canPublish = computed(() => active.value?.reviewStatus === 'approved');
+  const canPublish = computed(() => kind !== 'lesson' && active.value?.reviewStatus === 'approved');
   const canRevoke = computed(() => active.value?.reviewStatus === 'published');
+  const canApply = computed(() => kind === 'lesson' && Boolean(active.value));
   const selectedConfiguration = computed(() => enabledConfigs.value.find((item) => item.id === selectedConfigId.value)
     ?? enabledConfigs.value.find((item) => item.isDefault)
     ?? enabledConfigs.value[0]);
@@ -77,16 +111,14 @@ export function useAiSummaryDialog(kind: AiSummaryKind) {
     lastTask.value = null;
     try {
       const [dataset, availableConfigs, records] = await Promise.all([
-        loadPreview(),
-        listAiConfigurations(),
-        loadHistory(),
+        loadPreview(), listAiConfigurations(), loadHistory(),
       ]);
       preview.value = dataset;
       configs.value = availableConfigs;
       history.value = records;
       selectSummary(records[0] ?? null);
     } catch (error: unknown) {
-      ElMessage.error(errorMessage(error, `AI ${kindLabel()}总结数据加载失败`));
+      ElMessage.error(errorMessage(error, `AI ${KIND_META[kind].label}数据加载失败`));
     } finally {
       loading.value = false;
     }
@@ -99,22 +131,19 @@ export function useAiSummaryDialog(kind: AiSummaryKind) {
 
   async function generate() {
     if (lastTask.value?.status === 'failed' && !await confirm(
-      `上一次调用失败。再次尝试会按当前 ${effectiveOutputLimit.value ?? '自动'} Token 上限发起新请求并产生用量，是否继续？`,
+      `上一次调用失败。再次尝试会按当前 ${effectiveOutputLimit.value ?? '自动'} Token 上限产生用量，是否继续？`,
       '确认再次调用模型',
     )) return;
-    await execute(`生成${kindLabel()}总结`, async () => {
+    await execute(`生成${KIND_META[kind].label}`, async () => {
       lastTask.value = await createTask();
       if (lastTask.value.summary) await refresh(lastTask.value.summary.id);
       if (lastTask.value.status === 'failed') throw new Error(lastTask.value.sanitizedError || '模型生成失败');
-      ElMessage.success(lastTask.value.cacheHit ? '已复用相同输入的总结' : `${kindLabel()}总结草稿已生成`);
+      ElMessage.success(lastTask.value.cacheHit ? '已复用相同输入的草稿' : `${KIND_META[kind].label}草稿已生成`);
     });
   }
 
   async function save() {
-    if (!active.value || !editor.headline.trim()) {
-      ElMessage.warning('总结标题不能为空');
-      return;
-    }
+    if (!active.value || !editor.headline.trim()) return void ElMessage.warning('总结标题不能为空');
     await execute('保存草稿', async () => {
       const updated = await updateExamSummary(active.value!.id, contentFromEditor());
       await refresh(updated.id);
@@ -132,24 +161,21 @@ export function useAiSummaryDialog(kind: AiSummaryKind) {
   }
 
   async function publish() {
-    if (!active.value) return;
-    const message = kind === 'student'
-      ? '发布后，仅该学生本人可以查看此阶段总结。'
-      : '发布后，参加本场考试的学生可以查看该总结。';
-    if (!await confirm(message, '确认发布')) return;
+    if (!active.value || kind === 'lesson') return;
+    if (!await confirm(KIND_META[kind].publishMessage, '确认发布')) return;
     await execute('发布总结', async () => {
       const updated = await publishExamSummary(active.value!.id);
       await refresh(updated.id);
-      ElMessage.success(`${kindLabel()}总结已发布`);
+      ElMessage.success(`${KIND_META[kind].label}已发布`);
     });
   }
 
   async function revoke() {
-    if (!active.value || !await confirm('撤回后，学生端将立即不可见。', '确认撤回')) return;
+    if (!active.value || !await confirm('撤回后，学习门户将立即不可见。', '确认撤回')) return;
     await execute('撤回总结', async () => {
       const updated = await revokeExamSummary(active.value!.id);
       await refresh(updated.id);
-      ElMessage.success(`${kindLabel()}总结已撤回`);
+      ElMessage.success(`${KIND_META[kind].label}已撤回`);
     });
   }
 
@@ -169,16 +195,20 @@ export function useAiSummaryDialog(kind: AiSummaryKind) {
     });
   }
 
-  function loadPreview() {
-    return kind === 'exam'
-      ? previewExamSummaryDataset(subjectId.value)
-      : previewStudentSummaryDataset(subjectId.value, scope.value);
+  function loadPreview(): Promise<SummaryPreview> {
+    if (kind === 'exam') return previewExamSummaryDataset(subjectId.value);
+    if (kind === 'student') return previewStudentSummaryDataset(subjectId.value, scope.value);
+    if (kind === 'class') return previewClassSummaryDataset(subjectId.value, scope.value);
+    if (kind === 'parent_report') return previewParentReportDataset(subjectId.value, scope.value);
+    return previewLessonAssistantDataset(subjectId.value);
   }
 
   function loadHistory() {
-    return kind === 'exam'
-      ? listExamSummaryHistory(subjectId.value)
-      : listStudentSummaryHistory(subjectId.value);
+    if (kind === 'exam') return listExamSummaryHistory(subjectId.value);
+    if (kind === 'student') return listStudentSummaryHistory(subjectId.value);
+    if (kind === 'class') return listClassSummaryHistory(subjectId.value);
+    if (kind === 'parent_report') return listParentReportHistory(subjectId.value);
+    return listLessonAssistantHistory(subjectId.value);
   }
 
   function createTask() {
@@ -186,9 +216,11 @@ export function useAiSummaryDialog(kind: AiSummaryKind) {
       configId: selectedConfigId.value || undefined,
       ...optionalOutputLimit(requestedMaxTokens.value),
     };
-    return kind === 'exam'
-      ? createExamSummary({ examId: subjectId.value, ...options })
-      : createStudentSummary({ studentId: subjectId.value, ...scope.value, ...options });
+    if (kind === 'exam') return createExamSummary({ examId: subjectId.value, ...options });
+    if (kind === 'student') return createStudentSummary({ studentId: subjectId.value, ...scope.value, ...options });
+    if (kind === 'class') return createClassSummary({ classId: subjectId.value, from: scope.value.from, to: scope.value.to, ...options });
+    if (kind === 'parent_report') return createParentReport({ studentId: subjectId.value, from: scope.value.from, to: scope.value.to, ...options });
+    return createLessonAssistant({ sessionId: subjectId.value, ...options });
   }
 
   async function refresh(selectedId?: string) {
@@ -199,8 +231,12 @@ export function useAiSummaryDialog(kind: AiSummaryKind) {
   function contentFromEditor(): Record<string, unknown> {
     const fallback = original.value?.headline.evidenceRefs
       ?? (active.value?.evidence[0]?.refId ? [active.value.evidence[0].refId] : []);
-    const schemaVersion = original.value?.schemaVersion ?? `${kind}-summary-output/v1`;
-    return summaryContentFromEditor(editor, original.value, fallback, schemaVersion) as unknown as Record<string, unknown>;
+    return summaryContentFromEditor(
+      editor,
+      original.value,
+      fallback,
+      original.value?.schemaVersion ?? KIND_META[kind].schemaVersion,
+    ) as unknown as Record<string, unknown>;
   }
 
   async function execute(label: string, operation: () => Promise<void>) {
@@ -215,14 +251,11 @@ export function useAiSummaryDialog(kind: AiSummaryKind) {
     }
   }
 
-  function kindLabel() {
-    return kind === 'student' ? '学生阶段' : '考试';
-  }
-
   return {
-    active, canEdit, canPublish, canReview, canRevoke, editor, effectiveOutputLimit, enabledConfigs,
-    generate, history, kind, lastTask, loading, open, outputLimitHint, preview, publish, regenerate,
-    requestedMaxTokens, review, revoke, save, selectSummary, selectedConfigId, subjectName, visible, working,
+    active, canApply, canEdit, canPublish, canReview, canRevoke, editor, effectiveOutputLimit, enabledConfigs,
+    generate, history, kind, kindLabel: KIND_META[kind].label, lastTask, loading, open, outputLimitHint,
+    preview, publish, regenerate, requestedMaxTokens, review, revoke, save, selectSummary, selectedConfigId,
+    subjectName, visible, working,
   };
 }
 

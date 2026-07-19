@@ -1,4 +1,4 @@
-import { AttemptStatus } from '@prisma/client';
+import { AttemptStatus, AttendanceStatus, LessonRecordStatus, LessonSessionStatus } from '@prisma/client';
 import { StudentSummaryDatasetBuilder } from '../../src/modules/ai/datasets/student-summary-dataset.builder';
 import { createSummaryDatasetInputHash } from '../../src/modules/ai/summary-input-hash';
 
@@ -18,6 +18,9 @@ describe('StudentSummaryDatasetBuilder', () => {
     kp1: '00000000-0000-4000-8000-000000000041',
     kp2: '00000000-0000-4000-8000-000000000042',
     wrong: '00000000-0000-4000-8000-000000000051',
+    session: '00000000-0000-4000-8000-000000000061',
+    attendance: '00000000-0000-4000-8000-000000000062',
+    record: '00000000-0000-4000-8000-000000000063',
   };
   const user = {
     id: ids.teacher, username: 'teacher', realName: 'Teacher', userType: 'TEACHER',
@@ -56,6 +59,22 @@ describe('StudentSummaryDatasetBuilder', () => {
       judgeSubmission: { findMany: jest.fn().mockResolvedValue([
         { status: 'accepted', score: 100 }, { status: 'wrong_answer', score: 0 },
       ]) },
+      lessonSession: { findMany: jest.fn().mockResolvedValue([{
+        id: ids.session,
+        title: '循环课',
+        startsAt: new Date('2026-06-15T01:00:00.000Z'),
+        status: LessonSessionStatus.COMPLETED,
+        lessonHours: 1,
+        classGroup: { courseId: ids.course, course: { name: '编程' } },
+        attendance: [{ id: ids.attendance, status: AttendanceStatus.PRESENT, confirmedAt: new Date() }],
+        lessonRecord: {
+          id: ids.record,
+          status: LessonRecordStatus.PUBLISHED,
+          publicLearningGoal: '掌握循环',
+          publicClassPerformance: '能独立完成练习',
+          publicHomework: '完成循环巩固题',
+        },
+      }]) },
     };
     const dataScope = {
       assertStudentSummaryAccessible: jest.fn().mockResolvedValue(undefined),
@@ -76,7 +95,8 @@ describe('StudentSummaryDatasetBuilder', () => {
     expect(deps.dataScope.assertStudentSummaryAccessible).toHaveBeenCalledWith(user, ids.student);
     expect(dataset).toMatchObject({
       type: 'student',
-      datasetVersion: 'student-summary/v1',
+      datasetVersion: 'student-summary/v2',
+      generationMode: 'analysis',
       student: { id: ids.student, alias: '该学生' },
       scope: { courseId: ids.course, courseName: '编程', examIds: [ids.exam1, ids.exam2, ids.exam3] },
       coverage: {
@@ -85,6 +105,11 @@ describe('StudentSummaryDatasetBuilder', () => {
         notSubmittedExamCount: { value: 1 },
         ungradedExamCount: { value: 1 },
         gradedAnswerCount: { value: 2 },
+        scheduledLessonCount: { value: 1 },
+        completedLessonCount: { value: 1 },
+        attendanceRecordCount: { value: 1 },
+        publishedLessonRecordCount: { value: 1 },
+        homeworkAssignmentCount: { value: 1 },
       },
       programming: {
         submissionCount: { value: 2 }, acceptedCount: { value: 1 }, acceptedRate: { value: 0.5 },
@@ -99,10 +124,19 @@ describe('StudentSummaryDatasetBuilder', () => {
       questionId: ids.question1, title: '变量选择题', wrongCount: { value: 2 }, masteryStatus: { value: 'reviewing' },
     });
     expect(dataset.dataCoverage.excludes).toEqual(expect.arrayContaining([
-      'attendance', 'homework', 'classroom_behavior', 'answer_text', 'ungraded_scores',
+      'unpublished_lesson_records', 'internal_teaching_notes', 'answer_text', 'ungraded_scores',
     ]));
+    expect(dataset.attendance).toMatchObject({
+      confirmedCount: { value: 1 }, presentCount: { value: 1 }, attendanceRate: { value: 1 },
+    });
+    expect(dataset.lessons[0]).toMatchObject({
+      sessionId: ids.session,
+      learningGoal: { value: '掌握循环' },
+      homework: { value: '完成循环巩固题' },
+    });
     expect(JSON.stringify(dataset)).not.toContain('answerJson');
-    expect(Object.keys(dataset.evidenceIndex)).toHaveLength(35);
+    expect(JSON.stringify(dataset)).not.toContain('internalTeachingNotes');
+    expect(Object.keys(dataset.evidenceIndex)).toHaveLength(52);
 
     const firstHash = createSummaryDatasetInputHash(dataset);
     const later = {

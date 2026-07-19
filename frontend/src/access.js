@@ -3,6 +3,7 @@ export const publicMenuItems = [
 ];
 
 export const studentMenuItems = [
+  { path: '/dashboard', label: '学习看板', icon: 'DataBoard', permissions: ['dashboard:read'] },
   { path: '/question-bank', label: '题库', icon: 'EditPen' },
   { path: '/student/papers', label: '试卷题库', icon: 'Document' },
   { path: '/student/exams', label: '我的考试', icon: 'Calendar' },
@@ -13,13 +14,14 @@ export const studentMenuItems = [
 ];
 
 export const parentMenuItems = [
+  { path: '/dashboard', label: '学习看板', icon: 'DataBoard', permissions: ['dashboard:read'] },
   { path: '/profile', label: '关联学生', icon: 'User' },
   { path: '/teaching-operations', label: '课表与课时', icon: 'Calendar' },
   { path: '/learning-portal', label: '学习门户', icon: 'Reading' },
 ];
 
 export const adminMenuItems = [
-  { path: '/dashboard', label: '看板', icon: 'DataBoard', permissions: ['statistics:read'] },
+  { path: '/dashboard', label: '融合看板', icon: 'DataBoard', permissions: ['dashboard:read'] },
   { path: '/courses', label: '课程', icon: 'Collection', permissions: ['course:read'] },
   { path: '/classes', label: '班级', icon: 'UserFilled', permissions: ['class:read'] },
   { path: '/users', label: '用户权限', icon: 'Setting', userTypes: ['SUPER_ADMIN'] },

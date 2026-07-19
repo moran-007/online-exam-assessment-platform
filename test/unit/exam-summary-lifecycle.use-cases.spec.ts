@@ -88,6 +88,11 @@ describe('AiSummaryLifecycleUseCases', () => {
     const audit = { log: jest.fn().mockResolvedValue(undefined) };
     const tasks = { create: jest.fn() };
     const studentTasks = { create: jest.fn() };
+    const integratedTasks = {
+      createClass: jest.fn(),
+      createParent: jest.fn(),
+      createLesson: jest.fn(),
+    };
     const access = {
       require: jest.fn().mockResolvedValue(current),
       find: jest.fn().mockResolvedValue(after),
@@ -99,8 +104,9 @@ describe('AiSummaryLifecycleUseCases', () => {
       tasks as never,
       studentTasks as never,
       access as never,
+      integratedTasks as never,
     );
-    return { service, prisma, audit, tasks, studentTasks, access };
+    return { service, prisma, audit, tasks, studentTasks, integratedTasks, access };
   }
 
   function summary(

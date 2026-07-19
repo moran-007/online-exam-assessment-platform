@@ -16,6 +16,7 @@ export interface AiProviderConfigResponseDto {
   enabled: boolean;
   hasApiKey: boolean;
   id: string;
+  inputCostPerMillion: number;
   isDefault: boolean;
   /** @nullable */
   lastTestAt: string | null;
@@ -28,6 +29,7 @@ export interface AiProviderConfigResponseDto {
   /** @nullable */
   monthlyTokenBudget: number | null;
   name: string;
+  outputCostPerMillion: number;
   provider: string;
   scope: AiProviderConfigResponseDtoScope;
   timeoutMs: number;

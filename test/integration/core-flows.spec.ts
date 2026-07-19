@@ -418,7 +418,7 @@ describe('core API flows', () => {
       'get', `/api/v1/ai-summaries/students/${student.id}/preview?examIds=${exam.id}`, adminToken,
     );
     expect(studentPreview).toMatchObject({
-      datasetVersion: 'student-summary/v1',
+      datasetVersion: 'student-summary/v2',
       student: { id: student.id },
       coverage: { selectedExamCount: { value: 1 }, gradedExamCount: { value: 1 } },
     });

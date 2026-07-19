@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsBoolean, IsIn, IsInt, IsNotEmpty, IsOptional, IsString, IsUUID, Max, MaxLength, Min } from 'class-validator';
+import { IsBoolean, IsIn, IsInt, IsNotEmpty, IsNumber, IsOptional, IsString, IsUUID, Max, MaxLength, Min } from 'class-validator';
 import { MAX_AI_OUTPUT_TOKENS } from '../ai-summary-limits';
 
 export class CreateAiProviderConfigDto {
@@ -46,6 +46,14 @@ export class CreateAiProviderConfigDto {
   @ApiPropertyOptional({ description: '本地月度 Token 预算；不等同于供应商账户余额', minimum: 1000 })
   @IsOptional() @IsInt() @Min(1000)
   monthlyTokenBudget?: number;
+
+  @ApiPropertyOptional({ description: '每百万输入 Token 的估算成本', default: 0, minimum: 0 })
+  @IsOptional() @IsNumber() @Min(0)
+  inputCostPerMillion?: number;
+
+  @ApiPropertyOptional({ description: '每百万输出 Token 的估算成本', default: 0, minimum: 0 })
+  @IsOptional() @IsNumber() @Min(0)
+  outputCostPerMillion?: number;
 }
 
 export class UpdateAiProviderConfigDto {
@@ -69,6 +77,10 @@ export class UpdateAiProviderConfigDto {
   maxTokens?: number;
   @ApiPropertyOptional({ nullable: true, minimum: 1000 }) @IsOptional() @IsInt() @Min(1000)
   monthlyTokenBudget?: number | null;
+  @ApiPropertyOptional({ minimum: 0 }) @IsOptional() @IsNumber() @Min(0)
+  inputCostPerMillion?: number;
+  @ApiPropertyOptional({ minimum: 0 }) @IsOptional() @IsNumber() @Min(0)
+  outputCostPerMillion?: number;
 }
 
 export class GenerateAiSummaryDto {
@@ -135,6 +147,8 @@ export class AiProviderConfigResponseDto {
   @ApiProperty() timeoutMs: number;
   @ApiProperty() maxTokens: number;
   @ApiProperty({ nullable: true }) monthlyTokenBudget: number | null;
+  @ApiProperty() inputCostPerMillion: number;
+  @ApiProperty() outputCostPerMillion: number;
   @ApiProperty({ type: () => AiTokenQuotaDto }) tokenQuota: AiTokenQuotaDto;
   @ApiProperty() hasApiKey: boolean;
   @ApiProperty() apiKeyMasked: string;

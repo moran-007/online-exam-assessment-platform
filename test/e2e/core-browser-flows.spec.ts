@@ -35,13 +35,18 @@ test.beforeAll(async ({ request }) => {
     ['attendance:confirm', 'Confirm attendance'],
     ['attendance:correct', 'Correct attendance'],
     ['lesson-hour:read', 'Read lesson hours'],
+    ['lesson-record:read', 'Read published lesson records'],
+    ['dashboard:read', 'Read fused dashboard'],
   ].map(([code, name]) => prisma.permission.create({ data: { name, code, type: PermissionType.API } })));
   const roleRows = await Promise.all([
     prisma.role.create({ data: { name: 'E2E Teacher', code: 'teacher' } }),
     prisma.role.create({ data: { name: 'E2E Student', code: 'student' } }),
     prisma.role.create({ data: { name: 'E2E Parent', code: 'parent' } }),
   ]);
-  const readCodes = new Set(['academic-profile:read', 'schedule:read', 'attendance:read', 'lesson-hour:read']);
+  const readCodes = new Set([
+    'academic-profile:read', 'schedule:read', 'attendance:read', 'lesson-hour:read',
+    'lesson-record:read', 'dashboard:read',
+  ]);
   await prisma.rolePermission.createMany({
     data: roleRows.flatMap((role) => permissionRows
       .filter((permission) => role.code === 'teacher' || readCodes.has(permission.code))
@@ -194,7 +199,7 @@ test('student autosave survives refresh and forced end finalizes the latest answ
   await login(adminPage, 'e2e_admin');
   await expect(adminPage).toHaveURL(/\/dashboard$/);
   await login(studentPage, 'e2e_student');
-  await expect(studentPage).toHaveURL(/\/student\/exams$/);
+  await expect(studentPage).toHaveURL(/\/dashboard$/);
 
   await studentPage.goto(`/student/exams/${examId}`);
   await expect(studentPage.getByRole('heading', { name: 'E2E forced-end exam' })).toBeVisible();
@@ -257,7 +262,8 @@ test('public visitors and teachers load their lazy feature routes', async ({ bro
   await expect(publicPage.getByText('E2E autosave question', { exact: true })).toBeVisible();
 
   await login(teacherPage, 'e2e_teacher');
-  await expect(teacherPage).toHaveURL(/\/ai-settings$/);
+  await expect(teacherPage).toHaveURL(/\/dashboard$/);
+  await teacherPage.goto('/ai-settings');
   await expect(teacherPage.getByRole('heading', { name: 'AI 模型配置' })).toBeVisible();
   await teacherPage.goto('/external-accounts');
   await expect(teacherPage.getByRole('heading', { name: '外部账号' })).toBeVisible();
@@ -334,7 +340,7 @@ test('privileged users can open AI settings while students are denied', async ({
   await adminPage.getByText('E2E Browser Class', { exact: true }).click();
   await expect(adminPage.getByText('E2E Student', { exact: true })).toBeVisible();
   await adminPage.getByRole('button', { name: 'AI 总结' }).click();
-  const studentSummaryDialog = adminPage.getByRole('dialog', { name: /AI 学生阶段总结 · E2E Student/ });
+  const studentSummaryDialog = adminPage.getByRole('dialog', { name: /AI 学生阶段 · E2E Student/ });
   await expect(studentSummaryDialog).toBeVisible();
   await expect(studentSummaryDialog.getByText('数据覆盖：')).toBeVisible();
   await expect(studentSummaryDialog.getByText('未提交', { exact: true })).toBeVisible();
@@ -383,7 +389,7 @@ test('academic profiles, parent scope and Gate C are operable through browser cl
   await formInput(studentDialog, '学校').fill('E2E School');
   await formInput(studentDialog, '年级').fill('Grade 6');
   await studentDialog.getByRole('button', { name: '保存档案' }).click();
-  await expect(adminPage.getByText('档案已保存')).toBeVisible();
+  await expect(adminPage.getByText('档案已保存').last()).toBeVisible();
   await expect(studentRow).toContainText('S-E2E-001');
 
   await adminPage.getByRole('tab', { name: '教师档案' }).click();
@@ -393,7 +399,7 @@ test('academic profiles, parent scope and Gate C are operable through browser cl
   await formInput(teacherDialog, '工号').fill('T-E2E-001');
   await formInput(teacherDialog, '任教学科').fill('编程');
   await teacherDialog.getByRole('button', { name: '保存档案' }).click();
-  await expect(adminPage.getByText('档案已保存')).toBeVisible();
+  await expect(adminPage.getByText('档案已保存').last()).toBeVisible();
 
   await adminPage.getByRole('tab', { name: '家长关系' }).click();
   await adminPage.getByRole('button', { name: '关联家长' }).click();
@@ -437,7 +443,8 @@ test('academic profiles, parent scope and Gate C are operable through browser cl
   await expect(adminPage.getByRole('row', { name: /E2E Student/ })).toBeVisible();
 
   await login(parentPage, 'e2e_parent');
-  await expect(parentPage).toHaveURL(/\/profile$/);
+  await expect(parentPage).toHaveURL(/\/dashboard$/);
+  await parentPage.goto('/profile');
   await expect(parentPage.getByRole('heading', { name: '明确关联学生' })).toBeVisible();
   await expect(parentPage.getByText('E2E Student', { exact: true })).toBeVisible();
   await login(studentPage, 'e2e_student');
@@ -554,7 +561,7 @@ test('material context keeps child answers independent and rubric grading is ava
   const examRow = adminPage.getByRole('row', { name: /E2E material rubric exam/ });
   await expect(examRow).toBeVisible();
   await examRow.getByRole('button', { name: 'AI 总结' }).click();
-  const aiDialog = adminPage.getByRole('dialog', { name: /AI 考试总结 · E2E material rubric exam/ });
+  const aiDialog = adminPage.getByRole('dialog', { name: /AI 考试 · E2E material rubric exam/ });
   await expect(aiDialog).toBeVisible();
   await expect(aiDialog.getByText('统计预览始终来自确定性查询')).toBeVisible();
   await expect(aiDialog.getByText('本次输出上限（可选）')).toBeVisible();
@@ -566,6 +573,54 @@ test('material context keeps child answers independent and rubric grading is ava
   await aiDialog.screenshot({ path: 'output/playwright/ai-exam-summary-dialog.png' });
   await admin.close();
   await student.close();
+});
+
+test('Stage 7 fused dashboard and AI academic entry points work through browser clicks', async ({ browser }) => {
+  const adminContext = await browser.newContext();
+  const studentContext = await browser.newContext();
+  const parentContext = await browser.newContext();
+  const adminPage = await adminContext.newPage();
+  const studentPage = await studentContext.newPage();
+  const parentPage = await parentContext.newPage();
+
+  await login(adminPage, 'e2e_admin');
+  await adminPage.goto('/classes');
+  await adminPage.getByText('E2E Browser Class', { exact: true }).first().click();
+  await adminPage.getByRole('button', { name: 'AI 班级总结' }).click();
+  const classDialog = adminPage.getByRole('dialog', { name: /AI 班级 · E2E Browser Class/ });
+  await expect(classDialog.getByText('class_aggregate_only')).toBeVisible();
+  await expect(classDialog.getByText('v1', { exact: true })).toBeVisible();
+  await classDialog.locator('.el-dialog__headerbtn').click();
+
+  await adminPage.getByRole('button', { name: '家长报告' }).click();
+  const parentReportDialog = adminPage.getByRole('dialog', { name: /AI 家长报告 · E2E Student/ });
+  await expect(parentReportDialog.getByText('submitted_exams_with_score_visibility_policy')).toBeVisible();
+  await parentReportDialog.locator('.el-dialog__headerbtn').click();
+
+  await adminPage.goto('/ai-settings');
+  await expect(adminPage.getByRole('heading', { name: 'AI 质量、成本与回归' })).toBeVisible();
+  await adminPage.getByRole('tab', { name: '模型切换回归' }).click();
+  await expect(adminPage.getByRole('button', { name: '执行回归' })).toBeVisible();
+
+  await login(studentPage, 'e2e_student');
+  await expect(studentPage).toHaveURL(/\/dashboard$/);
+  await expect(studentPage.getByRole('heading', { name: '测评 · 教务融合看板' })).toBeVisible();
+  await studentPage.getByRole('link', { name: /考试记录/ }).click();
+  await expect(studentPage).toHaveURL(/\/learning-portal\?tab=exams$/);
+  await expect(studentPage.getByRole('tab', { name: '考试记录' })).toHaveAttribute('aria-selected', 'true');
+  await studentPage.goto('/dashboard');
+  await studentPage.getByRole('link', { name: /课时台账/ }).click();
+  await expect(studentPage).toHaveURL(/\/teaching-operations\?tab=ledger$/);
+  await expect(studentPage.getByRole('tab', { name: '课时台账' })).toHaveAttribute('aria-selected', 'true');
+
+  await login(parentPage, 'e2e_parent');
+  await expect(parentPage).toHaveURL(/\/dashboard$/);
+  await expect(parentPage.getByText('已关联学生')).toBeVisible();
+  await expect(parentPage.getByRole('link', { name: /考试记录/ })).toBeVisible();
+
+  await adminContext.close();
+  await studentContext.close();
+  await parentContext.close();
 });
 
 async function login(page: Page, username: string) {

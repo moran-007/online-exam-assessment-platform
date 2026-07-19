@@ -245,6 +245,24 @@ enum AiSummaryReviewStatus {
   REVOKED   @map("revoked")
 }
 
+enum AiFeedbackVerdict {
+  HELPFUL   @map("helpful")
+  PARTIAL   @map("partial")
+  INCORRECT @map("incorrect")
+}
+
+enum AiFeedbackStatus {
+  OPEN      @map("open")
+  RESOLVED  @map("resolved")
+  DISMISSED @map("dismissed")
+}
+
+enum AiRegressionStatus {
+  RUNNING @map("running")
+  PASSED  @map("passed")
+  FAILED  @map("failed")
+}
+
 enum AiProviderConfigScope {
   SYSTEM   @map("system")
   PERSONAL @map("personal")
@@ -1807,33 +1825,36 @@ model Notification {
 }
 
 model AiProviderConfig {
-  id                 String                @id @default(uuid()) @db.Uuid
-  name               String                @db.VarChar(100)
-  provider           String                @db.VarChar(50)
-  baseUrl            String                @map("base_url") @db.Text
-  model              String                @db.VarChar(160)
-  scope              AiProviderConfigScope @default(SYSTEM)
-  ownerUserId        String?               @map("owner_user_id") @db.Uuid
-  apiKeyCiphertext   String                @map("api_key_ciphertext") @db.Text
-  apiKeyIv           String                @map("api_key_iv") @db.VarChar(64)
-  apiKeyAuthTag      String                @map("api_key_auth_tag") @db.VarChar(64)
-  apiKeyKeyVersion   Int                   @map("api_key_key_version")
-  enabled            Boolean               @default(true)
-  isDefault          Boolean               @default(false) @map("is_default")
-  timeoutMs          Int                   @default(30000) @map("timeout_ms")
-  maxTokens          Int                   @default(800) @map("max_tokens")
-  monthlyTokenBudget Int?                  @map("monthly_token_budget")
-  lastTestStatus     String?               @map("last_test_status") @db.VarChar(32)
-  lastTestMessage    String?               @map("last_test_message") @db.VarChar(300)
-  lastTestAt         DateTime?             @map("last_test_at")
-  createdBy          String?               @map("created_by") @db.Uuid
-  updatedBy          String?               @map("updated_by") @db.Uuid
-  createdAt          DateTime              @default(now()) @map("created_at")
-  updatedAt          DateTime              @updatedAt @map("updated_at")
+  id                   String                @id @default(uuid()) @db.Uuid
+  name                 String                @db.VarChar(100)
+  provider             String                @db.VarChar(50)
+  baseUrl              String                @map("base_url") @db.Text
+  model                String                @db.VarChar(160)
+  scope                AiProviderConfigScope @default(SYSTEM)
+  ownerUserId          String?               @map("owner_user_id") @db.Uuid
+  apiKeyCiphertext     String                @map("api_key_ciphertext") @db.Text
+  apiKeyIv             String                @map("api_key_iv") @db.VarChar(64)
+  apiKeyAuthTag        String                @map("api_key_auth_tag") @db.VarChar(64)
+  apiKeyKeyVersion     Int                   @map("api_key_key_version")
+  enabled              Boolean               @default(true)
+  isDefault            Boolean               @default(false) @map("is_default")
+  timeoutMs            Int                   @default(30000) @map("timeout_ms")
+  maxTokens            Int                   @default(800) @map("max_tokens")
+  monthlyTokenBudget   Int?                  @map("monthly_token_budget")
+  inputCostPerMillion  Decimal               @default(0) @map("input_cost_per_million") @db.Decimal(12, 4)
+  outputCostPerMillion Decimal               @default(0) @map("output_cost_per_million") @db.Decimal(12, 4)
+  lastTestStatus       String?               @map("last_test_status") @db.VarChar(32)
+  lastTestMessage      String?               @map("last_test_message") @db.VarChar(300)
+  lastTestAt           DateTime?             @map("last_test_at")
+  createdBy            String?               @map("created_by") @db.Uuid
+  updatedBy            String?               @map("updated_by") @db.Uuid
+  createdAt            DateTime              @default(now()) @map("created_at")
+  updatedAt            DateTime              @updatedAt @map("updated_at")
 
-  summaryTasks AiSummaryTask[]
-  usageEvents  AiUsageEvent[]
-  owner        User?           @relation("PersonalAiProviderConfigOwner", fields: [ownerUserId], references: [id], onDelete: Restrict)
+  summaryTasks   AiSummaryTask[]
+  usageEvents    AiUsageEvent[]
+  regressionRuns AiModelRegressionRun[]
+  owner          User?                  @relation("PersonalAiProviderConfigOwner", fields: [ownerUserId], references: [id], onDelete: Restrict)
 
   @@index([enabled, isDefault])
   @@index([provider])
@@ -1894,7 +1915,8 @@ model AiSummaryPromptTemplate {
   createdAt    DateTime      @default(now()) @map("created_at")
   updatedAt    DateTime      @updatedAt @map("updated_at")
 
-  tasks AiSummaryTask[]
+  tasks          AiSummaryTask[]
+  regressionRuns AiModelRegressionRun[]
 
   @@unique([code, version])
   @@index([summaryType, enabled])
@@ -1932,6 +1954,7 @@ model AiSummaryTask {
   providerConfig AiProviderConfig        @relation(fields: [providerConfigId], references: [id], onDelete: Restrict)
   promptTemplate AiSummaryPromptTemplate @relation(fields: [promptTemplateId], references: [id], onDelete: Restrict)
   summary        AiSummary?
+  cacheEvents    AiSummaryCacheEvent[]
 
   @@unique([type, subjectId, inputHash, datasetVersion, promptVersion, schemaVersion, providerConfigId, modelSnapshot, generationKey, requestedOutputTokens], map: "ai_summary_tasks_idempotency_key")
   @@index([status, createdAt])
@@ -1957,9 +1980,72 @@ model AiSummary {
   createdAt          DateTime              @default(now()) @map("created_at")
   updatedAt          DateTime              @updatedAt @map("updated_at")
 
-  task AiSummaryTask @relation(fields: [taskId], references: [id], onDelete: Restrict)
+  task     AiSummaryTask       @relation(fields: [taskId], references: [id], onDelete: Restrict)
+  feedback AiSummaryFeedback[]
 
   @@index([type, subjectId, createdAt])
   @@index([reviewStatus, publishedAt])
   @@map("ai_summaries")
+}
+
+model AiSummaryCacheEvent {
+  id          String        @id @default(uuid()) @db.Uuid
+  taskId      String        @map("task_id") @db.Uuid
+  type        AiSummaryType
+  cacheHit    Boolean       @map("cache_hit")
+  requestedBy String        @map("requested_by") @db.Uuid
+  createdAt   DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  task AiSummaryTask @relation(fields: [taskId], references: [id], onDelete: Restrict)
+
+  @@index([type, createdAt])
+  @@index([taskId, createdAt])
+  @@map("ai_summary_cache_events")
+}
+
+model AiSummaryFeedback {
+  id             String            @id @default(uuid()) @db.Uuid
+  summaryId      String            @map("summary_id") @db.Uuid
+  reportedBy     String            @map("reported_by") @db.Uuid
+  verdict        AiFeedbackVerdict
+  rating         Int
+  evidenceRef    String?           @map("evidence_ref") @db.VarChar(160)
+  comment        String?           @db.Text
+  correctionText String?           @map("correction_text") @db.Text
+  status         AiFeedbackStatus  @default(OPEN)
+  resolutionNote String?           @map("resolution_note") @db.Text
+  resolvedBy     String?           @map("resolved_by") @db.Uuid
+  resolvedAt     DateTime?         @map("resolved_at") @db.Timestamptz(3)
+  createdAt      DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt      DateTime          @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  summary AiSummary @relation(fields: [summaryId], references: [id], onDelete: Restrict)
+
+  @@index([summaryId, status])
+  @@index([status, createdAt])
+  @@index([reportedBy, createdAt])
+  @@map("ai_summary_feedback")
+}
+
+model AiModelRegressionRun {
+  id               String             @id @default(uuid()) @db.Uuid
+  providerConfigId String             @map("provider_config_id") @db.Uuid
+  promptTemplateId String             @map("prompt_template_id") @db.Uuid
+  summaryType      AiSummaryType      @map("summary_type")
+  status           AiRegressionStatus @default(RUNNING)
+  passedCases      Int                @default(0) @map("passed_cases")
+  totalCases       Int                @default(0) @map("total_cases")
+  inputTokens      Int                @default(0) @map("input_tokens")
+  outputTokens     Int                @default(0) @map("output_tokens")
+  sanitizedError   String?            @map("sanitized_error") @db.VarChar(500)
+  createdBy        String             @map("created_by") @db.Uuid
+  createdAt        DateTime           @default(now()) @map("created_at") @db.Timestamptz(3)
+  finishedAt       DateTime?          @map("finished_at") @db.Timestamptz(3)
+
+  providerConfig AiProviderConfig        @relation(fields: [providerConfigId], references: [id], onDelete: Restrict)
+  promptTemplate AiSummaryPromptTemplate @relation(fields: [promptTemplateId], references: [id], onDelete: Restrict)
+
+  @@index([summaryType, createdAt])
+  @@index([providerConfigId, createdAt])
+  @@map("ai_model_regression_runs")
 }

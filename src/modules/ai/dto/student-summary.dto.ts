@@ -94,6 +94,11 @@ export class AiEvidencedStringDto {
   @ApiProperty() evidenceRef: string;
 }
 
+export class AiNullableEvidencedStringDto {
+  @ApiProperty({ nullable: true }) value: string | null;
+  @ApiProperty() evidenceRef: string;
+}
+
 export class AiStudentContextDto {
   @ApiProperty({ format: 'uuid' }) id: string;
   @ApiProperty() alias: string;
@@ -111,6 +116,11 @@ export class AiStudentCoverageMetricsDto {
   @ApiProperty({ type: () => AiEvidencedNumberDto }) notSubmittedExamCount: AiEvidencedNumberDto;
   @ApiProperty({ type: () => AiEvidencedNumberDto }) ungradedExamCount: AiEvidencedNumberDto;
   @ApiProperty({ type: () => AiEvidencedNumberDto }) gradedAnswerCount: AiEvidencedNumberDto;
+  @ApiProperty({ type: () => AiEvidencedNumberDto }) scheduledLessonCount: AiEvidencedNumberDto;
+  @ApiProperty({ type: () => AiEvidencedNumberDto }) completedLessonCount: AiEvidencedNumberDto;
+  @ApiProperty({ type: () => AiEvidencedNumberDto }) attendanceRecordCount: AiEvidencedNumberDto;
+  @ApiProperty({ type: () => AiEvidencedNumberDto }) publishedLessonRecordCount: AiEvidencedNumberDto;
+  @ApiProperty({ type: () => AiEvidencedNumberDto }) homeworkAssignmentCount: AiEvidencedNumberDto;
 }
 
 export class AiStudentExamPerformanceDto {
@@ -154,9 +164,31 @@ export class AiStudentProgrammingFactDto {
   @ApiProperty({ type: () => AiEvidencedNumberDto }) averageScore: AiEvidencedNumberDto;
 }
 
+export class AiStudentAttendanceFactDto {
+  @ApiProperty({ type: () => AiEvidencedNumberDto }) confirmedCount: AiEvidencedNumberDto;
+  @ApiProperty({ type: () => AiEvidencedNumberDto }) presentCount: AiEvidencedNumberDto;
+  @ApiProperty({ type: () => AiEvidencedNumberDto }) lateCount: AiEvidencedNumberDto;
+  @ApiProperty({ type: () => AiEvidencedNumberDto }) leaveCount: AiEvidencedNumberDto;
+  @ApiProperty({ type: () => AiEvidencedNumberDto }) absentCount: AiEvidencedNumberDto;
+  @ApiProperty({ type: () => AiEvidencedNumberDto }) attendanceRate: AiEvidencedNumberDto;
+}
+
+export class AiStudentLessonFactDto {
+  @ApiProperty({ format: 'uuid' }) sessionId: string;
+  @ApiProperty() title: string;
+  @ApiProperty({ format: 'date-time' }) startsAt: string;
+  @ApiProperty({ type: () => AiEvidencedStringDto }) status: AiEvidencedStringDto;
+  @ApiProperty({ type: () => AiEvidencedNumberDto }) lessonHours: AiEvidencedNumberDto;
+  @ApiProperty({ type: () => AiNullableEvidencedStringDto }) attendanceStatus: AiNullableEvidencedStringDto;
+  @ApiProperty({ type: () => AiNullableEvidencedStringDto }) learningGoal: AiNullableEvidencedStringDto;
+  @ApiProperty({ type: () => AiNullableEvidencedStringDto }) classPerformance: AiNullableEvidencedStringDto;
+  @ApiProperty({ type: () => AiNullableEvidencedStringDto }) homework: AiNullableEvidencedStringDto;
+}
+
 export class StudentSummaryDatasetPreviewDto {
   @ApiProperty() inputHash: string;
   @ApiProperty() datasetVersion: string;
+  @ApiProperty({ enum: ['analysis', 'fact_card'] }) generationMode: string;
   @ApiProperty({ format: 'date-time' }) generatedAt: string;
   @ApiProperty({ type: () => AiDataCoverageDto }) dataCoverage: AiDataCoverageDto;
   @ApiProperty({ type: () => AiStudentContextDto }) student: AiStudentContextDto;
@@ -167,6 +199,8 @@ export class StudentSummaryDatasetPreviewDto {
   @ApiProperty({ type: () => [AiStudentKnowledgePointFactDto] }) knowledgePoints: AiStudentKnowledgePointFactDto[];
   @ApiProperty({ type: () => [AiStudentWrongQuestionFactDto] }) wrongQuestions: AiStudentWrongQuestionFactDto[];
   @ApiProperty({ type: () => AiStudentProgrammingFactDto }) programming: AiStudentProgrammingFactDto;
+  @ApiProperty({ type: () => AiStudentAttendanceFactDto }) attendance: AiStudentAttendanceFactDto;
+  @ApiProperty({ type: () => [AiStudentLessonFactDto] }) lessons: AiStudentLessonFactDto[];
   @ApiProperty({ type: () => [AiEvidenceRefDto] }) evidence: AiEvidenceRefDto[];
 }
 

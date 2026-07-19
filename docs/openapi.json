@@ -364,6 +364,100 @@
         ],
         "type": "object"
       },
+      "AiFeedbackListDto": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/AiFeedbackRecordDto"
+            },
+            "type": "array"
+          },
+          "page": {
+            "type": "number"
+          },
+          "pageSize": {
+            "type": "number"
+          },
+          "total": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "items",
+          "page",
+          "pageSize",
+          "total"
+        ],
+        "type": "object"
+      },
+      "AiFeedbackRecordDto": {
+        "properties": {
+          "comment": {
+            "nullable": true,
+            "type": "string"
+          },
+          "correctionText": {
+            "nullable": true,
+            "type": "string"
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "evidenceRef": {
+            "nullable": true,
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "rating": {
+            "type": "number"
+          },
+          "reporterName": {
+            "type": "string"
+          },
+          "resolutionNote": {
+            "nullable": true,
+            "type": "string"
+          },
+          "resolvedAt": {
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "summaryId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "summaryType": {
+            "type": "string"
+          },
+          "verdict": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "summaryId",
+          "summaryType",
+          "verdict",
+          "rating",
+          "evidenceRef",
+          "comment",
+          "correctionText",
+          "status",
+          "resolutionNote",
+          "reporterName",
+          "createdAt",
+          "resolvedAt"
+        ],
+        "type": "object"
+      },
       "AiKnowledgePointFactDto": {
         "properties": {
           "answerCount": {
@@ -385,6 +479,22 @@
           "name",
           "answerCount",
           "correctRate"
+        ],
+        "type": "object"
+      },
+      "AiNullableEvidencedStringDto": {
+        "properties": {
+          "evidenceRef": {
+            "type": "string"
+          },
+          "value": {
+            "nullable": true,
+            "type": "string"
+          }
+        },
+        "required": [
+          "value",
+          "evidenceRef"
         ],
         "type": "object"
       },
@@ -412,6 +522,9 @@
           "id": {
             "format": "uuid",
             "type": "string"
+          },
+          "inputCostPerMillion": {
+            "type": "number"
           },
           "isDefault": {
             "type": "boolean"
@@ -441,6 +554,9 @@
           },
           "name": {
             "type": "string"
+          },
+          "outputCostPerMillion": {
+            "type": "number"
           },
           "provider": {
             "type": "string"
@@ -476,6 +592,8 @@
           "timeoutMs",
           "maxTokens",
           "monthlyTokenBudget",
+          "inputCostPerMillion",
+          "outputCostPerMillion",
           "tokenQuota",
           "hasApiKey",
           "apiKeyMasked",
@@ -518,6 +636,245 @@
         ],
         "type": "object"
       },
+      "AiQualityBreakdownDto": {
+        "properties": {
+          "averageRating": {
+            "type": "number"
+          },
+          "calls": {
+            "type": "number"
+          },
+          "configId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "configName": {
+            "type": "string"
+          },
+          "estimatedCost": {
+            "type": "number"
+          },
+          "inputTokens": {
+            "type": "number"
+          },
+          "model": {
+            "type": "string"
+          },
+          "outputTokens": {
+            "type": "number"
+          },
+          "promptVersion": {
+            "type": "number"
+          },
+          "published": {
+            "type": "number"
+          },
+          "successRate": {
+            "type": "number"
+          },
+          "summaryType": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "summaryType",
+          "configId",
+          "configName",
+          "model",
+          "promptVersion",
+          "calls",
+          "successRate",
+          "published",
+          "averageRating",
+          "inputTokens",
+          "outputTokens",
+          "estimatedCost"
+        ],
+        "type": "object"
+      },
+      "AiQualityDashboardDto": {
+        "properties": {
+          "breakdown": {
+            "items": {
+              "$ref": "#/components/schemas/AiQualityBreakdownDto"
+            },
+            "type": "array"
+          },
+          "from": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "to": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "totals": {
+            "$ref": "#/components/schemas/AiQualityTotalsDto"
+          }
+        },
+        "required": [
+          "from",
+          "to",
+          "totals",
+          "breakdown"
+        ],
+        "type": "object"
+      },
+      "AiQualityTotalsDto": {
+        "properties": {
+          "averageRating": {
+            "type": "number"
+          },
+          "cacheHitRate": {
+            "type": "number"
+          },
+          "cacheHits": {
+            "type": "number"
+          },
+          "cacheRequests": {
+            "type": "number"
+          },
+          "calls": {
+            "type": "number"
+          },
+          "estimatedCost": {
+            "type": "number"
+          },
+          "failed": {
+            "type": "number"
+          },
+          "feedbackCount": {
+            "type": "number"
+          },
+          "incorrectRate": {
+            "type": "number"
+          },
+          "inputTokens": {
+            "type": "number"
+          },
+          "outputTokens": {
+            "type": "number"
+          },
+          "published": {
+            "type": "number"
+          },
+          "succeeded": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "calls",
+          "succeeded",
+          "failed",
+          "published",
+          "inputTokens",
+          "outputTokens",
+          "estimatedCost",
+          "cacheRequests",
+          "cacheHits",
+          "cacheHitRate",
+          "feedbackCount",
+          "averageRating",
+          "incorrectRate"
+        ],
+        "type": "object"
+      },
+      "AiRegressionRunDto": {
+        "properties": {
+          "configName": {
+            "type": "string"
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "finishedAt": {
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "inputTokens": {
+            "type": "number"
+          },
+          "model": {
+            "type": "string"
+          },
+          "outputTokens": {
+            "type": "number"
+          },
+          "passedCases": {
+            "type": "number"
+          },
+          "providerConfigId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "sanitizedError": {
+            "nullable": true,
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "summaryType": {
+            "type": "string"
+          },
+          "totalCases": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "id",
+          "providerConfigId",
+          "configName",
+          "model",
+          "summaryType",
+          "status",
+          "passedCases",
+          "totalCases",
+          "inputTokens",
+          "outputTokens",
+          "sanitizedError",
+          "createdAt",
+          "finishedAt"
+        ],
+        "type": "object"
+      },
+      "AiStudentAttendanceFactDto": {
+        "properties": {
+          "absentCount": {
+            "$ref": "#/components/schemas/AiEvidencedNumberDto"
+          },
+          "attendanceRate": {
+            "$ref": "#/components/schemas/AiEvidencedNumberDto"
+          },
+          "confirmedCount": {
+            "$ref": "#/components/schemas/AiEvidencedNumberDto"
+          },
+          "lateCount": {
+            "$ref": "#/components/schemas/AiEvidencedNumberDto"
+          },
+          "leaveCount": {
+            "$ref": "#/components/schemas/AiEvidencedNumberDto"
+          },
+          "presentCount": {
+            "$ref": "#/components/schemas/AiEvidencedNumberDto"
+          }
+        },
+        "required": [
+          "confirmedCount",
+          "presentCount",
+          "lateCount",
+          "leaveCount",
+          "absentCount",
+          "attendanceRate"
+        ],
+        "type": "object"
+      },
       "AiStudentContextDto": {
         "properties": {
           "alias": {
@@ -536,13 +893,28 @@
       },
       "AiStudentCoverageMetricsDto": {
         "properties": {
+          "attendanceRecordCount": {
+            "$ref": "#/components/schemas/AiEvidencedNumberDto"
+          },
+          "completedLessonCount": {
+            "$ref": "#/components/schemas/AiEvidencedNumberDto"
+          },
           "gradedAnswerCount": {
             "$ref": "#/components/schemas/AiEvidencedNumberDto"
           },
           "gradedExamCount": {
             "$ref": "#/components/schemas/AiEvidencedNumberDto"
           },
+          "homeworkAssignmentCount": {
+            "$ref": "#/components/schemas/AiEvidencedNumberDto"
+          },
           "notSubmittedExamCount": {
+            "$ref": "#/components/schemas/AiEvidencedNumberDto"
+          },
+          "publishedLessonRecordCount": {
+            "$ref": "#/components/schemas/AiEvidencedNumberDto"
+          },
+          "scheduledLessonCount": {
             "$ref": "#/components/schemas/AiEvidencedNumberDto"
           },
           "selectedExamCount": {
@@ -557,7 +929,12 @@
           "gradedExamCount",
           "notSubmittedExamCount",
           "ungradedExamCount",
-          "gradedAnswerCount"
+          "gradedAnswerCount",
+          "scheduledLessonCount",
+          "completedLessonCount",
+          "attendanceRecordCount",
+          "publishedLessonRecordCount",
+          "homeworkAssignmentCount"
         ],
         "type": "object"
       },
@@ -629,6 +1006,51 @@
           "answerCount",
           "correctRate",
           "scoreRate"
+        ],
+        "type": "object"
+      },
+      "AiStudentLessonFactDto": {
+        "properties": {
+          "attendanceStatus": {
+            "$ref": "#/components/schemas/AiNullableEvidencedStringDto"
+          },
+          "classPerformance": {
+            "$ref": "#/components/schemas/AiNullableEvidencedStringDto"
+          },
+          "homework": {
+            "$ref": "#/components/schemas/AiNullableEvidencedStringDto"
+          },
+          "learningGoal": {
+            "$ref": "#/components/schemas/AiNullableEvidencedStringDto"
+          },
+          "lessonHours": {
+            "$ref": "#/components/schemas/AiEvidencedNumberDto"
+          },
+          "sessionId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "startsAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/AiEvidencedStringDto"
+          },
+          "title": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "sessionId",
+          "title",
+          "startsAt",
+          "status",
+          "lessonHours",
+          "attendanceStatus",
+          "learningGoal",
+          "classPerformance",
+          "homework"
         ],
         "type": "object"
       },
@@ -815,7 +1237,10 @@
           "type": {
             "enum": [
               "exam",
-              "student"
+              "student",
+              "class",
+              "parent_report",
+              "lesson"
             ],
             "type": "string"
           },
@@ -889,7 +1314,10 @@
           "type": {
             "enum": [
               "exam",
-              "student"
+              "student",
+              "class",
+              "parent_report",
+              "lesson"
             ],
             "type": "string"
           }
@@ -1771,6 +2199,12 @@
             "default": true,
             "type": "boolean"
           },
+          "inputCostPerMillion": {
+            "default": 0,
+            "description": "每百万输入 Token 的估算成本",
+            "minimum": 0,
+            "type": "number"
+          },
           "isDefault": {
             "default": false,
             "type": "boolean"
@@ -1795,6 +2229,12 @@
             "example": "DeepSeek 默认配置",
             "maxLength": 100,
             "type": "string"
+          },
+          "outputCostPerMillion": {
+            "default": 0,
+            "description": "每百万输出 Token 的估算成本",
+            "minimum": 0,
+            "type": "number"
           },
           "provider": {
             "example": "deepseek",
@@ -1822,6 +2262,101 @@
           "baseUrl",
           "model",
           "apiKey"
+        ],
+        "type": "object"
+      },
+      "CreateAiRegressionRunDto": {
+        "properties": {
+          "caseCount": {
+            "default": 2,
+            "maximum": 3,
+            "minimum": 1,
+            "type": "number"
+          },
+          "configId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "summaryType": {
+            "enum": [
+              "exam",
+              "student",
+              "class",
+              "parent_report",
+              "lesson"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "configId",
+          "summaryType"
+        ],
+        "type": "object"
+      },
+      "CreateAiSummaryFeedbackDto": {
+        "properties": {
+          "comment": {
+            "maxLength": 2000,
+            "type": "string"
+          },
+          "correctionText": {
+            "maxLength": 4000,
+            "type": "string"
+          },
+          "evidenceRef": {
+            "description": "必须引用当前总结中存在的证据编号",
+            "maxLength": 160,
+            "type": "string"
+          },
+          "rating": {
+            "maximum": 5,
+            "minimum": 1,
+            "type": "number"
+          },
+          "verdict": {
+            "enum": [
+              "helpful",
+              "partial",
+              "incorrect"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "verdict",
+          "rating"
+        ],
+        "type": "object"
+      },
+      "CreateClassSummaryTaskDto": {
+        "properties": {
+          "classId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "configId": {
+            "description": "不传时按个人默认、系统默认顺序自动选择",
+            "format": "uuid",
+            "type": "string"
+          },
+          "from": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "maxTokens": {
+            "description": "本次输出上限；不传时使用模型配置上限",
+            "maximum": 8192,
+            "minimum": 1,
+            "type": "number"
+          },
+          "to": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "classId"
         ],
         "type": "object"
       },
@@ -2066,6 +2601,37 @@
         ],
         "type": "object"
       },
+      "CreateLessonAssistantTaskDto": {
+        "properties": {
+          "configId": {
+            "description": "不传时按个人默认、系统默认顺序自动选择",
+            "format": "uuid",
+            "type": "string"
+          },
+          "from": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "maxTokens": {
+            "description": "本次输出上限；不传时使用模型配置上限",
+            "maximum": 8192,
+            "minimum": 1,
+            "type": "number"
+          },
+          "sessionId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "to": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "sessionId"
+        ],
+        "type": "object"
+      },
       "CreateLessonHourAdjustmentDto": {
         "properties": {
           "amount": {
@@ -2196,6 +2762,37 @@
         ],
         "type": "object"
       },
+      "CreateParentReportTaskDto": {
+        "properties": {
+          "configId": {
+            "description": "不传时按个人默认、系统默认顺序自动选择",
+            "format": "uuid",
+            "type": "string"
+          },
+          "from": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "maxTokens": {
+            "description": "本次输出上限；不传时使用模型配置上限",
+            "maximum": 8192,
+            "minimum": 1,
+            "type": "number"
+          },
+          "studentId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "to": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "studentId"
+        ],
+        "type": "object"
+      },
       "CreateQuestionDto": {
         "properties": {
           "allowOptionShuffle": {
@@ -2323,10 +2920,10 @@
           },
           "kind": {
             "enum": [
-              "TRIAL",
               "REGULAR",
               "TEMPORARY",
-              "MAKEUP"
+              "MAKEUP",
+              "TRIAL"
             ],
             "type": "string"
           },
@@ -2460,6 +3057,29 @@
           "name",
           "code",
           "type"
+        ],
+        "type": "object"
+      },
+      "DashboardDrilldownDto": {
+        "properties": {
+          "label": {
+            "type": "string"
+          },
+          "metric": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "metric",
+          "label",
+          "source",
+          "path"
         ],
         "type": "object"
       },
@@ -2751,6 +3371,181 @@
           "questions",
           "knowledgePoints",
           "evidence"
+        ],
+        "type": "object"
+      },
+      "FusionAcademicMetricsDto": {
+        "properties": {
+          "absentCount": {
+            "type": "number"
+          },
+          "assignedLessonHours": {
+            "type": "number"
+          },
+          "attendanceRate": {
+            "type": "number"
+          },
+          "completedLessons": {
+            "type": "number"
+          },
+          "confirmedAttendance": {
+            "type": "number"
+          },
+          "consumedLessonHours": {
+            "type": "number"
+          },
+          "publishedLessonRecords": {
+            "type": "number"
+          },
+          "remainingLessonHours": {
+            "type": "number"
+          },
+          "scheduledLessons": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "scheduledLessons",
+          "completedLessons",
+          "publishedLessonRecords",
+          "confirmedAttendance",
+          "attendanceRate",
+          "absentCount",
+          "assignedLessonHours",
+          "consumedLessonHours",
+          "remainingLessonHours"
+        ],
+        "type": "object"
+      },
+      "FusionAssessmentMetricsDto": {
+        "properties": {
+          "activeWrongQuestions": {
+            "type": "number"
+          },
+          "averageScore": {
+            "type": "number"
+          },
+          "exams": {
+            "type": "number"
+          },
+          "gradedAttempts": {
+            "type": "number"
+          },
+          "pendingManual": {
+            "type": "number"
+          },
+          "submittedAttempts": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "exams",
+          "submittedAttempts",
+          "gradedAttempts",
+          "averageScore",
+          "pendingManual",
+          "activeWrongQuestions"
+        ],
+        "type": "object"
+      },
+      "FusionDashboardDto": {
+        "properties": {
+          "academic": {
+            "$ref": "#/components/schemas/FusionAcademicMetricsDto"
+          },
+          "assessment": {
+            "$ref": "#/components/schemas/FusionAssessmentMetricsDto"
+          },
+          "drilldowns": {
+            "items": {
+              "$ref": "#/components/schemas/DashboardDrilldownDto"
+            },
+            "type": "array"
+          },
+          "from": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "recentExams": {
+            "items": {
+              "$ref": "#/components/schemas/FusionRecentExamDto"
+            },
+            "type": "array"
+          },
+          "role": {
+            "enum": [
+              "administrator",
+              "teacher",
+              "student",
+              "parent"
+            ],
+            "type": "string"
+          },
+          "scopeLabel": {
+            "type": "string"
+          },
+          "teacherPerformance": {
+            "items": {
+              "$ref": "#/components/schemas/TeacherPerformanceDto"
+            },
+            "type": "array"
+          },
+          "to": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "role",
+          "scopeLabel",
+          "from",
+          "to",
+          "assessment",
+          "academic",
+          "recentExams",
+          "teacherPerformance",
+          "drilldowns"
+        ],
+        "type": "object"
+      },
+      "FusionRecentExamDto": {
+        "properties": {
+          "averageScore": {
+            "type": "number"
+          },
+          "courseName": {
+            "type": "string"
+          },
+          "examId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "examName": {
+            "type": "string"
+          },
+          "gradedCount": {
+            "type": "number"
+          },
+          "occurredAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "submitCount": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "examId",
+          "examName",
+          "courseName",
+          "status",
+          "submitCount",
+          "gradedCount",
+          "averageScore",
+          "occurredAt"
         ],
         "type": "object"
       },
@@ -3075,6 +3870,26 @@
           "difficulty",
           "score",
           "sortOrder"
+        ],
+        "type": "object"
+      },
+      "IntegratedSummaryDatasetPreviewDto": {
+        "properties": {
+          "dataset": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "datasetVersion": {
+            "type": "string"
+          },
+          "inputHash": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "inputHash",
+          "datasetVersion",
+          "dataset"
         ],
         "type": "object"
       },
@@ -3646,7 +4461,10 @@
           "type": {
             "enum": [
               "exam",
-              "student"
+              "student",
+              "class",
+              "parent_report",
+              "lesson"
             ],
             "type": "string"
           }
@@ -3913,6 +4731,26 @@
         },
         "required": [
           "password"
+        ],
+        "type": "object"
+      },
+      "ResolveAiSummaryFeedbackDto": {
+        "properties": {
+          "resolutionNote": {
+            "maxLength": 2000,
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "resolved",
+              "dismissed"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "resolutionNote"
         ],
         "type": "object"
       },
@@ -4573,6 +5411,9 @@
       },
       "StudentSummaryDatasetPreviewDto": {
         "properties": {
+          "attendance": {
+            "$ref": "#/components/schemas/AiStudentAttendanceFactDto"
+          },
           "coverage": {
             "$ref": "#/components/schemas/AiStudentCoverageMetricsDto"
           },
@@ -4598,12 +5439,25 @@
             "format": "date-time",
             "type": "string"
           },
+          "generationMode": {
+            "enum": [
+              "analysis",
+              "fact_card"
+            ],
+            "type": "string"
+          },
           "inputHash": {
             "type": "string"
           },
           "knowledgePoints": {
             "items": {
               "$ref": "#/components/schemas/AiStudentKnowledgePointFactDto"
+            },
+            "type": "array"
+          },
+          "lessons": {
+            "items": {
+              "$ref": "#/components/schemas/AiStudentLessonFactDto"
             },
             "type": "array"
           },
@@ -4632,6 +5486,7 @@
         "required": [
           "inputHash",
           "datasetVersion",
+          "generationMode",
           "generatedAt",
           "dataCoverage",
           "student",
@@ -4642,6 +5497,8 @@
           "knowledgePoints",
           "wrongQuestions",
           "programming",
+          "attendance",
+          "lessons",
           "evidence"
         ],
         "type": "object"
@@ -4693,6 +5550,43 @@
         },
         "type": "object"
       },
+      "TeacherPerformanceDto": {
+        "properties": {
+          "completedHours": {
+            "type": "number"
+          },
+          "completedLessons": {
+            "type": "number"
+          },
+          "confirmedAttendance": {
+            "type": "number"
+          },
+          "publishedLessonRecords": {
+            "type": "number"
+          },
+          "scheduledLessons": {
+            "type": "number"
+          },
+          "teacherId": {
+            "format": "uuid",
+            "nullable": true,
+            "type": "string"
+          },
+          "teacherName": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "teacherId",
+          "teacherName",
+          "scheduledLessons",
+          "completedLessons",
+          "completedHours",
+          "publishedLessonRecords",
+          "confirmedAttendance"
+        ],
+        "type": "object"
+      },
       "UpdateAiProviderConfigDto": {
         "properties": {
           "apiKey": {
@@ -4706,6 +5600,10 @@
           },
           "enabled": {
             "type": "boolean"
+          },
+          "inputCostPerMillion": {
+            "minimum": 0,
+            "type": "number"
           },
           "isDefault": {
             "type": "boolean"
@@ -4727,6 +5625,10 @@
           "name": {
             "maxLength": 100,
             "type": "string"
+          },
+          "outputCostPerMillion": {
+            "minimum": 0,
+            "type": "number"
           },
           "provider": {
             "maxLength": 50,
@@ -6042,6 +6944,459 @@
         ]
       }
     },
+    "/api/v1/ai-quality/dashboard": {
+      "get": {
+        "operationId": "AiQuality_dashboard",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "startDate",
+            "required": false,
+            "schema": {
+              "format": "date-time",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "endDate",
+            "required": false,
+            "schema": {
+              "format": "date-time",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "code": {
+                      "example": 0,
+                      "type": "integer"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/AiQualityDashboardDto"
+                    },
+                    "message": {
+                      "example": "ok",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "code",
+                    "message",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "401": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "404": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "409": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "429": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "500": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "AI Quality"
+        ]
+      }
+    },
+    "/api/v1/ai-quality/feedback": {
+      "get": {
+        "operationId": "AiQuality_feedback",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "minimum": 1,
+              "type": "number"
+            }
+          },
+          {
+            "in": "query",
+            "name": "pageSize",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "maximum": 100,
+              "minimum": 1,
+              "type": "number"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sortBy",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sortOrder",
+            "required": false,
+            "schema": {
+              "enum": [
+                "asc",
+                "desc"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "enum": [
+                "open",
+                "resolved",
+                "dismissed"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "summaryType",
+            "required": false,
+            "schema": {
+              "enum": [
+                "exam",
+                "student",
+                "class",
+                "parent_report",
+                "lesson"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "configId",
+            "required": false,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "code": {
+                      "example": 0,
+                      "type": "integer"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/AiFeedbackListDto"
+                    },
+                    "message": {
+                      "example": "ok",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "code",
+                    "message",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "401": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "404": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "409": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "429": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "500": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "AI Quality"
+        ]
+      }
+    },
+    "/api/v1/ai-quality/feedback/{id}": {
+      "patch": {
+        "operationId": "AiQuality_resolveFeedback",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResolveAiSummaryFeedbackDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "code": {
+                      "example": 0,
+                      "type": "integer"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/AiFeedbackRecordDto"
+                    },
+                    "message": {
+                      "example": "ok",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "code",
+                    "message",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "401": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "404": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "409": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "429": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "500": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "AI Quality"
+        ]
+      }
+    },
+    "/api/v1/ai-quality/regressions": {
+      "get": {
+        "operationId": "AiQuality_regressions",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "code": {
+                      "example": 0,
+                      "type": "integer"
+                    },
+                    "data": {
+                      "items": {
+                        "$ref": "#/components/schemas/AiRegressionRunDto"
+                      },
+                      "type": "array"
+                    },
+                    "message": {
+                      "example": "ok",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "code",
+                    "message",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "401": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "404": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "409": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "429": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "500": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "AI Quality"
+        ]
+      },
+      "post": {
+        "operationId": "AiQuality_runRegression",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateAiRegressionRunDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "code": {
+                      "example": 0,
+                      "type": "integer"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/AiRegressionRunDto"
+                    },
+                    "message": {
+                      "example": "ok",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "code",
+                    "message",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "401": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "404": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "409": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "429": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "500": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "AI Quality"
+        ]
+      }
+    },
     "/api/v1/ai-summaries/{id}": {
       "get": {
         "operationId": "AiSummaryLifecycle_detail",
@@ -6195,6 +7550,90 @@
         ],
         "tags": [
           "AI Summary Lifecycle"
+        ]
+      }
+    },
+    "/api/v1/ai-summaries/{id}/feedback": {
+      "post": {
+        "operationId": "AiQuality_createFeedback",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateAiSummaryFeedbackDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "code": {
+                      "example": 0,
+                      "type": "integer"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/AiFeedbackRecordDto"
+                    },
+                    "message": {
+                      "example": "ok",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "code",
+                    "message",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "401": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "404": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "409": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "429": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "500": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "AI Quality"
         ]
       }
     },
@@ -6504,6 +7943,173 @@
         ]
       }
     },
+    "/api/v1/ai-summaries/classes": {
+      "post": {
+        "operationId": "IntegratedSummary_createClass",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateClassSummaryTaskDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "code": {
+                      "example": 0,
+                      "type": "integer"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/AiSummaryTaskResponseDto"
+                    },
+                    "message": {
+                      "example": "ok",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "code",
+                    "message",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "401": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "404": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "409": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "429": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "500": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "AI Integrated Summary"
+        ]
+      }
+    },
+    "/api/v1/ai-summaries/classes/{classId}/preview": {
+      "get": {
+        "operationId": "IntegratedSummary_previewClass",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "classId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "from",
+            "required": false,
+            "schema": {
+              "format": "date-time",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "to",
+            "required": false,
+            "schema": {
+              "format": "date-time",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "code": {
+                      "example": 0,
+                      "type": "integer"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/IntegratedSummaryDatasetPreviewDto"
+                    },
+                    "message": {
+                      "example": "ok",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "code",
+                    "message",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "401": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "404": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "409": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "429": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "500": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "AI Integrated Summary"
+        ]
+      }
+    },
     "/api/v1/ai-summaries/exams": {
       "post": {
         "operationId": "AiSummary_create",
@@ -6650,6 +8256,322 @@
         ],
         "tags": [
           "AI Summary"
+        ]
+      }
+    },
+    "/api/v1/ai-summaries/lessons": {
+      "post": {
+        "operationId": "IntegratedSummary_createLesson",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateLessonAssistantTaskDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "code": {
+                      "example": 0,
+                      "type": "integer"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/AiSummaryTaskResponseDto"
+                    },
+                    "message": {
+                      "example": "ok",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "code",
+                    "message",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "401": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "404": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "409": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "429": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "500": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "AI Integrated Summary"
+        ]
+      }
+    },
+    "/api/v1/ai-summaries/lessons/{sessionId}/preview": {
+      "get": {
+        "operationId": "IntegratedSummary_previewLesson",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "sessionId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "code": {
+                      "example": 0,
+                      "type": "integer"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/IntegratedSummaryDatasetPreviewDto"
+                    },
+                    "message": {
+                      "example": "ok",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "code",
+                    "message",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "401": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "404": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "409": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "429": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "500": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "AI Integrated Summary"
+        ]
+      }
+    },
+    "/api/v1/ai-summaries/parent-reports": {
+      "post": {
+        "operationId": "IntegratedSummary_createParent",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateParentReportTaskDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "code": {
+                      "example": 0,
+                      "type": "integer"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/AiSummaryTaskResponseDto"
+                    },
+                    "message": {
+                      "example": "ok",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "code",
+                    "message",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "401": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "404": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "409": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "429": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "500": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "AI Integrated Summary"
+        ]
+      }
+    },
+    "/api/v1/ai-summaries/parent-reports/{studentId}/preview": {
+      "get": {
+        "operationId": "IntegratedSummary_previewParent",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "studentId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "from",
+            "required": false,
+            "schema": {
+              "format": "date-time",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "to",
+            "required": false,
+            "schema": {
+              "format": "date-time",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "code": {
+                      "example": 0,
+                      "type": "integer"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/IntegratedSummaryDatasetPreviewDto"
+                    },
+                    "message": {
+                      "example": "ok",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "code",
+                    "message",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "401": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "404": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "409": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "429": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "500": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "AI Integrated Summary"
         ]
       }
     },
@@ -8194,6 +10116,83 @@
         ],
         "tags": [
           "Classes"
+        ]
+      }
+    },
+    "/api/v1/classes/{classId}/ai-summaries": {
+      "get": {
+        "operationId": "AiSummaryLifecycle_classHistory",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "classId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "code": {
+                      "example": 0,
+                      "type": "integer"
+                    },
+                    "data": {
+                      "items": {
+                        "$ref": "#/components/schemas/AiSummaryLifecycleRecordDto"
+                      },
+                      "type": "array"
+                    },
+                    "message": {
+                      "example": "ok",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "code",
+                    "message",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "401": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "404": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "409": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "429": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "500": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "AI Summary Lifecycle"
         ]
       }
     },
@@ -17491,6 +19490,83 @@
         ]
       }
     },
+    "/api/v1/lesson-sessions/{sessionId}/ai-assistant": {
+      "get": {
+        "operationId": "AiSummaryLifecycle_lessonHistory",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "sessionId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "code": {
+                      "example": 0,
+                      "type": "integer"
+                    },
+                    "data": {
+                      "items": {
+                        "$ref": "#/components/schemas/AiSummaryLifecycleRecordDto"
+                      },
+                      "type": "array"
+                    },
+                    "message": {
+                      "example": "ok",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "code",
+                    "message",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "401": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "404": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "409": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "429": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "500": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "AI Summary Lifecycle"
+        ]
+      }
+    },
     "/api/v1/lesson-sessions/{sessionId}/attendance": {
       "get": {
         "operationId": "Attendance_list",
@@ -21570,6 +23646,109 @@
         ]
       }
     },
+    "/api/v1/statistics/fusion-dashboard": {
+      "get": {
+        "operationId": "Statistics_fusionDashboard",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "classId",
+            "required": false,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "家长切换关联学生或教师下钻单个学生时使用",
+            "in": "query",
+            "name": "studentId",
+            "required": false,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "startDate",
+            "required": false,
+            "schema": {
+              "format": "date-time",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "endDate",
+            "required": false,
+            "schema": {
+              "format": "date-time",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "code": {
+                      "example": 0,
+                      "type": "integer"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/FusionDashboardDto"
+                    },
+                    "message": {
+                      "example": "ok",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "code",
+                    "message",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "401": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "404": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "409": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "429": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "500": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "Statistics"
+        ]
+      }
+    },
     "/api/v1/statistics/knowledge": {
       "get": {
         "operationId": "Statistics_knowledge",
@@ -24508,6 +26687,83 @@
     "/api/v1/students/{studentId}/ai-summaries": {
       "get": {
         "operationId": "AiSummaryLifecycle_studentHistory",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "studentId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "code": {
+                      "example": 0,
+                      "type": "integer"
+                    },
+                    "data": {
+                      "items": {
+                        "$ref": "#/components/schemas/AiSummaryLifecycleRecordDto"
+                      },
+                      "type": "array"
+                    },
+                    "message": {
+                      "example": "ok",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "code",
+                    "message",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "401": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "404": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "409": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "429": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "500": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "AI Summary Lifecycle"
+        ]
+      }
+    },
+    "/api/v1/students/{studentId}/parent-reports": {
+      "get": {
+        "operationId": "AiSummaryLifecycle_parentReportHistory",
         "parameters": [
           {
             "in": "path",

@@ -10,8 +10,8 @@ export type CreateSessionDtoKind = typeof CreateSessionDtoKind[keyof typeof Crea
 
 
 export const CreateSessionDtoKind = {
-  TRIAL: 'TRIAL',
   REGULAR: 'REGULAR',
   TEMPORARY: 'TEMPORARY',
   MAKEUP: 'MAKEUP',
+  TRIAL: 'TRIAL',
 } as const;
