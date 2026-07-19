@@ -75,6 +75,7 @@ describe('StudentSummaryDatasetBuilder', () => {
           publicHomework: '完成循环巩固题',
         },
       }]) },
+      scratchWork: { findMany: jest.fn().mockResolvedValue([]) },
     };
     const dataScope = {
       assertStudentSummaryAccessible: jest.fn().mockResolvedValue(undefined),
@@ -110,6 +111,9 @@ describe('StudentSummaryDatasetBuilder', () => {
         attendanceRecordCount: { value: 1 },
         publishedLessonRecordCount: { value: 1 },
         homeworkAssignmentCount: { value: 1 },
+        scratchWorkCount: { value: 0 },
+        scratchSubmittedCount: { value: 0 },
+        scratchReviewedCount: { value: 0 },
       },
       programming: {
         submissionCount: { value: 2 }, acceptedCount: { value: 1 }, acceptedRate: { value: 0.5 },
@@ -136,7 +140,7 @@ describe('StudentSummaryDatasetBuilder', () => {
     });
     expect(JSON.stringify(dataset)).not.toContain('answerJson');
     expect(JSON.stringify(dataset)).not.toContain('internalTeachingNotes');
-    expect(Object.keys(dataset.evidenceIndex)).toHaveLength(52);
+    expect(Object.keys(dataset.evidenceIndex)).toHaveLength(55);
 
     const firstHash = createSummaryDatasetInputHash(dataset);
     const later = {

@@ -3,6 +3,7 @@ import { expect, test, type APIRequestContext, type Locator, type Page } from '@
 import { PermissionType, PrismaClient, UserType } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
 import { mkdir, rm } from 'node:fs/promises';
+import { createScratchProjectBuffer } from '../helpers/scratch-project';
 
 const prisma = new PrismaClient();
 const password = '123456';
@@ -36,6 +37,18 @@ test.beforeAll(async ({ request }) => {
     ['attendance:correct', 'Correct attendance'],
     ['lesson-hour:read', 'Read lesson hours'],
     ['lesson-record:read', 'Read published lesson records'],
+    ['lesson-record:manage', 'Manage lesson records'],
+    ['scratch-template:read', 'Read Scratch templates'],
+    ['scratch-template:manage', 'Manage Scratch templates'],
+    ['scratch-assignment:read', 'Read Scratch assignments'],
+    ['scratch-assignment:manage', 'Manage Scratch assignments'],
+    ['scratch-assignment:publish', 'Publish Scratch assignments'],
+    ['scratch-work:read', 'Read Scratch works'],
+    ['scratch-work:save', 'Save Scratch works'],
+    ['scratch-work:submit', 'Submit Scratch works'],
+    ['scratch-work:review', 'Review Scratch works'],
+    ['scratch-asset:download', 'Download Scratch assets'],
+    ['scratch-judge:manage', 'Manage Scratch judge runs'],
     ['dashboard:read', 'Read fused dashboard'],
   ].map(([code, name]) => prisma.permission.create({ data: { name, code, type: PermissionType.API } })));
   const roleRows = await Promise.all([
@@ -45,11 +58,15 @@ test.beforeAll(async ({ request }) => {
   ]);
   const readCodes = new Set([
     'academic-profile:read', 'schedule:read', 'attendance:read', 'lesson-hour:read',
-    'lesson-record:read', 'dashboard:read',
+    'lesson-record:read', 'scratch-assignment:read', 'scratch-work:read',
+    'scratch-asset:download', 'dashboard:read',
   ]);
+  const studentWriteCodes = new Set(['scratch-work:save', 'scratch-work:submit']);
   await prisma.rolePermission.createMany({
     data: roleRows.flatMap((role) => permissionRows
-      .filter((permission) => role.code === 'teacher' || readCodes.has(permission.code))
+      .filter((permission) => role.code === 'teacher' || readCodes.has(permission.code) || (
+        role.code === 'student' && studentWriteCodes.has(permission.code)
+      ))
       .map((permission) => ({ roleId: role.id, permissionId: permission.id }))),
   });
   const fixtureUsers = await prisma.user.findMany({
@@ -84,6 +101,20 @@ test.beforeAll(async ({ request }) => {
   operationsDate = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
   const operationsType = await api(request, 'post', '/lesson-types', token, {
     name: 'E2E 计费正课', defaultHours: 1, countInStatistics: true, active: true,
+  });
+  const scratchTeacher = await prisma.user.findUniqueOrThrow({ where: { username: 'e2e_teacher' } });
+  await prisma.lessonSession.create({
+    data: {
+      classId,
+      teacherId: scratchTeacher.id,
+      lessonTypeId: operationsType.id,
+      generationKey: 'e2e:scratch-classroom',
+      title: 'E2E Scratch 课堂',
+      startsAt: new Date(`${operationsDate}T09:00:00+08:00`),
+      endsAt: new Date(`${operationsDate}T10:00:00+08:00`),
+      createdBy: scratchTeacher.id,
+      updatedBy: scratchTeacher.id,
+    },
   });
   await api(request, 'post', '/schedule-rules', token, {
     classId,
@@ -472,7 +503,7 @@ test('Gate D schedule, attendance, reversal ledger and reconciliation work throu
   await generateDialog.getByTestId('submit-generate').click();
   await expect(adminPage.getByText(/生成 1 节，跳过重复 0 节/)).toBeVisible();
 
-  const sessionRow = adminPage.getByTestId('session-table').getByRole('row', { name: /E2E Browser Class/ });
+  const sessionRow = adminPage.getByTestId('session-table').getByRole('row', { name: /E2E Browser Class课程/ });
   await expect(sessionRow).toContainText('E2E Browser Class课程');
   await sessionRow.getByRole('button', { name: '打开考勤' }).click();
   const attendanceRow = adminPage.getByTestId('attendance-table').getByRole('row', { name: /E2E Student/ });
@@ -619,6 +650,122 @@ test('Stage 7 fused dashboard and AI academic entry points work through browser 
   await expect(parentPage.getByRole('link', { name: /考试记录/ })).toBeVisible();
 
   await adminContext.close();
+  await studentContext.close();
+  await parentContext.close();
+});
+
+test('Stage 8 Scratch classroom runs teacher, student and parent clicks without overwriting versions', async ({ browser }) => {
+  test.setTimeout(120_000);
+  const [teacherUser, studentUser, parentUser] = await Promise.all([
+    prisma.user.findUniqueOrThrow({ where: { username: 'e2e_teacher' } }),
+    prisma.user.findUniqueOrThrow({ where: { username: 'e2e_student' } }),
+    prisma.user.findUniqueOrThrow({ where: { username: 'e2e_parent' } }),
+  ]);
+  await prisma.classTeacher.upsert({
+    where: { classId_teacherId: { classId, teacherId: teacherUser.id } },
+    update: { status: 'ACTIVE', leftAt: null },
+    create: { classId, teacherId: teacherUser.id, role: 'LEAD' },
+  });
+  await prisma.classStudent.upsert({
+    where: { classId_studentId: { classId, studentId: studentUser.id } },
+    update: { status: 'ACTIVE', leftAt: null },
+    create: { classId, studentId: studentUser.id },
+  });
+  await prisma.parentStudent.upsert({
+    where: { parentId_studentId: { parentId: parentUser.id, studentId: studentUser.id } },
+    update: { relationship: '监护人', isPrimary: true },
+    create: { parentId: parentUser.id, studentId: studentUser.id, relationship: '监护人', isPrimary: true },
+  });
+
+  const teacherContext = await browser.newContext();
+  const studentContext = await browser.newContext();
+  const parentContext = await browser.newContext();
+  const teacherPage = await teacherContext.newPage();
+  const studentPage = await studentContext.newPage();
+  const parentPage = await parentContext.newPage();
+  const projectTemplate = await createScratchProjectBuffer({ label: 'e2e-template' });
+  const projectWork = await createScratchProjectBuffer({ label: 'e2e-student-v2' });
+  const templateTitle = `E2E Scratch 模板 ${Date.now()}`;
+  const assignmentTitle = `E2E Scratch 任务 ${Date.now()}`;
+
+  await login(teacherPage, 'e2e_teacher');
+  await teacherPage.goto('/teaching-operations');
+  const sessionRow = teacherPage.getByTestId('session-table').getByRole('row', { name: /E2E Scratch 课堂/ });
+  await expect(sessionRow).toBeVisible();
+  await sessionRow.getByTestId('open-lesson-record').click();
+  const lessonEditor = teacherPage.getByTestId('lesson-record-editor');
+  await expect(lessonEditor).toBeVisible();
+  await lessonEditor.getByRole('tab', { name: 'Scratch 课堂' }).click();
+  const teacherPanel = teacherPage.getByTestId('scratch-classroom-panel');
+  await expect(teacherPanel).toBeVisible();
+  await teacherPanel.getByPlaceholder('模板名称').fill(templateTitle);
+  await teacherPanel.locator('input[type="file"]').first().setInputFiles({
+    name: 'e2e-template.sb3', mimeType: 'application/x.scratch.sb3', buffer: projectTemplate,
+  });
+  await teacherPanel.getByTestId('create-scratch-template').click();
+  await expect(teacherPanel.getByText(templateTitle, { exact: true }).last()).toBeVisible();
+  await teacherPanel.getByTestId('scratch-assignment-title').fill(assignmentTitle);
+  await teacherPanel.getByTestId('create-scratch-assignment').click();
+  await expect(teacherPanel.getByText(assignmentTitle, { exact: true })).toBeVisible();
+  await teacherPanel.getByText(assignmentTitle, { exact: true }).click();
+  await teacherPanel.getByTestId('publish-scratch-assignment').click();
+  await teacherPage.locator('.el-message-box__btns .el-button--primary').click();
+  await expect(teacherPanel.getByText('已发布', { exact: true })).toBeVisible();
+
+  await login(studentPage, 'e2e_student');
+  await studentPage.goto('/learning-portal?tab=scratch');
+  const studentPanel = studentPage.getByTestId('scratch-learning-panel');
+  await expect(studentPanel.getByText(assignmentTitle, { exact: true })).toBeVisible();
+  await studentPanel.getByTestId('open-student-scratch-work').click();
+  const studentDrawer = studentPage.getByTestId('scratch-work-learning-drawer');
+  await expect(studentDrawer).toContainText(assignmentTitle);
+  await studentDrawer.locator('input[type="file"]').setInputFiles({
+    name: 'e2e-work-v2.sb3', mimeType: 'application/x.scratch.sb3', buffer: projectWork,
+  });
+  await studentDrawer.getByTestId('save-scratch-version').click();
+  await expect(studentDrawer.getByTestId('student-scratch-versions').getByText('v2', { exact: true })).toBeVisible();
+  await studentDrawer.getByTestId('submit-scratch-work').click();
+  await studentPage.locator('.el-message-box__btns .el-button--primary').click();
+  await expect(studentDrawer).toContainText('已提交');
+  await expect(studentDrawer.getByTestId('student-scratch-versions').getByText('v3', { exact: true })).toBeVisible();
+
+  await teacherPanel.getByRole('button', { name: '刷新' }).click();
+  const openTeacherWork = teacherPanel.getByTestId('open-scratch-work');
+  if (!await openTeacherWork.isVisible()) {
+    await teacherPanel.locator('.el-collapse-item__header').filter({ hasText: assignmentTitle }).click();
+  }
+  await expect(openTeacherWork).toBeVisible();
+  await openTeacherWork.dispatchEvent('click');
+  const teacherWorkDrawer = teacherPage.getByTestId('scratch-work-review-drawer');
+  await expect(teacherWorkDrawer).toBeVisible();
+  await teacherWorkDrawer.getByTestId('scratch-review-score').locator('input').fill('95');
+  await teacherWorkDrawer.getByPlaceholder('教师点评').fill('浏览器闭环批阅通过');
+  await teacherWorkDrawer.getByTestId('submit-scratch-review').click();
+  await expect(teacherWorkDrawer.getByText('95 分', { exact: true })).toBeVisible();
+
+  await studentDrawer.locator('.el-drawer__close-btn').click();
+  await studentPanel.getByRole('button', { name: '刷新' }).click();
+  await studentPanel.getByTestId('open-student-scratch-work').click();
+  const refreshedStudentDrawer = studentPage.getByTestId('scratch-work-learning-drawer');
+  await expect(refreshedStudentDrawer.getByText('教师批阅：95 分', { exact: true })).toBeVisible();
+  await expect(refreshedStudentDrawer.getByText('浏览器闭环批阅通过', { exact: true })).toBeVisible();
+
+  await login(parentPage, 'e2e_parent');
+  await parentPage.goto('/learning-portal?tab=scratch');
+  const parentPanel = parentPage.getByTestId('scratch-learning-panel');
+  await expect(parentPanel.getByText('家长可查看已产生的作品版本、判定和教师点评，不能代替学生保存或提交。')).toBeVisible();
+  await parentPanel.getByTestId('open-student-scratch-work').click();
+  const parentDrawer = parentPage.getByTestId('scratch-work-learning-drawer');
+  await expect(parentDrawer.getByText('教师批阅：95 分', { exact: true })).toBeVisible();
+  await expect(parentDrawer.getByTestId('save-scratch-version')).toHaveCount(0);
+
+  const versions = await prisma.scratchWorkVersion.findMany({
+    where: { work: { assignment: { title: assignmentTitle }, studentId: studentUser.id } },
+    orderBy: { version: 'asc' },
+  });
+  expect(versions.map((item) => item.version)).toEqual([1, 2, 3]);
+
+  await teacherContext.close();
   await studentContext.close();
   await parentContext.close();
 });

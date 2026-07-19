@@ -99,6 +99,11 @@ export class AiNullableEvidencedStringDto {
   @ApiProperty() evidenceRef: string;
 }
 
+export class AiNullableEvidencedNumberDto {
+  @ApiProperty({ nullable: true }) value: number | null;
+  @ApiProperty() evidenceRef: string;
+}
+
 export class AiStudentContextDto {
   @ApiProperty({ format: 'uuid' }) id: string;
   @ApiProperty() alias: string;
@@ -121,6 +126,9 @@ export class AiStudentCoverageMetricsDto {
   @ApiProperty({ type: () => AiEvidencedNumberDto }) attendanceRecordCount: AiEvidencedNumberDto;
   @ApiProperty({ type: () => AiEvidencedNumberDto }) publishedLessonRecordCount: AiEvidencedNumberDto;
   @ApiProperty({ type: () => AiEvidencedNumberDto }) homeworkAssignmentCount: AiEvidencedNumberDto;
+  @ApiProperty({ type: () => AiEvidencedNumberDto }) scratchWorkCount: AiEvidencedNumberDto;
+  @ApiProperty({ type: () => AiEvidencedNumberDto }) scratchSubmittedCount: AiEvidencedNumberDto;
+  @ApiProperty({ type: () => AiEvidencedNumberDto }) scratchReviewedCount: AiEvidencedNumberDto;
 }
 
 export class AiStudentExamPerformanceDto {
@@ -185,6 +193,19 @@ export class AiStudentLessonFactDto {
   @ApiProperty({ type: () => AiNullableEvidencedStringDto }) homework: AiNullableEvidencedStringDto;
 }
 
+export class AiStudentScratchWorkFactDto {
+  @ApiProperty({ format: 'uuid' }) workId: string;
+  @ApiProperty() assignmentTitle: string;
+  @ApiProperty({ format: 'uuid' }) sessionId: string;
+  @ApiProperty({ type: () => AiEvidencedStringDto }) status: AiEvidencedStringDto;
+  @ApiProperty({ type: () => AiEvidencedNumberDto }) versionCount: AiEvidencedNumberDto;
+  @ApiProperty({ nullable: true, format: 'date-time' }) submittedAt: string | null;
+  @ApiProperty({ type: () => AiNullableEvidencedNumberDto }) latestReviewScore: AiNullableEvidencedNumberDto;
+  @ApiProperty({ type: () => AiNullableEvidencedStringDto }) latestReviewComment: AiNullableEvidencedStringDto;
+  @ApiProperty({ type: () => AiNullableEvidencedStringDto }) latestJudgeStatus: AiNullableEvidencedStringDto;
+  @ApiProperty({ type: () => AiNullableEvidencedNumberDto }) latestJudgeScore: AiNullableEvidencedNumberDto;
+}
+
 export class StudentSummaryDatasetPreviewDto {
   @ApiProperty() inputHash: string;
   @ApiProperty() datasetVersion: string;
@@ -201,6 +222,7 @@ export class StudentSummaryDatasetPreviewDto {
   @ApiProperty({ type: () => AiStudentProgrammingFactDto }) programming: AiStudentProgrammingFactDto;
   @ApiProperty({ type: () => AiStudentAttendanceFactDto }) attendance: AiStudentAttendanceFactDto;
   @ApiProperty({ type: () => [AiStudentLessonFactDto] }) lessons: AiStudentLessonFactDto[];
+  @ApiProperty({ type: () => [AiStudentScratchWorkFactDto] }) scratchWorks: AiStudentScratchWorkFactDto[];
   @ApiProperty({ type: () => [AiEvidenceRefDto] }) evidence: AiEvidenceRefDto[];
 }
 

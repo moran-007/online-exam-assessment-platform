@@ -33,6 +33,16 @@ export default () => ({
     signingSecret: process.env.ASSET_URL_SECRET ?? process.env.JWT_ACCESS_SECRET ?? 'change_me_asset_secret',
     signedUrlExpiresIn: process.env.ASSET_URL_EXPIRES_IN ?? '5m',
   },
+  scratchRuntime: {
+    baseUrl: process.env.SCRATCH_RUNTIME_BASE_URL ?? '',
+    submitPath: process.env.SCRATCH_RUNTIME_SUBMIT_PATH ?? '/api/scratch/judge',
+    apiToken: process.env.SCRATCH_RUNTIME_API_TOKEN ?? '',
+    callbackUrl: process.env.SCRATCH_CALLBACK_URL ?? '',
+    callbackSecret: process.env.SCRATCH_CALLBACK_SECRET ?? '',
+    timeoutMs: Number(process.env.SCRATCH_RUNTIME_TIMEOUT_MS ?? 10_000),
+    callbackTimeoutMs: Number(process.env.SCRATCH_CALLBACK_TIMEOUT_MS ?? 300_000),
+    pollIntervalMs: Number(process.env.SCRATCH_QUEUE_POLL_INTERVAL_MS ?? 5_000),
+  },
   jwt: {
     accessSecret: process.env.JWT_ACCESS_SECRET ?? 'change_me_access_secret',
     refreshSecret: process.env.JWT_REFRESH_SECRET ?? 'change_me_refresh_secret',

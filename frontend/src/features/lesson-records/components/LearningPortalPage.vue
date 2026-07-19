@@ -1,7 +1,7 @@
 <template>
   <div class="page learning-portal-page">
     <section class="page-head">
-      <div><h2 class="page-title">学习门户</h2><p class="muted">只展示教师已发布的课次内容、考试结果和总结。</p></div>
+      <div><h2 class="page-title">学习门户</h2><p class="muted">查看已发布的课次内容、Scratch 任务、考试结果和总结。</p></div>
       <div class="toolbar">
         <el-select v-if="students.length > 1" v-model="selectedStudentId" style="width: 220px" @change="loadOverview">
           <el-option v-for="item in students" :key="item.student.id" :label="studentName(item.student)" :value="item.student.id" />
@@ -39,6 +39,9 @@
               <el-table-column label="提交时间" width="190"><template #default="{ row }">{{ formatTime(row.submittedAt) }}</template></el-table-column>
               <el-table-column label="成绩" width="120"><template #default="{ row }"><strong v-if="row.score !== null">{{ row.score }}</strong><span v-else class="muted">暂未开放</span></template></el-table-column>
             </el-table>
+          </el-tab-pane>
+          <el-tab-pane label="Scratch 任务" name="scratch" lazy>
+            <ScratchLearningPanel :student-id="selectedStudentId" :readonly="isParent" />
           </el-tab-pane>
           <el-tab-pane label="已发布总结" name="summaries">
             <div v-if="overview.summaries.length" class="summary-list" data-testid="portal-summaries">
@@ -98,7 +101,7 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue';
+import { computed, onMounted, reactive, ref } from 'vue';
 import { ElMessage } from 'element-plus';
 import { Refresh } from '@element-plus/icons-vue';
 import { useRoute } from 'vue-router';
@@ -114,11 +117,14 @@ import {
   type PortalSummary,
 } from '../api';
 import { createSummaryFeedback } from '../../ai/api';
+import { getCurrentUser } from '../../../api';
+import ScratchLearningPanel from '../../scratch/components/ScratchLearningPanel.vue';
 
 const loading = ref(false);
 const route = useRoute();
 const requestedTab = Array.isArray(route.query.tab) ? route.query.tab[0] : route.query.tab;
-const activeTab = ref(['lessons', 'exams', 'summaries'].includes(String(requestedTab)) ? String(requestedTab) : 'lessons');
+const activeTab = ref(['lessons', 'scratch', 'exams', 'summaries'].includes(String(requestedTab)) ? String(requestedTab) : 'lessons');
+const isParent = computed(() => getCurrentUser()?.userType === 'PARENT');
 const students = ref<PortalStudentRelation[]>([]);
 const selectedStudentId = ref('');
 const overview = ref<PortalOverview | null>(null);

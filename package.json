@@ -39,6 +39,7 @@
     "migration:worker:profiles": "tsx scripts/rehearse-worker-profiles.ts",
     "migration:worker:operations": "tsx scripts/migrate-worker-academic-operations.ts",
     "migration:worker:lesson-records": "tsx scripts/migrate-worker-lesson-records.ts",
+    "migration:worker:scratch": "tsx scripts/migrate-worker-scratch.ts",
     "fixture:stage6-browser": "tsx scripts/prepare-stage6-browser-fixture.ts",
     "backup:create": "tsx scripts/backup.ts create",
     "backup:verify": "tsx scripts/backup.ts verify",
@@ -77,7 +78,8 @@
     "pino": "^10.3.1",
     "pino-http": "^11.0.0",
     "reflect-metadata": "^0.2.2",
-    "rxjs": "^7.8.2"
+    "rxjs": "^7.8.2",
+    "yauzl": "^3.4.0"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
@@ -87,6 +89,8 @@
     "@types/node": "^26.0.1",
     "@types/pdfkit": "^0.17.6",
     "@types/supertest": "^7.2.0",
+    "@types/yauzl": "^3.4.0",
+    "@types/yazl": "^3.3.1",
     "eslint": "^10.6.0",
     "eslint-plugin-vue": "^10.9.2",
     "globals": "^17.7.0",
@@ -99,6 +103,7 @@
     "ts-jest": "^29.2.6",
     "tsx": "^4.22.4",
     "typescript": "^5.9.3",
-    "typescript-eslint": "^8.62.1"
+    "typescript-eslint": "^8.62.1",
+    "yazl": "^3.3.1"
   }
 }

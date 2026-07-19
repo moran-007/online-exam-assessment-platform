@@ -6,6 +6,8 @@ import {
   LessonRecordStatus,
   LessonSessionStatus,
   Prisma,
+  ScratchAssignmentStatus,
+  ScratchWorkStatus,
   UserStatus,
   UserType,
   WrongQuestionSourceType,
@@ -88,10 +90,36 @@ const STUDENT_LESSON_SELECT = {
   },
 } satisfies Prisma.LessonSessionSelect;
 
+const STUDENT_SCRATCH_SELECT = {
+  id: true,
+  status: true,
+  currentVersion: true,
+  submittedAt: true,
+  assignment: {
+    select: {
+      id: true,
+      title: true,
+      sessionId: true,
+      session: { select: { startsAt: true, classGroup: { select: { courseId: true } } } },
+    },
+  },
+  reviews: {
+    orderBy: { createdAt: 'desc' },
+    take: 1,
+    select: { id: true, score: true, comment: true },
+  },
+  judgeRuns: {
+    orderBy: { createdAt: 'desc' },
+    take: 1,
+    select: { id: true, status: true, score: true },
+  },
+} satisfies Prisma.ScratchWorkSelect;
+
 type StudentExam = Prisma.ExamGetPayload<{ select: typeof STUDENT_EXAM_SELECT }>;
 type StudentAttempt = Prisma.ExamAttemptGetPayload<{ select: typeof STUDENT_ATTEMPT_SELECT }>;
 type StudentWrongQuestion = Prisma.WrongQuestionGetPayload<{ select: typeof WRONG_QUESTION_SELECT }>;
 type StudentLesson = Prisma.LessonSessionGetPayload<{ select: typeof STUDENT_LESSON_SELECT }>;
+type StudentScratchWork = Prisma.ScratchWorkGetPayload<{ select: typeof STUDENT_SCRATCH_SELECT }>;
 
 export type StudentSummaryScopeInput = {
   studentId: string;
@@ -137,13 +165,14 @@ export class StudentSummaryDatasetBuilder {
     const answers = gradedAttempts.flatMap((attempt) => attempt.answers);
     const answerFacts = this.answerFacts(answers);
     const attemptIds = gradedAttempts.map((attempt) => attempt.id);
-    const [wrongQuestions, judgeSubmissions, lessons] = await Promise.all([
+    const [wrongQuestions, judgeSubmissions, lessons, scratchWorks] = await Promise.all([
       this.wrongQuestions(scope, examIds),
       attemptIds.length ? this.prisma.judgeSubmission.findMany({
         where: { studentId: student.id, attemptId: { in: attemptIds } },
         select: { status: true, score: true },
       }) : [],
       this.lessons(scope),
+      this.scratchWorks(scope),
     ]);
 
     return this.dataset({
@@ -156,6 +185,7 @@ export class StudentSummaryDatasetBuilder {
       wrongQuestions,
       judgeSubmissions,
       lessons,
+      scratchWorks,
     });
   }
 
@@ -250,6 +280,31 @@ export class StudentSummaryDatasetBuilder {
     });
   }
 
+  private scratchWorks(scope: NormalizedScope): Promise<StudentScratchWork[]> {
+    const startsAt = {
+      ...(scope.from ? { gte: scope.from } : {}),
+      ...(scope.to ? { lte: scope.to } : {}),
+    };
+    return this.prisma.scratchWork.findMany({
+      where: {
+        studentId: scope.studentId,
+        assignment: {
+          status: ScratchAssignmentStatus.PUBLISHED,
+          session: {
+            ...(Object.keys(startsAt).length ? { startsAt } : {}),
+            classGroup: {
+              deletedAt: null,
+              ...(scope.courseId ? { courseId: scope.courseId } : {}),
+            },
+          },
+        },
+      },
+      orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
+      take: 50,
+      select: STUDENT_SCRATCH_SELECT,
+    });
+  }
+
   private answerFacts(answers: StudentAttempt['answers']): StudentAnswerFact[] {
     return answers.map((answer) => ({
       type: answer.question.type.toLowerCase(),
@@ -288,7 +343,9 @@ export class StudentSummaryDatasetBuilder {
     const scheduledLessonCount = input.lessons.filter((lesson) => lesson.status !== LessonSessionStatus.CANCELLED).length;
     const completedLessonCount = input.lessons.filter((lesson) => lesson.status === LessonSessionStatus.COMPLETED).length;
     const homeworkAssignmentCount = publishedLessons.filter((lesson) => lesson.lessonRecord?.publicHomework?.trim()).length;
-    const evidenceDensity = statusCounts.graded + publishedLessons.length + attendance.length;
+    const scratchSubmittedCount = input.scratchWorks.filter((work) => work.status !== ScratchWorkStatus.DRAFT).length;
+    const scratchReviewedCount = input.scratchWorks.filter((work) => work.reviews.length > 0).length;
+    const evidenceDensity = statusCounts.graded + publishedLessons.length + attendance.length + scratchReviewedCount;
     const course = input.exams.find((exam) => exam.courseId === input.scope.courseId) ?? input.exams[0];
     const lessonCourse = input.lessons.find((lesson) => lesson.classGroup.courseId === input.scope.courseId)
       ?? input.lessons[0];
@@ -306,10 +363,13 @@ export class StudentSummaryDatasetBuilder {
           'wrong_question_counters', 'programming_judge_results', 'lesson_sessions',
           'confirmed_attendance', 'published_learning_goals', 'published_class_performance',
           'published_homework_assignments',
+          'scratch_work_versions', 'scratch_submission_status', 'teacher_scratch_reviews',
+          'scratch_judge_status',
         ],
         excludes: [
           'unpublished_lesson_records', 'internal_teaching_notes', 'internal_class_performance',
-          'homework_submission_results', 'answer_text', 'ungraded_scores', 'parent_data',
+          'homework_submission_results', 'scratch_project_contents', 'scratch_external_identity',
+          'answer_text', 'ungraded_scores', 'parent_data',
         ],
       },
       student: { id: input.studentId, alias: '该学生' },
@@ -331,6 +391,9 @@ export class StudentSummaryDatasetBuilder {
         attendanceRecordCount: this.studentValue(evidence, input.studentId, 'attendanceRecordCount', attendance.length, 'attendance'),
         publishedLessonRecordCount: this.studentValue(evidence, input.studentId, 'publishedLessonRecordCount', publishedLessons.length, 'lesson_record'),
         homeworkAssignmentCount: this.studentValue(evidence, input.studentId, 'homeworkAssignmentCount', homeworkAssignmentCount, 'homework'),
+        scratchWorkCount: this.studentValue(evidence, input.studentId, 'scratch.workCount', input.scratchWorks.length, 'work'),
+        scratchSubmittedCount: this.studentValue(evidence, input.studentId, 'scratch.submittedCount', scratchSubmittedCount, 'work'),
+        scratchReviewedCount: this.studentValue(evidence, input.studentId, 'scratch.reviewedCount', scratchReviewedCount, 'review'),
       },
       examPerformance: input.exams.map((exam) => this.examPerformance(evidence, input.studentId, exam, byExam.get(exam.id))),
       questionTypes: questionTypes.map((item) => ({
@@ -375,10 +438,56 @@ export class StudentSummaryDatasetBuilder {
         attendanceRate: this.studentValue(evidence, input.studentId, 'attendance.attendanceRate', ratio(attendedCount, attendance.length), 'ratio'),
       },
       lessons: input.lessons.map((lesson) => this.lessonActivity(evidence, input.studentId, lesson)),
+      scratchWorks: input.scratchWorks.map((work) => this.scratchActivity(evidence, input.studentId, work)),
       evidenceIndex: evidence.index,
     };
     assertSummaryDataset(dataset);
     return dataset;
+  }
+
+  private scratchActivity(
+    evidence: EvidenceCollector,
+    studentId: string,
+    work: StudentScratchWork,
+  ): StudentSummaryDataset['scratchWorks'][number] {
+    const review = work.reviews[0];
+    const judge = work.judgeRuns[0];
+    return {
+      workId: work.id,
+      assignmentTitle: work.assignment.title,
+      sessionId: work.assignment.sessionId,
+      status: evidence.collect({
+        sourceType: 'scratch_work', sourceId: work.id, metric: 'status',
+        path: `/students/${studentId}/scratch-works/${work.id}/status`,
+        value: work.status.toLowerCase(), unit: 'status',
+      }),
+      versionCount: evidence.collect({
+        sourceType: 'scratch_work', sourceId: work.id, metric: 'versionCount',
+        path: `/students/${studentId}/scratch-works/${work.id}/versionCount`,
+        value: work.currentVersion, unit: 'version',
+      }),
+      submittedAt: work.submittedAt?.toISOString() ?? null,
+      latestReviewScore: evidence.collect({
+        sourceType: review ? 'scratch_review' : 'scratch_work', sourceId: review?.id ?? work.id,
+        metric: 'latestReviewScore', path: `/students/${studentId}/scratch-works/${work.id}/latestReviewScore`,
+        value: review?.score === null || review?.score === undefined ? null : Number(review.score), unit: 'score',
+      }),
+      latestReviewComment: evidence.collect({
+        sourceType: review ? 'scratch_review' : 'scratch_work', sourceId: review?.id ?? work.id,
+        metric: 'latestReviewComment', path: `/students/${studentId}/scratch-works/${work.id}/latestReviewComment`,
+        value: review?.comment ?? null, unit: 'text',
+      }),
+      latestJudgeStatus: evidence.collect({
+        sourceType: judge ? 'scratch_judge_run' : 'scratch_work', sourceId: judge?.id ?? work.id,
+        metric: 'latestJudgeStatus', path: `/students/${studentId}/scratch-works/${work.id}/latestJudgeStatus`,
+        value: judge?.status.toLowerCase() ?? null, unit: 'status',
+      }),
+      latestJudgeScore: evidence.collect({
+        sourceType: judge ? 'scratch_judge_run' : 'scratch_work', sourceId: judge?.id ?? work.id,
+        metric: 'latestJudgeScore', path: `/students/${studentId}/scratch-works/${work.id}/latestJudgeScore`,
+        value: judge?.score === null || judge?.score === undefined ? null : Number(judge.score), unit: 'score',
+      }),
+    };
   }
 
   private lessonActivity(
@@ -529,4 +638,5 @@ type DatasetInput = {
   wrongQuestions: StudentWrongQuestion[];
   judgeSubmissions: Array<{ status: string; score: Prisma.Decimal | null }>;
   lessons: StudentLesson[];
+  scratchWorks: StudentScratchWork[];
 };

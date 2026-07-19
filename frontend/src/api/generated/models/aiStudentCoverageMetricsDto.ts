@@ -16,6 +16,9 @@ export interface AiStudentCoverageMetricsDto {
   notSubmittedExamCount: AiEvidencedNumberDto;
   publishedLessonRecordCount: AiEvidencedNumberDto;
   scheduledLessonCount: AiEvidencedNumberDto;
+  scratchReviewedCount: AiEvidencedNumberDto;
+  scratchSubmittedCount: AiEvidencedNumberDto;
+  scratchWorkCount: AiEvidencedNumberDto;
   selectedExamCount: AiEvidencedNumberDto;
   ungradedExamCount: AiEvidencedNumberDto;
 }

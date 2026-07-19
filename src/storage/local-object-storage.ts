@@ -73,11 +73,14 @@ export class LocalObjectStorage implements ObjectStorage {
 
   async stat(key: string): Promise<StoredObjectInfo> {
     const normalized = this.safeKey(key);
-    const file = await stat(this.pathFor(normalized));
+    const path = this.pathFor(normalized);
+    const file = await stat(path);
+    const checksum = createHash('sha256');
+    for await (const chunk of createReadStream(path)) checksum.update(chunk);
     return {
       key: normalized,
       size: file.size,
-      sha256: '',
+      sha256: checksum.digest('hex'),
       mimeType: 'application/octet-stream',
       updatedAt: file.mtime,
     };

@@ -60,6 +60,17 @@ const permissions = [
   ['lesson-record:publish', '审核并发布教学记录'],
   ['lesson-asset:manage', '上传和移除课次附件'],
   ['lesson-asset:download', '在教学记录数据范围内预览和下载附件'],
+  ['scratch-template:read', '查看可用 Scratch 模板元数据'],
+  ['scratch-template:manage', '上传、修改和归档 Scratch 模板'],
+  ['scratch-assignment:read', '按课次和学习者范围查看 Scratch 任务'],
+  ['scratch-assignment:manage', '绑定模板并维护 Scratch 任务草稿'],
+  ['scratch-assignment:publish', '发布或归档 Scratch 课堂任务'],
+  ['scratch-work:read', '按数据范围查看 Scratch 作品和版本'],
+  ['scratch-work:save', '保存本人 Scratch 作品的新版本'],
+  ['scratch-work:submit', '提交本人 Scratch 作品'],
+  ['scratch-work:review', '为任教课次作品追加评分和点评'],
+  ['scratch-asset:download', '按作品与模板数据范围下载 Scratch 文件'],
+  ['scratch-judge:manage', '重试和查看外部运行时判定任务'],
   ['statistics:read', '查看统计'], ['dashboard:read', '按数据范围查看融合看板'], ['audit-log:read', '查看审计日志'],
 ] as const;
 
@@ -166,6 +177,15 @@ async function main() {
         'lesson-record:publish',
         'lesson-asset:manage',
         'lesson-asset:download',
+        'scratch-template:read',
+        'scratch-template:manage',
+        'scratch-assignment:read',
+        'scratch-assignment:manage',
+        'scratch-assignment:publish',
+        'scratch-work:read',
+        'scratch-work:review',
+        'scratch-asset:download',
+        'scratch-judge:manage',
       ],
     },
     {
@@ -174,6 +194,7 @@ async function main() {
       permissions: [
         'course:read', 'knowledge-point:read', 'tag:read', 'ai.summary.view-own', 'ai.feedback.create', 'academic-profile:read', 'dashboard:read',
         'schedule:read', 'attendance:read', 'lesson-hour:read', 'lesson-record:read', 'lesson-asset:download',
+        'scratch-assignment:read', 'scratch-work:read', 'scratch-work:save', 'scratch-work:submit', 'scratch-asset:download',
       ],
     },
     {
@@ -181,7 +202,7 @@ async function main() {
       name: '家长',
       permissions: [
         'academic-profile:read', 'ai.summary.view-own', 'ai.feedback.create', 'dashboard:read', 'schedule:read', 'attendance:read', 'lesson-hour:read',
-        'lesson-record:read', 'lesson-asset:download',
+        'lesson-record:read', 'lesson-asset:download', 'scratch-assignment:read', 'scratch-work:read', 'scratch-asset:download',
       ],
     },
   ];

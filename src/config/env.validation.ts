@@ -56,6 +56,17 @@ export function validateEnv(config: Record<string, unknown>) {
     if (typeof encodedKey !== 'string' || Buffer.from(encodedKey, 'base64').length !== 32) {
       throw new Error('The active credential encryption key must be a base64-encoded 32-byte value.');
     }
+
+    if (config.SCRATCH_RUNTIME_BASE_URL) {
+      const runtimeUrl = new URL(String(config.SCRATCH_RUNTIME_BASE_URL));
+      if (runtimeUrl.protocol !== 'https:') throw new Error('SCRATCH_RUNTIME_BASE_URL must use HTTPS in production.');
+      if (String(config.SCRATCH_RUNTIME_API_TOKEN ?? '').length < 24) {
+        throw new Error('SCRATCH_RUNTIME_API_TOKEN must be at least 24 characters when Scratch runtime is enabled.');
+      }
+      if (String(config.SCRATCH_CALLBACK_SECRET ?? '').length < 32) {
+        throw new Error('SCRATCH_CALLBACK_SECRET must be at least 32 characters when Scratch runtime is enabled.');
+      }
+    }
   }
 
   return config;

@@ -34,6 +34,7 @@ import { QuestionTypesModule } from './modules/question-types/question-types.mod
 import { ReviewRulesModule } from './modules/review-rules/review-rules.module';
 import { StatisticsModule } from './modules/statistics/statistics.module';
 import { StudentModule } from './modules/student/student.module';
+import { ScratchModule } from './modules/scratch/scratch.module';
 import { TagsModule } from './modules/tags/tags.module';
 import { UploadsModule } from './modules/uploads/uploads.module';
 import { UsersModule } from './modules/users/users.module';
@@ -129,6 +130,7 @@ import { ObservabilityModule } from './observability/observability.module';
     ExportsModule,
     StatisticsModule,
     StudentModule,
+    ScratchModule,
   ],
   providers: [
     {

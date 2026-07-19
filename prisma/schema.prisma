@@ -336,6 +336,46 @@ enum LessonAssetAudience {
   LEARNER  @map("learner")
 }
 
+enum ScratchTemplateStatus {
+  ACTIVE   @map("active")
+  ARCHIVED @map("archived")
+}
+
+enum ScratchAssignmentStatus {
+  DRAFT     @map("draft")
+  PUBLISHED @map("published")
+  ARCHIVED  @map("archived")
+}
+
+enum ScratchWorkStatus {
+  DRAFT     @map("draft")
+  SUBMITTED @map("submitted")
+  REVIEWED  @map("reviewed")
+}
+
+enum ScratchWorkVersionSource {
+  TEMPLATE_COPY @map("template_copy")
+  STUDENT_SAVE  @map("student_save")
+  SUBMISSION    @map("submission")
+  IMPORT        @map("import")
+}
+
+enum ScratchJudgeMode {
+  NONE     @map("none")
+  MANUAL   @map("manual")
+  EXTERNAL @map("external")
+}
+
+enum ScratchJudgeRunStatus {
+  PENDING         @map("pending")
+  PROCESSING      @map("processing")
+  RETRY           @map("retry")
+  AWAITING_REVIEW @map("awaiting_review")
+  SUCCEEDED       @map("succeeded")
+  FAILED          @map("failed")
+  CANCELLED       @map("cancelled")
+}
+
 model User {
   id                 String     @id @default(uuid()) @db.Uuid
   username           String     @unique @db.VarChar(64)
@@ -373,6 +413,8 @@ model User {
   attendanceConfirmed   AttendanceRecord[]     @relation("AttendanceConfirmer")
   attendanceRevisions   AttendanceRevision[]   @relation("AttendanceCorrector")
   lessonHourEntries     LessonHourLedger[]     @relation("LessonHourStudent")
+  scratchWorks          ScratchWork[]          @relation("ScratchWorkStudent")
+  scratchReviews        ScratchReview[]        @relation("ScratchReviewReviewer")
 
   @@index([userType])
   @@index([status])
@@ -743,16 +785,17 @@ model LessonSession {
   createdAt       DateTime            @default(now()) @map("created_at")
   updatedAt       DateTime            @updatedAt @map("updated_at")
 
-  classGroup      ClassGroup          @relation(fields: [classId], references: [id])
-  teacher         User?               @relation("LessonSessionTeacher", fields: [teacherId], references: [id])
-  lessonType      LessonType          @relation(fields: [lessonTypeId], references: [id])
-  unitTemplate    CourseUnitTemplate? @relation(fields: [unitTemplateId], references: [id])
-  scheduleRule    ClassScheduleRule?  @relation(fields: [scheduleRuleId], references: [id])
-  sourceSession   LessonSession?      @relation("SessionDerivation", fields: [sourceSessionId], references: [id])
-  derivedSessions LessonSession[]     @relation("SessionDerivation")
-  attendance      AttendanceRecord[]
-  hourEntries     LessonHourLedger[]
-  lessonRecord    LessonRecord?
+  classGroup         ClassGroup                @relation(fields: [classId], references: [id])
+  teacher            User?                     @relation("LessonSessionTeacher", fields: [teacherId], references: [id])
+  lessonType         LessonType                @relation(fields: [lessonTypeId], references: [id])
+  unitTemplate       CourseUnitTemplate?       @relation(fields: [unitTemplateId], references: [id])
+  scheduleRule       ClassScheduleRule?        @relation(fields: [scheduleRuleId], references: [id])
+  sourceSession      LessonSession?            @relation("SessionDerivation", fields: [sourceSessionId], references: [id])
+  derivedSessions    LessonSession[]           @relation("SessionDerivation")
+  attendance         AttendanceRecord[]
+  hourEntries        LessonHourLedger[]
+  lessonRecord       LessonRecord?
+  scratchAssignments LessonScratchAssignment[]
 
   @@unique([sourceSystem, legacyId])
   @@index([classId, startsAt])
@@ -834,6 +877,190 @@ model LessonAsset {
   @@index([recordId, audience, sortOrder])
   @@index([fileAssetId])
   @@map("lesson_assets")
+}
+
+model ScratchTemplate {
+  id                String                @id @default(uuid()) @db.Uuid
+  title             String                @db.VarChar(180)
+  description       String?               @db.Text
+  status            ScratchTemplateStatus @default(ACTIVE)
+  projectAssetId    String                @map("project_asset_id") @db.Uuid
+  thumbnailAssetId  String?               @map("thumbnail_asset_id") @db.Uuid
+  runtimeProvider   String?               @map("runtime_provider") @db.VarChar(64)
+  runtimeProblemId  String?               @map("runtime_problem_id") @db.VarChar(128)
+  runtimeProblemUrl String?               @map("runtime_problem_url") @db.Text
+  validationJson    Json?                 @map("validation_json")
+  sourceSystem      String?               @map("source_system") @db.VarChar(64)
+  legacyId          String?               @map("legacy_id") @db.VarChar(128)
+  createdBy         String?               @map("created_by") @db.Uuid
+  createdAt         DateTime              @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt         DateTime              @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  projectAsset   FileAsset                 @relation("ScratchTemplateProject", fields: [projectAssetId], references: [id], onDelete: Restrict)
+  thumbnailAsset FileAsset?                @relation("ScratchTemplateThumbnail", fields: [thumbnailAssetId], references: [id], onDelete: Restrict)
+  assignments    LessonScratchAssignment[]
+
+  @@unique([sourceSystem, legacyId])
+  @@index([status, createdAt])
+  @@index([runtimeProvider, runtimeProblemId])
+  @@map("scratch_templates")
+}
+
+model LessonScratchAssignment {
+  id                String                  @id @default(uuid()) @db.Uuid
+  sessionId         String                  @map("session_id") @db.Uuid
+  templateId        String                  @map("template_id") @db.Uuid
+  title             String                  @db.VarChar(180)
+  statementMd       String?                 @map("statement_md") @db.Text
+  bindNote          String?                 @map("bind_note") @db.Text
+  dueAt             DateTime?               @map("due_at") @db.Timestamptz(3)
+  maxScore          Decimal                 @default(100) @map("max_score") @db.Decimal(8, 2)
+  status            ScratchAssignmentStatus @default(DRAFT)
+  judgeMode         ScratchJudgeMode        @default(MANUAL) @map("judge_mode")
+  runtimeConfigJson Json?                   @map("runtime_config_json")
+  publishedAt       DateTime?               @map("published_at") @db.Timestamptz(3)
+  sourceSystem      String?                 @map("source_system") @db.VarChar(64)
+  legacyId          String?                 @map("legacy_id") @db.VarChar(128)
+  createdBy         String?                 @map("created_by") @db.Uuid
+  createdAt         DateTime                @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt         DateTime                @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  session   LessonSession     @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  template  ScratchTemplate   @relation(fields: [templateId], references: [id], onDelete: Restrict)
+  works     ScratchWork[]
+  judgeRuns ScratchJudgeRun[]
+
+  @@unique([sessionId, templateId])
+  @@unique([sourceSystem, legacyId])
+  @@index([sessionId, status])
+  @@index([templateId])
+  @@map("lesson_scratch_assignments")
+}
+
+model ScratchWork {
+  id             String            @id @default(uuid()) @db.Uuid
+  assignmentId   String            @map("assignment_id") @db.Uuid
+  studentId      String            @map("student_id") @db.Uuid
+  title          String            @db.VarChar(180)
+  status         ScratchWorkStatus @default(DRAFT)
+  currentVersion Int               @default(0) @map("current_version")
+  submitNote     String?           @map("submit_note") @db.Text
+  submittedAt    DateTime?         @map("submitted_at") @db.Timestamptz(3)
+  reviewedAt     DateTime?         @map("reviewed_at") @db.Timestamptz(3)
+  sourceSystem   String?           @map("source_system") @db.VarChar(64)
+  legacyId       String?           @map("legacy_id") @db.VarChar(128)
+  createdAt      DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt      DateTime          @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  assignment LessonScratchAssignment @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+  student    User                    @relation("ScratchWorkStudent", fields: [studentId], references: [id], onDelete: Restrict)
+  versions   ScratchWorkVersion[]
+  reviews    ScratchReview[]
+  judgeRuns  ScratchJudgeRun[]
+
+  @@unique([assignmentId, studentId])
+  @@unique([sourceSystem, legacyId])
+  @@index([studentId, status, updatedAt])
+  @@index([assignmentId, status])
+  @@map("scratch_works")
+}
+
+model ScratchWorkVersion {
+  id               String                   @id @default(uuid()) @db.Uuid
+  workId           String                   @map("work_id") @db.Uuid
+  version          Int
+  source           ScratchWorkVersionSource
+  projectAssetId   String                   @map("project_asset_id") @db.Uuid
+  thumbnailAssetId String?                  @map("thumbnail_asset_id") @db.Uuid
+  note             String?                  @db.Text
+  sourceSystem     String?                  @map("source_system") @db.VarChar(64)
+  legacyId         String?                  @map("legacy_id") @db.VarChar(128)
+  createdBy        String?                  @map("created_by") @db.Uuid
+  createdAt        DateTime                 @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  work           ScratchWork       @relation(fields: [workId], references: [id], onDelete: Restrict)
+  projectAsset   FileAsset         @relation("ScratchWorkVersionProject", fields: [projectAssetId], references: [id], onDelete: Restrict)
+  thumbnailAsset FileAsset?        @relation("ScratchWorkVersionThumbnail", fields: [thumbnailAssetId], references: [id], onDelete: Restrict)
+  reviews        ScratchReview[]
+  judgeRuns      ScratchJudgeRun[]
+
+  @@unique([workId, version])
+  @@unique([sourceSystem, legacyId])
+  @@index([workId, createdAt])
+  @@map("scratch_work_versions")
+}
+
+model ScratchReview {
+  id            String   @id @default(uuid()) @db.Uuid
+  workId        String   @map("work_id") @db.Uuid
+  workVersionId String   @map("work_version_id") @db.Uuid
+  reviewerId    String   @map("reviewer_id") @db.Uuid
+  score         Decimal? @db.Decimal(8, 2)
+  comment       String?  @db.Text
+  rubricJson    Json?    @map("rubric_json")
+  sourceSystem  String?  @map("source_system") @db.VarChar(64)
+  legacyId      String?  @map("legacy_id") @db.VarChar(128)
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  work        ScratchWork        @relation(fields: [workId], references: [id], onDelete: Restrict)
+  workVersion ScratchWorkVersion @relation(fields: [workVersionId], references: [id], onDelete: Restrict)
+  reviewer    User               @relation("ScratchReviewReviewer", fields: [reviewerId], references: [id], onDelete: Restrict)
+
+  @@unique([sourceSystem, legacyId])
+  @@index([workId, createdAt])
+  @@index([reviewerId, createdAt])
+  @@map("scratch_reviews")
+}
+
+model ScratchJudgeRun {
+  id                 String                @id @default(uuid()) @db.Uuid
+  workId             String                @map("work_id") @db.Uuid
+  workVersionId      String                @map("work_version_id") @db.Uuid
+  assignmentId       String                @map("assignment_id") @db.Uuid
+  idempotencyKey     String                @unique @map("idempotency_key") @db.VarChar(180)
+  status             ScratchJudgeRunStatus @default(PENDING)
+  attemptCount       Int                   @default(0) @map("attempt_count")
+  maxAttempts        Int                   @default(3) @map("max_attempts")
+  nextAttemptAt      DateTime?             @map("next_attempt_at") @db.Timestamptz(3)
+  leaseOwner         String?               @map("lease_owner") @db.VarChar(128)
+  leaseExpiresAt     DateTime?             @map("lease_expires_at") @db.Timestamptz(3)
+  externalJobId      String?               @map("external_job_id") @db.VarChar(180)
+  externalResultJson Json?                 @map("external_result_json")
+  score              Decimal?              @db.Decimal(8, 2)
+  passed             Boolean?
+  message            String?               @db.Text
+  requestedAt        DateTime              @default(now()) @map("requested_at") @db.Timestamptz(3)
+  startedAt          DateTime?             @map("started_at") @db.Timestamptz(3)
+  finishedAt         DateTime?             @map("finished_at") @db.Timestamptz(3)
+  sourceSystem       String?               @map("source_system") @db.VarChar(64)
+  legacyId           String?               @map("legacy_id") @db.VarChar(128)
+  createdAt          DateTime              @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt          DateTime              @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  work        ScratchWork             @relation(fields: [workId], references: [id], onDelete: Restrict)
+  workVersion ScratchWorkVersion      @relation(fields: [workVersionId], references: [id], onDelete: Restrict)
+  assignment  LessonScratchAssignment @relation(fields: [assignmentId], references: [id], onDelete: Restrict)
+  callbacks   ScratchJudgeCallback[]
+
+  @@unique([sourceSystem, legacyId])
+  @@index([status, nextAttemptAt])
+  @@index([externalJobId])
+  @@index([workId, createdAt])
+  @@map("scratch_judge_runs")
+}
+
+model ScratchJudgeCallback {
+  id          String   @id @default(uuid()) @db.Uuid
+  runId       String   @map("run_id") @db.Uuid
+  callbackId  String   @unique @map("callback_id") @db.VarChar(180)
+  payloadHash String   @map("payload_hash") @db.VarChar(64)
+  payloadJson Json     @map("payload_json")
+  receivedAt  DateTime @default(now()) @map("received_at") @db.Timestamptz(3)
+
+  run ScratchJudgeRun @relation(fields: [runId], references: [id], onDelete: Restrict)
+
+  @@index([runId, receivedAt])
+  @@map("scratch_judge_callbacks")
 }
 
 model AttendanceRecord {
@@ -1782,7 +2009,11 @@ model FileAsset {
   createdAt  DateTime       @default(now()) @map("created_at")
   deletedAt  DateTime?      @map("deleted_at")
 
-  lessonAssets LessonAsset[]
+  lessonAssets              LessonAsset[]
+  scratchTemplateProjects   ScratchTemplate[]    @relation("ScratchTemplateProject")
+  scratchTemplateThumbnails ScratchTemplate[]    @relation("ScratchTemplateThumbnail")
+  scratchVersionProjects    ScratchWorkVersion[] @relation("ScratchWorkVersionProject")
+  scratchVersionThumbnails  ScratchWorkVersion[] @relation("ScratchWorkVersionThumbnail")
 
   @@map("files")
 }

@@ -74,6 +74,9 @@
             <el-table-column label="时间" width="190"><template #default="{ row }">{{ formatTime(row.createdAt) }}</template></el-table-column>
           </el-table>
         </el-tab-pane>
+        <el-tab-pane label="Scratch 课堂" lazy>
+          <ScratchClassroomPanel :session-id="sessionId" />
+        </el-tab-pane>
       </el-tabs>
     </div>
   </el-drawer>
@@ -85,6 +88,7 @@ import { ref, toRef, watch } from 'vue';
 import { useLessonRecordEditor } from '../composables/useLessonRecordEditor';
 import type { LessonAssetView } from '../api';
 import AiSummaryDialog from '../../ai/components/AiSummaryDialog.vue';
+import ScratchClassroomPanel from '../../scratch/components/ScratchClassroomPanel.vue';
 
 const props = defineProps<{ modelValue: boolean; sessionId: string }>();
 const emit = defineEmits<{ 'update:modelValue': [value: boolean]; changed: [] }>();

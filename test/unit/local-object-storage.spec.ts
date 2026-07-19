@@ -49,7 +49,7 @@ describe('LocalObjectStorage', () => {
 
     const listed = await storage.list('exports/');
     expect(listed).toHaveLength(1);
-    expect(listed[0]).toMatchObject({ key: 'exports/report.csv', size: 8 });
+    expect(listed[0]).toMatchObject({ key: 'exports/report.csv', size: 8, sha256: stored.sha256 });
 
     await storage.move('exports/report.csv', 'exports/final.csv');
     expect(await storage.createDownloadUrl('exports/final.csv', 60)).toBe('/uploads/exports/final.csv');

@@ -482,6 +482,22 @@
         ],
         "type": "object"
       },
+      "AiNullableEvidencedNumberDto": {
+        "properties": {
+          "evidenceRef": {
+            "type": "string"
+          },
+          "value": {
+            "nullable": true,
+            "type": "number"
+          }
+        },
+        "required": [
+          "value",
+          "evidenceRef"
+        ],
+        "type": "object"
+      },
       "AiNullableEvidencedStringDto": {
         "properties": {
           "evidenceRef": {
@@ -917,6 +933,15 @@
           "scheduledLessonCount": {
             "$ref": "#/components/schemas/AiEvidencedNumberDto"
           },
+          "scratchReviewedCount": {
+            "$ref": "#/components/schemas/AiEvidencedNumberDto"
+          },
+          "scratchSubmittedCount": {
+            "$ref": "#/components/schemas/AiEvidencedNumberDto"
+          },
+          "scratchWorkCount": {
+            "$ref": "#/components/schemas/AiEvidencedNumberDto"
+          },
           "selectedExamCount": {
             "$ref": "#/components/schemas/AiEvidencedNumberDto"
           },
@@ -934,7 +959,10 @@
           "completedLessonCount",
           "attendanceRecordCount",
           "publishedLessonRecordCount",
-          "homeworkAssignmentCount"
+          "homeworkAssignmentCount",
+          "scratchWorkCount",
+          "scratchSubmittedCount",
+          "scratchReviewedCount"
         ],
         "type": "object"
       },
@@ -1097,6 +1125,57 @@
           "answerCount",
           "correctRate",
           "scoreRate"
+        ],
+        "type": "object"
+      },
+      "AiStudentScratchWorkFactDto": {
+        "properties": {
+          "assignmentTitle": {
+            "type": "string"
+          },
+          "latestJudgeScore": {
+            "$ref": "#/components/schemas/AiNullableEvidencedNumberDto"
+          },
+          "latestJudgeStatus": {
+            "$ref": "#/components/schemas/AiNullableEvidencedStringDto"
+          },
+          "latestReviewComment": {
+            "$ref": "#/components/schemas/AiNullableEvidencedStringDto"
+          },
+          "latestReviewScore": {
+            "$ref": "#/components/schemas/AiNullableEvidencedNumberDto"
+          },
+          "sessionId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/AiEvidencedStringDto"
+          },
+          "submittedAt": {
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          },
+          "versionCount": {
+            "$ref": "#/components/schemas/AiEvidencedNumberDto"
+          },
+          "workId": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "workId",
+          "assignmentTitle",
+          "sessionId",
+          "status",
+          "versionCount",
+          "submittedAt",
+          "latestReviewScore",
+          "latestReviewComment",
+          "latestJudgeStatus",
+          "latestJudgeScore"
         ],
         "type": "object"
       },
@@ -2903,6 +2982,89 @@
           "difficulty",
           "defaultScore"
         ],
+        "type": "object"
+      },
+      "CreateScratchAssignmentDto": {
+        "properties": {
+          "bindNote": {
+            "maxLength": 2000,
+            "type": "string"
+          },
+          "dueAt": {
+            "type": "string"
+          },
+          "judgeMode": {
+            "enum": [
+              "MANUAL",
+              "NONE",
+              "EXTERNAL"
+            ],
+            "type": "string"
+          },
+          "maxScore": {
+            "maximum": 1000,
+            "minimum": 1,
+            "type": "number"
+          },
+          "runtimeConfig": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "statementMd": {
+            "maxLength": 20000,
+            "type": "string"
+          },
+          "templateId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": {
+            "maxLength": 180,
+            "type": "string"
+          }
+        },
+        "required": [
+          "templateId",
+          "title"
+        ],
+        "type": "object"
+      },
+      "CreateScratchTemplateDto": {
+        "properties": {
+          "description": {
+            "maxLength": 10000,
+            "type": "string"
+          },
+          "runtimeProblemId": {
+            "maxLength": 128,
+            "type": "string"
+          },
+          "runtimeProblemUrl": {
+            "format": "uri",
+            "maxLength": 2000,
+            "type": "string"
+          },
+          "runtimeProvider": {
+            "maxLength": 64,
+            "type": "string"
+          },
+          "title": {
+            "maxLength": 180,
+            "type": "string"
+          }
+        },
+        "required": [
+          "title"
+        ],
+        "type": "object"
+      },
+      "CreateScratchWorkDto": {
+        "properties": {
+          "title": {
+            "maxLength": 180,
+            "type": "string"
+          }
+        },
         "type": "object"
       },
       "CreateSessionDto": {
@@ -4811,6 +4973,24 @@
         ],
         "type": "object"
       },
+      "ReviewScratchWorkDto": {
+        "properties": {
+          "comment": {
+            "maxLength": 10000,
+            "type": "string"
+          },
+          "rubric": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "score": {
+            "maximum": 1000,
+            "minimum": 0,
+            "type": "number"
+          }
+        },
+        "type": "object"
+      },
       "RubricScoreDto": {
         "properties": {
           "comment": {
@@ -5203,6 +5383,15 @@
         ],
         "type": "object"
       },
+      "SaveScratchWorkVersionDto": {
+        "properties": {
+          "note": {
+            "maxLength": 2000,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "ScoreDistributionBucketDto": {
         "properties": {
           "count": {
@@ -5253,6 +5442,45 @@
           "averageScore",
           "averagePercent",
           "buckets"
+        ],
+        "type": "object"
+      },
+      "ScratchJudgeCallbackDto": {
+        "properties": {
+          "callbackId": {
+            "maxLength": 180,
+            "type": "string"
+          },
+          "externalJobId": {
+            "maxLength": 180,
+            "type": "string"
+          },
+          "message": {
+            "maxLength": 4000,
+            "type": "string"
+          },
+          "passed": {
+            "type": "boolean"
+          },
+          "result": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "score": {
+            "minimum": 0,
+            "type": "number"
+          },
+          "status": {
+            "enum": [
+              "succeeded",
+              "failed"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "callbackId",
+          "status"
         ],
         "type": "object"
       },
@@ -5473,6 +5701,12 @@
           "scope": {
             "$ref": "#/components/schemas/AiStudentSummaryScopeDto"
           },
+          "scratchWorks": {
+            "items": {
+              "$ref": "#/components/schemas/AiStudentScratchWorkFactDto"
+            },
+            "type": "array"
+          },
           "student": {
             "$ref": "#/components/schemas/AiStudentContextDto"
           },
@@ -5499,6 +5733,7 @@
           "programming",
           "attendance",
           "lessons",
+          "scratchWorks",
           "evidence"
         ],
         "type": "object"
@@ -5521,6 +5756,15 @@
           "language",
           "code"
         ],
+        "type": "object"
+      },
+      "SubmitScratchWorkDto": {
+        "properties": {
+          "submitNote": {
+            "maxLength": 2000,
+            "type": "string"
+          }
+        },
         "type": "object"
       },
       "SyncHydroTasksDto": {
@@ -6179,6 +6423,84 @@
         "required": [
           "permissionIds"
         ],
+        "type": "object"
+      },
+      "UpdateScratchAssignmentDto": {
+        "properties": {
+          "bindNote": {
+            "maxLength": 2000,
+            "type": "string"
+          },
+          "dueAt": {
+            "type": "string"
+          },
+          "judgeMode": {
+            "enum": [
+              "MANUAL",
+              "NONE",
+              "EXTERNAL"
+            ],
+            "type": "string"
+          },
+          "maxScore": {
+            "maximum": 1000,
+            "minimum": 1,
+            "type": "number"
+          },
+          "runtimeConfig": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "statementMd": {
+            "maxLength": 20000,
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "DRAFT",
+              "ARCHIVED",
+              "PUBLISHED"
+            ],
+            "type": "string"
+          },
+          "title": {
+            "maxLength": 180,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "UpdateScratchTemplateDto": {
+        "properties": {
+          "description": {
+            "maxLength": 10000,
+            "type": "string"
+          },
+          "runtimeProblemId": {
+            "maxLength": 128,
+            "type": "string"
+          },
+          "runtimeProblemUrl": {
+            "format": "uri",
+            "maxLength": 2000,
+            "type": "string"
+          },
+          "runtimeProvider": {
+            "maxLength": 64,
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "ACTIVE",
+              "ARCHIVED"
+            ],
+            "type": "string"
+          },
+          "title": {
+            "maxLength": 180,
+            "type": "string"
+          }
+        },
         "type": "object"
       },
       "UpdateStudentProfileDto": {
@@ -23071,6 +23393,1081 @@
         ],
         "tags": [
           "Academic operations - schedule"
+        ]
+      }
+    },
+    "/api/v1/scratch/assignments/{id}": {
+      "patch": {
+        "operationId": "Scratch_updateAssignment",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateScratchAssignmentDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "401": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "404": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "409": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "429": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "500": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "Scratch classroom"
+        ]
+      }
+    },
+    "/api/v1/scratch/assignments/{id}/archive": {
+      "post": {
+        "operationId": "Scratch_archiveAssignment",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "401": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "404": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "409": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "429": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "500": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "Scratch classroom"
+        ]
+      }
+    },
+    "/api/v1/scratch/assignments/{id}/publish": {
+      "post": {
+        "operationId": "Scratch_publishAssignment",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "401": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "404": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "409": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "429": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "500": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "Scratch classroom"
+        ]
+      }
+    },
+    "/api/v1/scratch/assignments/{id}/work": {
+      "post": {
+        "operationId": "Scratch_createWork",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateScratchWorkDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "401": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "404": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "409": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "429": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "500": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "Scratch classroom"
+        ]
+      }
+    },
+    "/api/v1/scratch/judge-callbacks/{runId}": {
+      "post": {
+        "operationId": "Scratch_judgeCallback",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "runId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ScratchJudgeCallbackDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "401": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "404": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "409": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "429": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "500": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "Scratch classroom"
+        ]
+      }
+    },
+    "/api/v1/scratch/judge-runs/{id}/retry": {
+      "post": {
+        "operationId": "Scratch_retryJudge",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "401": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "404": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "409": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "429": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "500": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "Scratch classroom"
+        ]
+      }
+    },
+    "/api/v1/scratch/sessions/{sessionId}/assignments": {
+      "get": {
+        "operationId": "Scratch_listAssignments",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "sessionId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "studentId",
+            "required": false,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "401": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "404": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "409": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "429": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "500": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "Scratch classroom"
+        ]
+      },
+      "post": {
+        "operationId": "Scratch_createAssignment",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "sessionId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateScratchAssignmentDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "401": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "404": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "409": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "429": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "500": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "Scratch classroom"
+        ]
+      }
+    },
+    "/api/v1/scratch/students/{studentId}/assignments": {
+      "get": {
+        "operationId": "Scratch_studentAssignments",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "studentId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "401": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "404": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "409": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "429": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "500": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "Scratch classroom"
+        ]
+      }
+    },
+    "/api/v1/scratch/templates": {
+      "get": {
+        "operationId": "Scratch_listTemplates",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "401": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "404": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "409": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "429": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "500": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "Scratch classroom"
+        ]
+      },
+      "post": {
+        "operationId": "Scratch_createTemplate",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateScratchTemplateDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "401": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "404": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "409": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "429": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "500": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "Scratch classroom"
+        ]
+      }
+    },
+    "/api/v1/scratch/templates/{id}": {
+      "patch": {
+        "operationId": "Scratch_updateTemplate",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateScratchTemplateDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "401": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "404": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "409": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "429": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "500": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "Scratch classroom"
+        ]
+      }
+    },
+    "/api/v1/scratch/templates/{id}/project": {
+      "get": {
+        "operationId": "Scratch_templateProject",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "studentId",
+            "required": false,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "401": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "404": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "409": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "429": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "500": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "Scratch classroom"
+        ]
+      }
+    },
+    "/api/v1/scratch/templates/{id}/thumbnail": {
+      "get": {
+        "operationId": "Scratch_templateThumbnail",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "studentId",
+            "required": false,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "401": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "404": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "409": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "429": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "500": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "Scratch classroom"
+        ]
+      }
+    },
+    "/api/v1/scratch/work-versions/{id}/project": {
+      "get": {
+        "operationId": "Scratch_versionProject",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "401": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "404": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "409": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "429": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "500": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "Scratch classroom"
+        ]
+      }
+    },
+    "/api/v1/scratch/work-versions/{id}/thumbnail": {
+      "get": {
+        "operationId": "Scratch_versionThumbnail",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "401": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "404": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "409": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "429": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "500": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "Scratch classroom"
+        ]
+      }
+    },
+    "/api/v1/scratch/works/{id}": {
+      "get": {
+        "operationId": "Scratch_work",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "401": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "404": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "409": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "429": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "500": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "Scratch classroom"
+        ]
+      }
+    },
+    "/api/v1/scratch/works/{id}/reviews": {
+      "post": {
+        "operationId": "Scratch_reviewWork",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReviewScratchWorkDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "401": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "404": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "409": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "429": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "500": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "Scratch classroom"
+        ]
+      }
+    },
+    "/api/v1/scratch/works/{id}/submit": {
+      "post": {
+        "operationId": "Scratch_submitWork",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SubmitScratchWorkDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "401": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "404": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "409": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "429": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "500": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "Scratch classroom"
+        ]
+      }
+    },
+    "/api/v1/scratch/works/{id}/versions": {
+      "post": {
+        "operationId": "Scratch_saveVersion",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/SaveScratchWorkVersionDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "401": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "404": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "409": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "429": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "500": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "Scratch classroom"
         ]
       }
     },

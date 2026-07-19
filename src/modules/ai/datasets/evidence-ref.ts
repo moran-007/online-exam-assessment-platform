@@ -12,7 +12,11 @@ export type EvidenceSourceType =
   | 'lesson_session'
   | 'lesson_record'
   | 'attendance'
-  | 'lesson_hour_ledger';
+  | 'lesson_hour_ledger'
+  | 'scratch_work'
+  | 'scratch_work_version'
+  | 'scratch_review'
+  | 'scratch_judge_run';
 
 export type EvidenceRef = {
   refId: string;

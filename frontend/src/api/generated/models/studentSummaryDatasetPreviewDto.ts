@@ -15,6 +15,7 @@ import type { AiStudentKnowledgePointFactDto } from './aiStudentKnowledgePointFa
 import type { AiStudentLessonFactDto } from './aiStudentLessonFactDto';
 import type { AiStudentProgrammingFactDto } from './aiStudentProgrammingFactDto';
 import type { AiStudentQuestionTypeFactDto } from './aiStudentQuestionTypeFactDto';
+import type { AiStudentScratchWorkFactDto } from './aiStudentScratchWorkFactDto';
 import type { AiStudentSummaryScopeDto } from './aiStudentSummaryScopeDto';
 import type { AiStudentWrongQuestionFactDto } from './aiStudentWrongQuestionFactDto';
 import type { StudentSummaryDatasetPreviewDtoGenerationMode } from './studentSummaryDatasetPreviewDtoGenerationMode';
@@ -34,6 +35,7 @@ export interface StudentSummaryDatasetPreviewDto {
   programming: AiStudentProgrammingFactDto;
   questionTypes: AiStudentQuestionTypeFactDto[];
   scope: AiStudentSummaryScopeDto;
+  scratchWorks: AiStudentScratchWorkFactDto[];
   student: AiStudentContextDto;
   wrongQuestions: AiStudentWrongQuestionFactDto[];
 }

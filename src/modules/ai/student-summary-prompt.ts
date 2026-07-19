@@ -21,6 +21,7 @@ export function buildStudentSummaryUserPrompt(dataset: StudentSummaryDataset) {
     '必须说明数据覆盖范围；not_submitted 与 ungraded 不是零分；不得把无教育数据解释为缺勤，未确认考勤也不是缺勤。',
     '考试结论只分析已评分数据；课堂目标、课堂表现和作业只使用已发布教学记录。',
     'homework 表示教师已布置内容，不代表学生已经完成，不得推断作业完成率。',
+    'Scratch 只能总结作品版本、提交/判定状态和教师已经写入的评分点评；不得读取作品内容推断能力，也不得把外部运行时账号当作学生身份事实。',
     '不得从迟到、请假或缺席推断学习态度、家庭情况、心理状态、人格、健康或纪律。',
     '不得推断家庭情况、心理状态、人格、健康、纪律等未提供事实。',
     dataset.generationMode === 'fact_card'

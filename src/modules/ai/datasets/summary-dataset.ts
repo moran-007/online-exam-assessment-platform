@@ -82,6 +82,9 @@ export type StudentSummaryDataset = SummaryDatasetBase & {
     attendanceRecordCount: EvidencedValue<number>;
     publishedLessonRecordCount: EvidencedValue<number>;
     homeworkAssignmentCount: EvidencedValue<number>;
+    scratchWorkCount: EvidencedValue<number>;
+    scratchSubmittedCount: EvidencedValue<number>;
+    scratchReviewedCount: EvidencedValue<number>;
   };
   examPerformance: Array<{
     examId: string;
@@ -137,6 +140,18 @@ export type StudentSummaryDataset = SummaryDatasetBase & {
     learningGoal: EvidencedValue<string | null>;
     classPerformance: EvidencedValue<string | null>;
     homework: EvidencedValue<string | null>;
+  }>;
+  scratchWorks: Array<{
+    workId: string;
+    assignmentTitle: string;
+    sessionId: string;
+    status: EvidencedValue<string>;
+    versionCount: EvidencedValue<number>;
+    submittedAt: string | null;
+    latestReviewScore: EvidencedValue<number | null>;
+    latestReviewComment: EvidencedValue<string | null>;
+    latestJudgeStatus: EvidencedValue<string | null>;
+    latestJudgeScore: EvidencedValue<number | null>;
   }>;
 };
 
