@@ -9,7 +9,7 @@
     "node": ">=22 <25"
   },
   "scripts": {
-    "build": "pnpm permissions:check && nest build",
+    "build": "tsx scripts/check-permission-catalog.ts && nest build",
     "dev": "nest start --watch",
     "frontend:dev": "pnpm --dir frontend dev",
     "frontend:build": "pnpm --dir frontend build",

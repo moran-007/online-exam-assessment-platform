@@ -1,7 +1,8 @@
 @echo off
+setlocal
 cd /d "%~dp0"
-powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\start-platform.ps1"
-set "EXIT_CODE=%ERRORLEVEL%"
-if not "%EXIT_CODE%"=="0" echo 启动失败，退出代码：%EXIT_CODE%
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\start-platform.ps1" %*
+set "PLATFORM_EXIT=%ERRORLEVEL%"
+if not "%PLATFORM_EXIT%"=="0" echo Platform startup failed with exit code %PLATFORM_EXIT%.
 pause
-exit /b %EXIT_CODE%
+exit /b %PLATFORM_EXIT%

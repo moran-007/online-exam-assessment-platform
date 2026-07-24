@@ -28,6 +28,30 @@ function Resolve-CommandPath($Name) {
   return $command.Source
 }
 
+function Resolve-PnpmCommand {
+  foreach ($name in @("pnpm.cmd", "pnpm")) {
+    $command = Get-Command $name -ErrorAction SilentlyContinue
+    if ($command) {
+      return [pscustomobject]@{
+        FilePath = $command.Source
+        Prefix = @()
+      }
+    }
+  }
+
+  foreach ($name in @("corepack.cmd", "corepack")) {
+    $command = Get-Command $name -ErrorAction SilentlyContinue
+    if ($command) {
+      return [pscustomobject]@{
+        FilePath = $command.Source
+        Prefix = @("pnpm")
+      }
+    }
+  }
+
+  throw "Neither pnpm nor Corepack was found. Install Node.js 22-24 with Corepack support or add pnpm to PATH."
+}
+
 function Invoke-Checked($FilePath, [string[]]$ArgumentList, $WorkingDirectory = $Root) {
   Push-Location -Path $WorkingDirectory
   try {
@@ -39,6 +63,11 @@ function Invoke-Checked($FilePath, [string[]]$ArgumentList, $WorkingDirectory = 
   } finally {
     Pop-Location
   }
+}
+
+function Invoke-Pnpm([string[]]$ArgumentList, $WorkingDirectory = $Root) {
+  $resolvedArguments = [string[]]@($PnpmCommand.Prefix + $ArgumentList)
+  Invoke-Checked $PnpmCommand.FilePath -ArgumentList $resolvedArguments -WorkingDirectory $WorkingDirectory
 }
 
 function Stop-Port($Port) {
@@ -179,13 +208,13 @@ function Get-UserCount {
   return [int]$count
 }
 
+$PnpmCommand = Resolve-PnpmCommand
 try {
-  $pnpm = Resolve-CommandPath "pnpm.cmd"
+  $node = Resolve-CommandPath "node.exe"
 } catch {
-  $pnpm = Resolve-CommandPath "pnpm"
+  $node = Resolve-CommandPath "node"
 }
-
-$nodeMajor = [int](& node -p "process.versions.node.split('.')[0]")
+$nodeMajor = [int](& $node -p "process.versions.node.split('.')[0]")
 if ($nodeMajor -lt 22 -or $nodeMajor -ge 25) {
   throw "Node.js 22-24 is required. Current major version: $nodeMajor."
 }
@@ -213,24 +242,24 @@ Ensure-EnvFile
 
 if (!(Test-Path (Join-Path $Root "node_modules"))) {
   Write-Step "Installing dependencies"
-  Invoke-Checked $pnpm -ArgumentList @("install")
+  Invoke-Pnpm @("install")
 }
 
 Write-Step "Syncing database"
-Invoke-Checked $pnpm -ArgumentList @("prisma:generate")
-Invoke-Checked $pnpm -ArgumentList @("exec", "prisma", "migrate", "deploy")
-Invoke-Checked $pnpm -ArgumentList @("permissions:sync")
+Invoke-Pnpm @("prisma:generate")
+Invoke-Pnpm @("exec", "prisma", "migrate", "deploy")
+Invoke-Pnpm @("permissions:sync")
 
 $userCount = Get-UserCount
 if ($Seed -or $userCount -eq 0) {
   Write-Step "Seeding database"
-  Invoke-Checked $pnpm -ArgumentList @("db:seed")
+  Invoke-Pnpm @("db:seed")
 } else {
   Write-Host "Skip seed: users table already has $userCount rows. Use -Seed to reseed explicitly."
 }
 
 Write-Step "Building backend"
-Invoke-Checked $pnpm -ArgumentList @("build")
+Invoke-Pnpm @("build")
 
 Write-Step "Starting backend and frontend"
 $BackendOut = Join-Path $Runtime "backend.out.log"
@@ -238,8 +267,8 @@ $BackendErr = Join-Path $Runtime "backend.err.log"
 $FrontendOut = Join-Path $Runtime "frontend.out.log"
 $FrontendErr = Join-Path $Runtime "frontend.err.log"
 
-$Backend = Start-Process -FilePath $pnpm -ArgumentList "start" -WorkingDirectory $Root -WindowStyle Hidden -RedirectStandardOutput $BackendOut -RedirectStandardError $BackendErr -PassThru
-$Frontend = Start-Process -FilePath $pnpm -ArgumentList "dev" -WorkingDirectory (Join-Path $Root "frontend") -WindowStyle Hidden -RedirectStandardOutput $FrontendOut -RedirectStandardError $FrontendErr -PassThru
+$Backend = Start-Process -FilePath $PnpmCommand.FilePath -ArgumentList @($PnpmCommand.Prefix + @("start")) -WorkingDirectory $Root -WindowStyle Hidden -RedirectStandardOutput $BackendOut -RedirectStandardError $BackendErr -PassThru
+$Frontend = Start-Process -FilePath $PnpmCommand.FilePath -ArgumentList @($PnpmCommand.Prefix + @("dev")) -WorkingDirectory (Join-Path $Root "frontend") -WindowStyle Hidden -RedirectStandardOutput $FrontendOut -RedirectStandardError $FrontendErr -PassThru
 
 Set-Content -Path (Join-Path $Runtime "backend.pid") -Value $Backend.Id
 Set-Content -Path (Join-Path $Runtime "frontend.pid") -Value $Frontend.Id
