@@ -50,9 +50,10 @@ describe('AI and academic fusion', () => {
     const studentPermissions = ['dashboard:read', 'ai.feedback.create'];
     const permissions = await Promise.all([...new Set([...teacherPermissions, ...studentPermissions])].map((code) =>
       prisma.permission.create({ data: { name: code, code, type: 'API' } })));
-    const [teacherRole, studentRole] = await Promise.all([
+    const [teacherRole, studentRole, aiUserRole] = await Promise.all([
       prisma.role.create({ data: { name: 'Fusion Teacher', code: 'fusion_teacher_role' } }),
       prisma.role.create({ data: { name: 'Fusion Student', code: 'fusion_student_role' } }),
+      prisma.role.create({ data: { name: 'AI 用户', code: 'ai_user' } }),
     ]);
     await prisma.rolePermission.createMany({
       data: [
@@ -60,6 +61,8 @@ describe('AI and academic fusion', () => {
           .map((item) => ({ roleId: teacherRole.id, permissionId: item.id })),
         ...permissions.filter((item) => studentPermissions.includes(item.code))
           .map((item) => ({ roleId: studentRole.id, permissionId: item.id })),
+        ...permissions.filter((item) => teacherPermissions.includes(item.code))
+          .map((item) => ({ roleId: aiUserRole.id, permissionId: item.id })),
       ],
     });
     await prisma.userRole.createMany({

@@ -82,6 +82,7 @@ describe('AiGenerationUseCases', () => {
     fixture.learningContext.build.mockResolvedValue({
       prompt: '', sources: [{ type: 'class', id: 'class-1', name: 'Python A 班' }],
       canDirectAnswer: true, canReadQuestions: true, canReadPapers: true, canReadClasses: true,
+      canReadLessonPlans: true,
       canGeneralKnowledge: true,
       localAnswer: '当前共有 1 个空班级：Python A 班。',
     });
@@ -112,6 +113,7 @@ describe('AiGenerationUseCases', () => {
     fixture.learningContext.build.mockResolvedValue({
       prompt: '', sources: [],
       canDirectAnswer: true, canReadQuestions: true, canReadPapers: true, canReadClasses: true,
+      canReadLessonPlans: true,
       canGeneralKnowledge: true,
       localAnswer: '当前共有 2 个班级。',
     });
@@ -121,6 +123,55 @@ describe('AiGenerationUseCases', () => {
     expect(fixture.learningContext.build).toHaveBeenCalledWith('现在有多少班级？', user, undefined);
     expect(result.summary).toBe('当前共有 2 个班级。');
     expect(result.usage.totalTokens).toBe(28);
+  });
+
+  it('does not reuse an earlier platform-query intent for a new non-query message', async () => {
+    const fixture = dependencies();
+    fixture.gateway.complete.mockResolvedValue({
+      content: '下面给出一份小学语文教案建议。',
+      usage: { promptTokens: 20, completionTokens: 18, totalTokens: 38, reported: true },
+      durationMs: 11,
+    });
+
+    const result = await fixture.service.summarize({
+      content: '写一份小学语文教案',
+      history: [
+        { role: 'user', content: '教案数量' },
+        { role: 'assistant', content: '当前权限范围内共有 7 份教案。' },
+      ],
+    }, user);
+
+    expect(result.summary).toBe('下面给出一份小学语文教案建议。');
+    expect(fixture.gateway.complete).toHaveBeenCalledTimes(1);
+    expect(fixture.learningContext.build).toHaveBeenCalledWith('写一份小学语文教案', user, undefined);
+    expect(fixture.tokenUsage.record).toHaveBeenCalledWith(expect.objectContaining({
+      operation: 'ad_hoc_qa',
+    }));
+  });
+
+  it('recognizes a lesson-plan lookup even without a count or list keyword', async () => {
+    const fixture = dependencies();
+    fixture.gateway.complete.mockResolvedValue({
+      content: '{"intent":"LESSON_PLAN_OVERVIEW","entityName":"Python Basic","startTime":null,"endTime":null}',
+      usage: { promptTokens: 24, completionTokens: 12, totalTokens: 36, reported: true },
+      durationMs: 8,
+    });
+    fixture.learningContext.build.mockResolvedValue({
+      prompt: '', sources: [{ type: 'lesson_plan', id: 'plan-1', name: 'Loops' }],
+      canDirectAnswer: true, canReadQuestions: true, canReadPapers: true, canReadClasses: true,
+      canReadLessonPlans: true, canGeneralKnowledge: true,
+      localAnswer: '匹配 Python Basic 的教案共 4 份。',
+    });
+
+    const result = await fixture.service.summarize({ content: '课程Python Basic相关教案' }, user);
+
+    expect(result.summary).toContain('4 份');
+    expect(fixture.gateway.complete).toHaveBeenCalledTimes(1);
+    expect(fixture.learningContext.build).toHaveBeenCalledWith(
+      '课程Python Basic相关教案',
+      user,
+      { intent: 'LESSON_PLAN_OVERVIEW', entityName: 'Python Basic' },
+    );
   });
 
   function dependencies() {
@@ -133,7 +184,8 @@ describe('AiGenerationUseCases', () => {
     const learningContext = {
       build: jest.fn().mockResolvedValue({
         prompt: '', sources: [], canDirectAnswer: false,
-        canReadQuestions: false, canReadPapers: false, canReadClasses: false, canGeneralKnowledge: false,
+        canReadQuestions: false, canReadPapers: false, canReadClasses: false, canReadLessonPlans: false,
+        canGeneralKnowledge: false,
       }),
     };
     const service = new AiGenerationUseCases(

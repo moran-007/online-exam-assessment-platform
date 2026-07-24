@@ -3,8 +3,17 @@ import { AiSummaryType } from '@prisma/client';
 import { RequestUser } from '../../common/interfaces/request-user.interface';
 import { hasPermission } from '../../common/security/permission-policy';
 import type { SummaryDataDomain } from './datasets/summary-scope';
+import { AiUserPermissionService } from './ai-user-permission.service';
 
 export const AI_DATA_DOMAINS = [
+  {
+    domain: 'lesson_plans',
+    name: '教案',
+    description: '系统通用教案及当前调用者有权查看的个人教案',
+    category: 'teaching',
+    businessPermission: 'lesson-plan:read',
+    aiPermission: 'ai.data.lesson-plans',
+  },
   {
     domain: 'grade_history',
     name: '成绩历史',
@@ -67,6 +76,8 @@ const SUMMARY_DOMAINS: Record<AiSummaryType, AiDataDomain[]> = {
 
 @Injectable()
 export class AiDataPermissionService {
+  constructor(private readonly aiUserPermissions: AiUserPermissionService) {}
+
   async assertSummaryAllowed(type: AiSummaryType, user: RequestUser, summaryDomains?: SummaryDataDomain[]) {
     const required = summaryDomains && (
       type === AiSummaryType.STUDENT || type === AiSummaryType.CLASS || type === AiSummaryType.PARENT_REPORT
@@ -88,10 +99,11 @@ export class AiDataPermissionService {
   }
 
   async assertAllowed(domains: AiDataDomain[], user: RequestUser) {
-    const decisions = await Promise.all(domains.map(async (domain) => ({
+    const aiPermissions = await this.aiUserPermissions.codes();
+    const decisions = domains.map((domain) => ({
       domain,
-      allowed: await this.isAllowed(domain, user),
-    })));
+      allowed: this.isAllowedWithCodes(domain, user, aiPermissions),
+    }));
     const denied = decisions.filter((item) => !item.allowed).map((item) => this.definition(item.domain).name);
     if (denied.length) {
       throw new ForbiddenException(`AI 数据权限未开放：${denied.join('、')}。请联系超级管理员调整 AI 数据权限。`);
@@ -99,8 +111,14 @@ export class AiDataPermissionService {
   }
 
   async isAllowed(domain: AiDataDomain, user: RequestUser) {
+    return this.isAllowedWithCodes(domain, user, await this.aiUserPermissions.codes());
+  }
+
+  private isAllowedWithCodes(domain: AiDataDomain, user: RequestUser, aiPermissions: ReadonlySet<string>) {
     const definition = this.definition(domain);
-    return hasPermission(user, definition.businessPermission) && hasPermission(user, definition.aiPermission);
+    return hasPermission(user, definition.businessPermission)
+      && aiPermissions.has(definition.businessPermission)
+      && aiPermissions.has(definition.aiPermission);
   }
 
   private definition(domain: string) {

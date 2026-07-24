@@ -1,6 +1,12 @@
 import { createRouter, createWebHistory } from 'vue-router';
 import { canAccessByMeta, firstAccessiblePath, isPrivilegedUser } from './access';
-import { getCurrentUser, getRefreshToken, getToken, hasActiveSession } from './api';
+import {
+  getCurrentUser,
+  getRefreshToken,
+  getToken,
+  hasActiveSession,
+  syncCurrentUser,
+} from './api';
 
 const LoginView = () => import('./views/LoginView.vue');
 const DashboardView = () => import('./views/DashboardView.vue');
@@ -35,7 +41,7 @@ const routes = [
   { path: '/public/questions', redirect: '/question-bank', meta: { public: true } },
   { path: '/', redirect: () => firstAccessiblePath(getCurrentUser()) },
   { path: '/dashboard', component: DashboardView, meta: { permissions: ['dashboard:read'] } },
-  { path: '/courses', component: CourseView, meta: { adminOnly: true, permissions: ['course:read', 'knowledge-point:read'] } },
+  { path: '/courses', component: CourseView, meta: { adminOnly: true, permissions: ['course:read', 'knowledge-point:read', 'lesson-plan:read'] } },
   { path: '/classes', component: ClassView, meta: { adminOnly: true, permissions: ['class:read'] } },
   { path: '/users', component: UserManagementView, meta: { adminOnly: true, userTypes: ['SUPER_ADMIN'] } },
   { path: '/academic-profiles', component: AcademicProfilesView, meta: { adminOnly: true, userTypes: ['SUPER_ADMIN', 'ADMIN'] } },
@@ -84,13 +90,15 @@ const router = createRouter({
   routes,
 });
 
-router.beforeEach((to) => {
-  const user = getCurrentUser();
+router.beforeEach(async (to) => {
   const hadStoredSession = Boolean(getToken() || getRefreshToken());
   const activeSession = hasActiveSession();
   if (!to.meta.public && !activeSession) {
     return hadStoredSession ? { path: '/login', query: { reason: 'expired' } } : '/login';
   }
+  const user = activeSession
+    ? await syncCurrentUser().catch(() => getCurrentUser())
+    : getCurrentUser();
   if (to.path === '/login' && activeSession) {
     return firstAccessiblePath(user);
   }

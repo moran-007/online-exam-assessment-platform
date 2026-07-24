@@ -86,7 +86,6 @@ export const lessonPlanPromptTemplatesList = async ( options?: RequestInit): Pro
 
   }
 );}
-
 export type lessonPlanPromptTemplatesCreateResponse201 = {
   data: LessonPlanPromptTemplatesCreate201
   status: 201
@@ -157,7 +156,6 @@ export const lessonPlanPromptTemplatesCreate = async (saveLessonPlanPromptTempla
     body: JSON.stringify(saveLessonPlanPromptTemplateDto)
   }
 );}
-
 
 export type lessonPlanPromptTemplatesRemoveResponse200 = {
   data: LessonPlanPromptTemplatesRemove200

@@ -134,7 +134,9 @@ function hasGeneralKnowledgePermission(role: PlatformRecord) {
 async function load() {
   loading.value = true;
   try {
-    [roles.value, permissions.value] = await Promise.all([listRoles(), listPermissions()]);
+    const [loadedRoles, loadedPermissions] = await Promise.all([listRoles(), listPermissions()]);
+    roles.value = loadedRoles.filter((role) => role.code !== 'ai_user');
+    permissions.value = loadedPermissions;
     if (!chatPermissionId.value || !answerPermissionId.value || !generalKnowledgePermissionId.value) ElMessage.error('AI 问答权限尚未完整初始化，请执行最新数据库迁移');
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : '问答权限加载失败');

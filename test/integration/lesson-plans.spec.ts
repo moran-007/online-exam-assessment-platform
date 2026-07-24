@@ -63,7 +63,7 @@ describe('lesson plan library', () => {
         },
       }),
     ]);
-    const permissionCodes = ['lesson-record:read', 'lesson-record:manage'];
+    const permissionCodes = ['lesson-plan:read', 'lesson-plan:manage'];
     const permissions = await Promise.all(permissionCodes.map((code) => prisma.permission.create({
       data: { name: code, code, type: 'API' },
     })));
@@ -90,7 +90,7 @@ describe('lesson plan library', () => {
     app = await createTestApp();
     [adminToken, teacherAToken, teacherBToken, studentToken, parentToken] = await Promise.all([
       token(admin),
-      token(teacherA),
+      token(teacherA, ['lesson-record:read', 'lesson-record:manage']),
       token(teacherB),
       token(student, ['lesson-record:read']),
       token(parent, ['lesson-record:read']),
@@ -106,6 +106,16 @@ describe('lesson plan library', () => {
     const systemPlan = await createPlan(adminToken, LessonPlanSource.SYSTEM, '系统通用教案');
     const personalA = await createPlan(teacherAToken, LessonPlanSource.PERSONAL, '张老师个人教案');
     await createPlan(teacherBToken, LessonPlanSource.PERSONAL, '李老师个人教案');
+
+    const courseOptions = await api(
+      'get',
+      '/api/v1/lesson-plans/course-options',
+      teacherAToken,
+    );
+    expect(courseOptions).toContainEqual({
+      id: courseId,
+      name: '教案测试课程',
+    });
 
     const teacherAPlans = await api('get', '/api/v1/lesson-plans', teacherAToken);
     expect(teacherAPlans.map((item: any) => item.theme)).toEqual([
@@ -215,7 +225,7 @@ describe('lesson plan library', () => {
     username: string;
     realName: string | null;
     userType: UserType;
-  }, permissions = ['lesson-record:read', 'lesson-record:manage']) {
+  }, permissions = ['lesson-plan:read', 'lesson-plan:manage']) {
     return (await app.get(TokenService).issueTokens({ ...user, roles: [], permissions }, {
       ip: '127.0.0.1',
       userAgent: 'lesson-plan-test',

@@ -14,6 +14,15 @@ import {
   ValidateNested,
 } from 'class-validator';
 import { LessonPlanSource } from '@prisma/client';
+import { ApiProperty } from '@nestjs/swagger';
+
+export class LessonPlanCourseOptionDto {
+  @ApiProperty({ format: 'uuid' })
+  id!: string;
+
+  @ApiProperty()
+  name!: string;
+}
 
 export class TeachingProcessStageDto {
   @IsString() @MaxLength(100) id!: string;

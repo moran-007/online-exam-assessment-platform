@@ -17,7 +17,7 @@ const permissionGroupNames = {
   course: '课程', 'knowledge-point': '知识点', tag: '标签', question: '题库', paper: '试卷',
   exam: '考试', class: '班级', grading: '批改', student: '学生信息', export: '导出',
   attachment: '附件', hydro: '外部判题', statistics: '统计', 'audit-log': '审计',
-  ai: 'AI 能力',
+  ai: 'AI 能力', 'lesson-plan': '教案', 'lesson-record': '教学记录', 'lesson-asset': '教学附件',
 };
 
 export const userTypeOptions = [
@@ -70,7 +70,7 @@ export function useUserManagementPage() {
   const roleForm = reactive(baseRoleForm());
   const resetPasswordForm = reactive({ password: '', confirmPassword: '' });
 
-  const activeRoles = computed(() => roles.value.filter((role) => role.status === 'ACTIVE'));
+  const activeRoles = computed(() => roles.value.filter((role) => role.status === 'ACTIVE' && role.assignable !== false));
   const validPermissionIds = computed(() => new Set(permissions.value.map((permission) => permission.id)));
   const permissionTree = computed(() => buildPermissionTree(permissions.value));
   const filteredPermissionTree = computed(() => filterPermissionTree(permissionTree.value, permissionKeyword.value));

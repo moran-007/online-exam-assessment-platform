@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma, RoleStatus, UserType } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { AI_USER_ROLE_CODE } from '../../common/security/ai-user-permissions';
 
 @Injectable()
 export class UserSupportOperations {
@@ -150,12 +151,16 @@ export class UserSupportOperations {
   async syncUserRoles(tx: Prisma.TransactionClient, userId: string, roleIds: string[]) {
     const normalized = this.uniqueIds(roleIds);
     if (normalized.length) {
-      const count = await tx.role.count({
+      const roles = await tx.role.findMany({
         where: { id: { in: normalized } },
+        select: { id: true, code: true },
       });
 
-      if (count !== normalized.length) {
+      if (roles.length !== normalized.length) {
         throw new BadRequestException('包含不存在的角色');
+      }
+      if (roles.some(({ code }) => code === AI_USER_ROLE_CODE)) {
+        throw new BadRequestException('AI 用户是系统权限主体，不能分配给登录用户');
       }
     }
 

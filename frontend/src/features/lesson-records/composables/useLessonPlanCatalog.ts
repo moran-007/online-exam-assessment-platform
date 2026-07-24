@@ -27,6 +27,7 @@ export interface LessonPlan {
   authorName: string;
   courseId: string;
   knowledgePointId?: string;
+  knowledgePointName?: string;
   theme: string;
   scheduledAt: string;
   classroom: string;
@@ -54,7 +55,10 @@ export interface LessonPlan {
   updatedAt: string;
 }
 
-export type LessonPlanEditable = Omit<LessonPlan, 'id' | 'createdAt' | 'updatedAt'>;
+export type LessonPlanEditable = Omit<
+  LessonPlan,
+  'id' | 'createdAt' | 'updatedAt' | 'knowledgePointName'
+>;
 
 const LEGACY_STORAGE_KEY = 'course-preset-lesson-plans-v1';
 
@@ -228,6 +232,7 @@ function readCurrentPlan(value: unknown): LessonPlan | null {
     authorName: text(source.authorName),
     courseId: text(source.courseId),
     knowledgePointId: text(source.knowledgePointId) || undefined,
+    knowledgePointName: text(source.knowledgePointName) || undefined,
     theme: text(source.theme),
     teachingProcess,
     createdAt: text(source.createdAt) || text(source.updatedAt) || new Date().toISOString(),

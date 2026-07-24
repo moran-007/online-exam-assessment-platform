@@ -11,6 +11,11 @@ import {
   UserType,
 } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
+import {
+  AI_USER_ROLE_CODE,
+  AI_USER_ROLE_NAME,
+  isAiReadablePermission,
+} from '../src/common/security/ai-user-permissions';
 
 const prisma = new PrismaClient();
 
@@ -47,6 +52,8 @@ export const permissions = [
   ['ai.data.student-identity', 'AI 使用学生实名'],
   ['ai.data.teacher-identity', 'AI 使用教师实名'],
   ['ai.data.teacher-materials', 'AI 读取教师教学资料'],
+  ['ai.data.lesson-plans', 'AI 读取教案'],
+  ['ai.user.manage', '管理 AI 用户读取权限'],
   ['ai.summary.class.generate', '生成班级总结'], ['ai.summary.parent-report.generate', '生成家长报告'],
   ['ai.summary.lesson.generate', '生成课堂助手草稿'],
   ['ai.summary.review', '审核 AI 总结'], ['ai.summary.publish', '发布 AI 总结'],
@@ -71,6 +78,8 @@ export const permissions = [
   ['lesson-record:read', '按数据范围查看教学记录和已发布学习内容'],
   ['lesson-record:manage', '保存草稿、提交教学记录和维护附件'],
   ['lesson-record:publish', '审核并发布教学记录'],
+  ['lesson-plan:read', '查看教案、教案模板和教学流程预设'],
+  ['lesson-plan:manage', '创建、修改和删除教案及个人预设'],
   ['lesson-asset:manage', '上传和移除课次附件'],
   ['lesson-asset:download', '在教学记录数据范围内预览和下载附件'],
   ['scratch-template:read', '查看可用 Scratch 模板元数据'],
@@ -86,6 +95,15 @@ export const permissions = [
   ['scratch-judge:manage', '重试和查看外部运行时判定任务'],
   ['statistics:read', '查看统计'], ['dashboard:read', '按数据范围查看融合看板'], ['audit-log:read', '查看审计日志'],
 ] as const;
+
+export function getAiUserSeedPermissionCodes(
+  allPermissionCodes: readonly string[],
+  excludedPermissionCodes: ReadonlySet<string>,
+) {
+  return allPermissionCodes.filter((code) =>
+    isAiReadablePermission(code)
+    && !excludedPermissionCodes.has(code));
+}
 
 async function main() {
   for (const [code, name] of permissions) {
@@ -103,6 +121,11 @@ async function main() {
 
   const allPermissions = await prisma.permission.findMany();
   const allPermissionCodes = allPermissions.map((permission) => permission.code);
+  const excludedAiPermissionCodes = new Set(
+    (await prisma.aiUserPermissionExclusion.findMany({
+      select: { permission: { select: { code: true } } },
+    })).map(({ permission }) => permission.code),
+  );
 
   const roleDefinitions = [
     {
@@ -114,6 +137,14 @@ async function main() {
       code: 'academic_admin',
       name: '教务管理员',
       permissions: allPermissionCodes.filter((code) => !['ai.provider.manage', 'ai.prompt.manage'].includes(code)),
+    },
+    {
+      code: AI_USER_ROLE_CODE,
+      name: AI_USER_ROLE_NAME,
+      permissions: getAiUserSeedPermissionCodes(
+        allPermissionCodes,
+        excludedAiPermissionCodes,
+      ),
     },
     {
       code: 'teacher',
@@ -175,6 +206,7 @@ async function main() {
         'ai.data.attendance',
         'ai.data.schedule',
         'ai.data.teacher-materials',
+        'ai.data.lesson-plans',
         'ai.summary.student.generate',
         'ai.summary.class.generate',
         'ai.summary.parent-report.generate',
@@ -199,6 +231,8 @@ async function main() {
         'lesson-record:read',
         'lesson-record:manage',
         'lesson-record:publish',
+        'lesson-plan:read',
+        'lesson-plan:manage',
         'lesson-asset:manage',
         'lesson-asset:download',
         'scratch-template:read',
@@ -240,6 +274,20 @@ async function main() {
         name: roleDefinition.name,
       },
     });
+
+    if (roleDefinition.code === AI_USER_ROLE_CODE) {
+      await prisma.rolePermission.deleteMany({
+        where: {
+          roleId: role.id,
+          permissionId: {
+            in: allPermissions
+              .filter(({ code }) =>
+                !isAiReadablePermission(code) || excludedAiPermissionCodes.has(code))
+              .map(({ id }) => id),
+          },
+        },
+      });
+    }
 
     for (const permissionCode of roleDefinition.permissions) {
       const permission = allPermissions.find((item) => item.code === permissionCode);

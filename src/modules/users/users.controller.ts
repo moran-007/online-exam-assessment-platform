@@ -1,5 +1,5 @@
 import { Body, Controller, Get, Param, Patch, Post, Put, Query } from '@nestjs/common';
-import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiOkResponse, ApiTags } from '@nestjs/swagger';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Permissions } from '../../common/decorators/permissions.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
@@ -8,9 +8,12 @@ import { BatchCreateStudentsDto, BatchCreateTeachersDto, CreateStudentDto } from
 import {
   ChangeOwnPasswordDto,
   CreateManagedUserDto,
+  AiUserPermissionConfigResponseDto,
+  AiUserRoleResponseDto,
   ListManagedUsersQueryDto,
   ResetManagedUserPasswordDto,
   SaveRoleDto,
+  UpdateAiUserPermissionsDto,
   UpdateManagedUserDto,
   UpdateRolePermissionsDto,
 } from './dto/manage-users.dto';
@@ -105,6 +108,22 @@ export class UsersController {
   @Roles('SUPER_ADMIN')
   createRole(@Body() dto: SaveRoleDto, @CurrentUser() user: RequestUser) {
     return this.roleUseCases.createRole(dto, user);
+  }
+
+  @Get('roles/ai-user')
+  @Roles('SUPER_ADMIN')
+  @Permissions('ai.user.manage')
+  @ApiOkResponse({ type: AiUserPermissionConfigResponseDto })
+  aiUserPermissions() {
+    return this.roleUseCases.getAiUserPermissions();
+  }
+
+  @Put('roles/ai-user/permissions')
+  @Roles('SUPER_ADMIN')
+  @Permissions('ai.user.manage')
+  @ApiOkResponse({ type: AiUserRoleResponseDto })
+  updateAiUserPermissions(@Body() dto: UpdateAiUserPermissionsDto, @CurrentUser() user: RequestUser) {
+    return this.roleUseCases.updateAiUserPermissions(dto, user);
   }
 
   @Patch('roles/:id')

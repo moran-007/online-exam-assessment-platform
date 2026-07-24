@@ -102,8 +102,11 @@
             </el-table-column>
             <el-table-column label="操作" width="180" fixed="right">
               <template #default="{ row }">
-                <el-button link type="primary" :icon="Edit" @click="openEditRoleDialog(row)">编辑</el-button>
-                <el-button link type="primary" :icon="Key" @click="openPermissionDrawer(row)">权限</el-button>
+                <template v-if="!row.protected">
+                  <el-button link type="primary" :icon="Edit" @click="openEditRoleDialog(row)">编辑</el-button>
+                  <el-button link type="primary" :icon="Key" @click="openPermissionDrawer(row)">权限</el-button>
+                </template>
+                <span v-else class="muted">在 AI 中心验证密码后配置</span>
               </template>
             </el-table-column>
           </el-table>
@@ -130,7 +133,7 @@
               :key="role.id"
               :label="`${role.name}（${role.code}）`"
               :value="role.id"
-              :disabled="role.status !== 'ACTIVE'"
+              :disabled="role.status !== 'ACTIVE' || role.assignable === false"
             />
           </el-select>
         </el-form-item>

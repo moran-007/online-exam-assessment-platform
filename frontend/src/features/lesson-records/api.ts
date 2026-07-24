@@ -116,9 +116,16 @@ export interface LessonPlanProcessPreset {
   updatedAt: string | null;
 }
 
+export interface LessonPlanCourseOption {
+  id: string;
+  name: string;
+}
+
 const data = async <T>(request: Promise<unknown>) => ((await request) as { data: T }).data;
 
 export const listLessonPlans = () => data<unknown[]>(apiWire('/lesson-plans'));
+export const listLessonPlanCourseOptions = () =>
+  data<LessonPlanCourseOption[]>(apiWire('/lesson-plans/course-options'));
 export const createLessonPlan = (body: Record<string, unknown>) =>
   data<unknown>(apiWire('/lesson-plans', { method: 'POST', body }));
 export const updateLessonPlan = (id: string, body: Record<string, unknown>) =>

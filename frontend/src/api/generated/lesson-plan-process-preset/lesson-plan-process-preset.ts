@@ -87,7 +87,6 @@ export const lessonPlanProcessPresetsList = async ( options?: RequestInit): Prom
 
   }
 );}
-
 export type lessonPlanProcessPresetsCreateResponse201 = {
   data: LessonPlanProcessPresetsCreate201
   status: 201
@@ -158,7 +157,6 @@ export const lessonPlanProcessPresetsCreate = async (createLessonPlanProcessPres
     body: JSON.stringify(createLessonPlanProcessPresetDto)
   }
 );}
-
 
 export type lessonPlanProcessPresetsRemoveResponse200 = {
   data: LessonPlanProcessPresetsRemove200

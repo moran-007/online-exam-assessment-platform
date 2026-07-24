@@ -82,7 +82,6 @@ export const aiSummaryPresetList = async ( options?: RequestInit): Promise<aiSum
 
   }
 );}
-
 export type aiSummaryPresetReviseResponse201 = {
   data: AiSummaryPresetRevise201
   status: 201
@@ -151,7 +150,6 @@ export const aiSummaryPresetRevise = async (id: string,
     body: JSON.stringify(updateAiSummaryPresetDto)
   }
 );}
-
 
 export type aiSummaryPresetActivateResponse201 = {
   data: AiSummaryPresetActivate201

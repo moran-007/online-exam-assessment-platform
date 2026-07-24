@@ -98,7 +98,10 @@ GitHub Actions 会在 PR 和 `main` push 时执行 Prisma 校验/空库迁移/sc
 
 ```bash
 pnpm exec prisma migrate deploy
+pnpm permissions:sync
 ```
+
+权限同步是幂等操作：它会登记新权限、为超级管理员补齐权限，并把新增读取类权限默认补给 AI 用户；超级管理员手动关闭的 AI 读取权限会保留，不会被重新开启。
 
 ## 常用认证接口
 

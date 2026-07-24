@@ -1,12 +1,14 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { LessonPlanSource, Prisma } from '@prisma/client';
 import { RequestUser } from '../../common/interfaces/request-user.interface';
+import { hasPermission } from '../../common/security/permission-policy';
 import { AuditService } from '../audit/audit.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { QueryLessonPlanDto, SaveLessonPlanDto } from './dto/lesson-plan.dto';
 
 const lessonPlanInclude = {
   author: { select: { id: true, username: true, realName: true } },
+  knowledgePoint: { select: { name: true } },
 } as const;
 
 @Injectable()
@@ -15,6 +17,34 @@ export class LessonPlansService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
   ) {}
+
+  courseOptions(actor: RequestUser) {
+    const canReadCourseCatalog = hasPermission(actor, 'course:read');
+    return this.prisma.course.findMany({
+      where: {
+        deletedAt: null,
+        ...(!canReadCourseCatalog
+          ? {
+              lessonPlans: {
+                some: {
+                  deletedAt: null,
+                  ...(!this.isAdmin(actor)
+                    ? {
+                        OR: [
+                          { source: LessonPlanSource.SYSTEM },
+                          { source: LessonPlanSource.PERSONAL, authorId: actor.id },
+                        ],
+                      }
+                    : {}),
+                },
+              },
+            }
+          : {}),
+      },
+      orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
+      select: { id: true, name: true },
+    });
+  }
 
   async list(query: QueryLessonPlanDto, actor: RequestUser) {
     const where: Prisma.LessonPlanWhereInput = {
@@ -151,6 +181,7 @@ export class LessonPlansService {
       authorName: item.author.realName || item.author.username,
       courseId: item.courseId,
       knowledgePointId: item.knowledgePointId || undefined,
+      knowledgePointName: item.knowledgePoint?.name || undefined,
       theme: item.theme,
       ...content,
       createdAt: item.createdAt,

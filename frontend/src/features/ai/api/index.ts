@@ -71,6 +71,37 @@ import type {
   AiSummaryPreset,
   UpdateAiSummaryPreset,
 } from '../models';
+import { apiWire } from '../../../api';
+
+export type AiUserPermissionRecord = {
+  id: string;
+  code: string;
+  name: string;
+  description?: string | null;
+};
+
+export type AiUserPermissionConfig = {
+  role: {
+    id: string;
+    code: 'ai_user';
+    name: string;
+    description?: string | null;
+    status: 'ACTIVE' | 'DISABLED';
+    permissionIds: string[];
+    permissions: AiUserPermissionRecord[];
+  };
+  availablePermissions: AiUserPermissionRecord[];
+};
+
+const wireData = async <T>(request: Promise<unknown>) => ((await request) as { data: T }).data;
+
+export const getAiUserPermissionConfig = () =>
+  wireData<AiUserPermissionConfig>(apiWire('/users/roles/ai-user'));
+export const updateAiUserPermissionConfig = (body: { permissionIds: string[]; password: string }) =>
+  wireData<AiUserPermissionConfig['role']>(apiWire('/users/roles/ai-user/permissions', {
+    method: 'PUT',
+    body,
+  }));
 
 export const listAiPresets = () => generatedData(asGenerated<AiProviderPreset[]>(aiPresets()));
 export const listAiConfigurations = () => generatedData(asGenerated<AiProviderConfig[]>(aiConfigurations()));

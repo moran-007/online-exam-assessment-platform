@@ -9,7 +9,7 @@
     <el-tabs v-model="activeSection" class="course-catalog-tabs" @tab-change="handleSectionChange">
       <el-tab-pane v-if="canReadCourse" label="课程管理" name="courses" />
       <el-tab-pane v-if="canReadKnowledge" label="课程知识点" name="knowledge" />
-      <el-tab-pane v-if="canReadCourse" label="教案" name="lesson-plans" />
+      <el-tab-pane v-if="canAccessLessonPlans" label="教案" name="lesson-plans" />
     </el-tabs>
 
     <KnowledgeManagementPage v-if="activeSection === 'knowledge'" embedded />
@@ -193,6 +193,7 @@ import { DocumentCopy, Edit, Plus, Refresh, Search, Upload, View } from '@elemen
 import { getCurrentUser } from '../api';
 import { hasAnyPermission } from '../access';
 import { createCourse, listCourses, removeCourse, updateCourse } from '../features/platform/api';
+import { listLessonPlanCourseOptions } from '../features/lesson-records/api';
 import KnowledgeManagementPage from '../features/knowledge/components/KnowledgeManagementPage.vue';
 import LessonPlanLibrary from '../features/lesson-records/components/LessonPlanLibrary.vue';
 import { useResponsiveColumns } from '../composables/useResponsiveColumns';
@@ -201,6 +202,8 @@ const currentUser = getCurrentUser();
 const route = useRoute();
 const router = useRouter();
 const canReadCourse = hasAnyPermission(currentUser, ['course:read']);
+const canReadLessonPlans = hasAnyPermission(currentUser, ['lesson-plan:read']);
+const canAccessLessonPlans = canReadLessonPlans;
 const canReadKnowledge = hasAnyPermission(currentUser, ['knowledge-point:read']);
 const canCreateCourse = hasAnyPermission(currentUser, ['course:create']);
 const canUpdateCourse = hasAnyPermission(currentUser, ['course:update']);
@@ -247,16 +250,21 @@ async function load() {
 
 function resolveSection(section) {
   if (section === 'knowledge' && canReadKnowledge) return 'knowledge';
-  if (section === 'lesson-plans' && canReadCourse) return 'lesson-plans';
-  return canReadCourse ? 'courses' : 'knowledge';
+  if (section === 'lesson-plans' && canAccessLessonPlans) return 'lesson-plans';
+  if (canReadCourse) return 'courses';
+  if (canReadKnowledge) return 'knowledge';
+  return canAccessLessonPlans ? 'lesson-plans' : 'courses';
 }
 
 async function handleSectionChange(section) {
   const nextSection = resolveSection(String(section));
   activeSection.value = nextSection;
-  if (['courses', 'lesson-plans'].includes(nextSection) && !courseListLoaded.value) await load();
+  if (nextSection === 'courses' && !courseListLoaded.value) await load();
   if (nextSection === 'lesson-plans') await loadLessonPlanCourses();
   const query = { ...route.query };
+  delete query.courseId;
+  delete query.knowledgePointId;
+  delete query.planId;
   if (nextSection === 'knowledge' || nextSection === 'lesson-plans') query.section = nextSection;
   else delete query.section;
   await router.replace({ path: '/courses', query });
@@ -264,8 +272,7 @@ async function handleSectionChange(section) {
 
 async function loadLessonPlanCourses() {
   if (lessonPlanCourses.value.length) return;
-  const data = await listCourses({ pageSize: 100 });
-  lessonPlanCourses.value = data.items;
+  lessonPlanCourses.value = await listLessonPlanCourseOptions();
 }
 
 function loadFirstPage() {
@@ -547,7 +554,7 @@ watch(
   (section) => {
     const nextSection = resolveSection(section);
     activeSection.value = nextSection;
-    if (['courses', 'lesson-plans'].includes(nextSection) && !courseListLoaded.value) void load();
+    if (nextSection === 'courses' && !courseListLoaded.value) void load();
     if (nextSection === 'lesson-plans') void loadLessonPlanCourses();
   },
   { immediate: true },

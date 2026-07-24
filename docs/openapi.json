@@ -119,7 +119,8 @@
               "student",
               "teacher",
               "schedule",
-              "exam"
+              "exam",
+              "lesson_plan"
             ],
             "type": "string"
           }
@@ -1882,6 +1883,149 @@
           "completionTokens",
           "totalTokens",
           "reported"
+        ],
+        "type": "object"
+      },
+      "AiUserPermissionConfigResponseDto": {
+        "properties": {
+          "availablePermissions": {
+            "items": {
+              "$ref": "#/components/schemas/AiUserReadablePermissionResponseDto"
+            },
+            "type": "array"
+          },
+          "role": {
+            "$ref": "#/components/schemas/AiUserRoleResponseDto"
+          }
+        },
+        "required": [
+          "role",
+          "availablePermissions"
+        ],
+        "type": "object"
+      },
+      "AiUserReadablePermissionResponseDto": {
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "description": {
+            "nullable": true,
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "method": {
+            "nullable": true,
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "parentId": {
+            "format": "uuid",
+            "nullable": true,
+            "type": "string"
+          },
+          "path": {
+            "nullable": true,
+            "type": "string"
+          },
+          "sortOrder": {
+            "type": "number"
+          },
+          "type": {
+            "enum": [
+              "MENU",
+              "BUTTON",
+              "API"
+            ],
+            "type": "string"
+          },
+          "updatedAt": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "code",
+          "type",
+          "sortOrder"
+        ],
+        "type": "object"
+      },
+      "AiUserRoleResponseDto": {
+        "properties": {
+          "assignable": {
+            "type": "boolean"
+          },
+          "code": {
+            "type": "string"
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "description": {
+            "nullable": true,
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "permissionIds": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "permissions": {
+            "items": {
+              "$ref": "#/components/schemas/AiUserReadablePermissionResponseDto"
+            },
+            "type": "array"
+          },
+          "protected": {
+            "type": "boolean"
+          },
+          "status": {
+            "enum": [
+              "ACTIVE",
+              "DISABLED"
+            ],
+            "type": "string"
+          },
+          "updatedAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "userCount": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "code",
+          "status",
+          "createdAt",
+          "updatedAt",
+          "userCount",
+          "permissionIds",
+          "permissions"
         ],
         "type": "object"
       },
@@ -4808,6 +4952,22 @@
         },
         "type": "object"
       },
+      "LessonPlanCourseOptionDto": {
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name"
+        ],
+        "type": "object"
+      },
       "LessonPlanProcessPresetResponseDto": {
         "properties": {
           "canManage": {
@@ -6751,6 +6911,28 @@
         "required": [
           "systemPrompt",
           "changeReason"
+        ],
+        "type": "object"
+      },
+      "UpdateAiUserPermissionsDto": {
+        "properties": {
+          "password": {
+            "maxLength": 64,
+            "minLength": 6,
+            "type": "string"
+          },
+          "permissionIds": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "maxItems": 200,
+            "type": "array"
+          }
+        },
+        "required": [
+          "password",
+          "permissionIds"
         ],
         "type": "object"
       },
@@ -20849,6 +21031,74 @@
         ]
       }
     },
+    "/api/v1/lesson-plans/course-options": {
+      "get": {
+        "operationId": "LessonPlans_courseOptions",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "code": {
+                      "example": 0,
+                      "type": "integer"
+                    },
+                    "data": {
+                      "items": {
+                        "$ref": "#/components/schemas/LessonPlanCourseOptionDto"
+                      },
+                      "type": "array"
+                    },
+                    "message": {
+                      "example": "ok",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "code",
+                    "message",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "401": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "404": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "409": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "429": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "500": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "Lesson plan"
+        ]
+      }
+    },
     "/api/v1/lesson-records": {
       "get": {
         "operationId": "LessonRecords_list",
@@ -31706,6 +31956,146 @@
         },
         "responses": {
           "200": {
+            "description": ""
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "401": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "404": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "409": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "429": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "500": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "User"
+        ]
+      }
+    },
+    "/api/v1/users/roles/ai-user": {
+      "get": {
+        "operationId": "Users_aiUserPermissions",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "code": {
+                      "example": 0,
+                      "type": "integer"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/AiUserPermissionConfigResponseDto"
+                    },
+                    "message": {
+                      "example": "ok",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "code",
+                    "message",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "401": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "404": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "409": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "429": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "500": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "User"
+        ]
+      }
+    },
+    "/api/v1/users/roles/ai-user/permissions": {
+      "put": {
+        "operationId": "Users_updateAiUserPermissions",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateAiUserPermissionsDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "code": {
+                      "example": 0,
+                      "type": "integer"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/AiUserRoleResponseDto"
+                    },
+                    "message": {
+                      "example": "ok",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "code",
+                    "message",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
             "description": ""
           },
           "400": {

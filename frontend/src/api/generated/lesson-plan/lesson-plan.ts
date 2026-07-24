@@ -7,6 +7,7 @@
  */
 import type {
   ApiErrorResponse,
+  LessonPlansCourseOptions200,
   LessonPlansListParams,
   LessonPlansRemove200,
   SaveLessonPlanDto
@@ -88,7 +89,6 @@ export const lessonPlansList = async (params?: LessonPlansListParams, options?: 
 
   }
 );}
-
 export type lessonPlansCreateResponse201 = {
   data: void
   status: 201
@@ -156,7 +156,6 @@ export const lessonPlansCreate = async (saveLessonPlanDto: SaveLessonPlanDto, op
     body: JSON.stringify(saveLessonPlanDto)
   }
 );}
-
 
 export type lessonPlansRemoveResponse200 = {
   data: LessonPlansRemove200
@@ -293,5 +292,74 @@ export const lessonPlansUpdate = async (id: string,
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json', ...options?.headers },
     body: JSON.stringify(saveLessonPlanDto)
+  }
+);}
+
+
+export type lessonPlansCourseOptionsResponse200 = {
+  data: LessonPlansCourseOptions200
+  status: 200
+}
+
+export type lessonPlansCourseOptionsResponse400 = {
+  data: ApiErrorResponse
+  status: 400
+}
+
+export type lessonPlansCourseOptionsResponse401 = {
+  data: ApiErrorResponse
+  status: 401
+}
+
+export type lessonPlansCourseOptionsResponse403 = {
+  data: ApiErrorResponse
+  status: 403
+}
+
+export type lessonPlansCourseOptionsResponse404 = {
+  data: ApiErrorResponse
+  status: 404
+}
+
+export type lessonPlansCourseOptionsResponse409 = {
+  data: ApiErrorResponse
+  status: 409
+}
+
+export type lessonPlansCourseOptionsResponse429 = {
+  data: ApiErrorResponse
+  status: 429
+}
+
+export type lessonPlansCourseOptionsResponse500 = {
+  data: ApiErrorResponse
+  status: 500
+}
+
+export type lessonPlansCourseOptionsResponseSuccess = (lessonPlansCourseOptionsResponse200) & {
+  headers: Headers;
+};
+export type lessonPlansCourseOptionsResponseError = (lessonPlansCourseOptionsResponse400 | lessonPlansCourseOptionsResponse401 | lessonPlansCourseOptionsResponse403 | lessonPlansCourseOptionsResponse404 | lessonPlansCourseOptionsResponse409 | lessonPlansCourseOptionsResponse429 | lessonPlansCourseOptionsResponse500) & {
+  headers: Headers;
+};
+
+export type lessonPlansCourseOptionsResponse = (lessonPlansCourseOptionsResponseSuccess | lessonPlansCourseOptionsResponseError)
+
+export const getLessonPlansCourseOptionsUrl = () => {
+
+
+
+
+  return `/api/v1/lesson-plans/course-options`
+}
+
+export const lessonPlansCourseOptions = async ( options?: RequestInit): Promise<lessonPlansCourseOptionsResponse> => {
+
+  return apiMutator<lessonPlansCourseOptionsResponse>(getLessonPlansCourseOptionsUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
   }
 );}

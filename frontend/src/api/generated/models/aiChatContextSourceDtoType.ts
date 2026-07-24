@@ -17,4 +17,5 @@ export const AiChatContextSourceDtoType = {
   teacher: 'teacher',
   schedule: 'schedule',
   exam: 'exam',
+  lesson_plan: 'lesson_plan',
 } as const;

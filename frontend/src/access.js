@@ -26,7 +26,7 @@ export const parentMenuItems = [
 
 export const adminMenuItems = [
   { path: '/dashboard', label: '融合看板', icon: 'DataBoard', permissions: ['dashboard:read'], section: 'overview' },
-  { path: '/courses', label: '课程与知识点', icon: 'Collection', permissions: ['course:read', 'knowledge-point:read'], section: 'academics' },
+  { path: '/courses', label: '课程与知识点', icon: 'Collection', permissions: ['course:read', 'knowledge-point:read', 'lesson-plan:read'], section: 'academics' },
   { path: '/classes', label: '班级', icon: 'UserFilled', permissions: ['class:read'], section: 'academics' },
   { path: '/users', label: '用户权限', icon: 'Setting', userTypes: ['SUPER_ADMIN'], section: 'platform' },
   { path: '/academic-profiles', label: '教务档案', icon: 'Postcard', userTypes: ['SUPER_ADMIN', 'ADMIN'], section: 'academics' },

@@ -571,6 +571,7 @@ deploy_release() {
       pnpm backup:create
     fi
     pnpm prisma migrate deploy
+    pnpm permissions:sync
     pnpm assets:migrate
     if [[ "$RUN_SEED" == "true" ]]; then
       pnpm db:seed

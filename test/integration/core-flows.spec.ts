@@ -79,6 +79,25 @@ describe('core API flows', () => {
     const viewOwnPermission = await prisma.permission.create({
       data: { name: 'View own AI summaries', code: 'ai.summary.view-own', type: PermissionType.API },
     });
+    const aiReadableCodes = [
+      'grading:score:read',
+      'attendance:read',
+      'schedule:read',
+      'ai.data.grade-history',
+      'ai.data.attendance',
+      'ai.data.schedule',
+    ];
+    const aiReadablePermissions = await Promise.all(aiReadableCodes.map((code) =>
+      prisma.permission.create({
+        data: { name: code, code, type: PermissionType.API },
+      })));
+    const aiUserRole = await prisma.role.create({ data: { name: 'AI 用户', code: 'ai_user' } });
+    await prisma.rolePermission.createMany({
+      data: aiReadablePermissions.map((permission) => ({
+        roleId: aiUserRole.id,
+        permissionId: permission.id,
+      })),
+    });
     const studentRole = await prisma.role.create({ data: { name: 'Test student role', code: 'student' } });
     await prisma.rolePermission.create({
       data: { roleId: studentRole.id, permissionId: viewOwnPermission.id },

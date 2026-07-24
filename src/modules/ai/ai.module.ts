@@ -36,6 +36,7 @@ import { AiSummaryPresetController } from './ai-summary-preset.controller';
 import { AiSummaryPresetUseCases } from './ai-summary-preset.use-cases';
 import { AiDataPermissionService } from './ai-data-permission.service';
 import { AiLearningContextService } from './ai-learning-context.service';
+import { AiUserPermissionService } from './ai-user-permission.service';
 
 @Module({
   imports: [AuditModule, StatisticsModule],
@@ -76,6 +77,7 @@ import { AiLearningContextService } from './ai-learning-context.service';
     AiRegressionUseCases,
     AiSummaryPresetUseCases,
     AiDataPermissionService,
+    AiUserPermissionService,
     AiLearningContextService,
   ],
   exports: [

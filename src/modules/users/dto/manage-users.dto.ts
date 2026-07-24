@@ -1,4 +1,5 @@
 import { Transform } from 'class-transformer';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
   ArrayMaxSize,
   IsArray,
@@ -9,7 +10,7 @@ import {
   MaxLength,
   MinLength,
 } from 'class-validator';
-import { RoleStatus, UserStatus, UserType } from '@prisma/client';
+import { PermissionType, RoleStatus, UserStatus, UserType } from '@prisma/client';
 import { PaginationQueryDto } from '../../../common/dto/pagination-query.dto';
 
 export class ListManagedUsersQueryDto extends PaginationQueryDto {
@@ -148,4 +149,92 @@ export class UpdateRolePermissionsDto {
   @ArrayMaxSize(200)
   @IsUUID('4', { each: true })
   permissionIds: string[];
+}
+
+export class UpdateAiUserPermissionsDto extends UpdateRolePermissionsDto {
+  @IsString()
+  @MinLength(6)
+  @MaxLength(64)
+  password: string;
+}
+
+export class AiUserReadablePermissionResponseDto {
+  @ApiProperty({ format: 'uuid' })
+  id!: string;
+
+  @ApiProperty()
+  name!: string;
+
+  @ApiPropertyOptional({ nullable: true })
+  description?: string | null;
+
+  @ApiProperty()
+  code!: string;
+
+  @ApiProperty({ enum: PermissionType })
+  type!: PermissionType;
+
+  @ApiPropertyOptional({ format: 'uuid', nullable: true })
+  parentId?: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  path?: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  method?: string | null;
+
+  @ApiProperty()
+  sortOrder!: number;
+
+  @ApiPropertyOptional({ type: String, format: 'date-time' })
+  createdAt?: Date;
+
+  @ApiPropertyOptional({ type: String, format: 'date-time' })
+  updatedAt?: Date;
+}
+
+export class AiUserRoleResponseDto {
+  @ApiProperty({ format: 'uuid' })
+  id!: string;
+
+  @ApiProperty()
+  name!: string;
+
+  @ApiProperty()
+  code!: string;
+
+  @ApiPropertyOptional({ nullable: true })
+  description?: string | null;
+
+  @ApiProperty({ enum: RoleStatus })
+  status!: RoleStatus;
+
+  @ApiProperty({ type: String, format: 'date-time' })
+  createdAt!: Date;
+
+  @ApiProperty({ type: String, format: 'date-time' })
+  updatedAt!: Date;
+
+  @ApiProperty()
+  userCount!: number;
+
+  @ApiProperty({ type: [String], format: 'uuid' })
+  permissionIds!: string[];
+
+  @ApiProperty({ type: [AiUserReadablePermissionResponseDto] })
+  permissions!: AiUserReadablePermissionResponseDto[];
+
+  @ApiPropertyOptional()
+  assignable?: boolean;
+
+  @ApiPropertyOptional()
+  protected?: boolean;
+}
+
+export class AiUserPermissionConfigResponseDto {
+  @ApiProperty({ type: AiUserRoleResponseDto })
+  role!: AiUserRoleResponseDto;
+
+  @ApiProperty({ type: [AiUserReadablePermissionResponseDto] })
+  availablePermissions!: AiUserReadablePermissionResponseDto[];
 }

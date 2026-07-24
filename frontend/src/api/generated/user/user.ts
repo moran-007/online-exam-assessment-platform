@@ -14,10 +14,13 @@ import type {
   CreateStudentDto,
   ResetManagedUserPasswordDto,
   SaveRoleDto,
+  UpdateAiUserPermissionsDto,
   UpdateManagedUserDto,
   UpdateRolePermissionsDto,
+  UsersAiUserPermissions200,
   UsersChangeOwnPassword201,
   UsersResetPassword201,
+  UsersUpdateAiUserPermissions200,
   UsersUsersParams
 } from '../models';
 
@@ -720,6 +723,144 @@ export const usersUpdateRolePermissions = async (id: string,
     method: 'PUT',
     headers: { 'Content-Type': 'application/json', ...options?.headers },
     body: JSON.stringify(updateRolePermissionsDto)
+  }
+);}
+
+
+export type usersAiUserPermissionsResponse200 = {
+  data: UsersAiUserPermissions200
+  status: 200
+}
+
+export type usersAiUserPermissionsResponse400 = {
+  data: ApiErrorResponse
+  status: 400
+}
+
+export type usersAiUserPermissionsResponse401 = {
+  data: ApiErrorResponse
+  status: 401
+}
+
+export type usersAiUserPermissionsResponse403 = {
+  data: ApiErrorResponse
+  status: 403
+}
+
+export type usersAiUserPermissionsResponse404 = {
+  data: ApiErrorResponse
+  status: 404
+}
+
+export type usersAiUserPermissionsResponse409 = {
+  data: ApiErrorResponse
+  status: 409
+}
+
+export type usersAiUserPermissionsResponse429 = {
+  data: ApiErrorResponse
+  status: 429
+}
+
+export type usersAiUserPermissionsResponse500 = {
+  data: ApiErrorResponse
+  status: 500
+}
+
+export type usersAiUserPermissionsResponseSuccess = (usersAiUserPermissionsResponse200) & {
+  headers: Headers;
+};
+export type usersAiUserPermissionsResponseError = (usersAiUserPermissionsResponse400 | usersAiUserPermissionsResponse401 | usersAiUserPermissionsResponse403 | usersAiUserPermissionsResponse404 | usersAiUserPermissionsResponse409 | usersAiUserPermissionsResponse429 | usersAiUserPermissionsResponse500) & {
+  headers: Headers;
+};
+
+export type usersAiUserPermissionsResponse = (usersAiUserPermissionsResponseSuccess | usersAiUserPermissionsResponseError)
+
+export const getUsersAiUserPermissionsUrl = () => {
+
+
+
+
+  return `/api/v1/users/roles/ai-user`
+}
+
+export const usersAiUserPermissions = async ( options?: RequestInit): Promise<usersAiUserPermissionsResponse> => {
+
+  return apiMutator<usersAiUserPermissionsResponse>(getUsersAiUserPermissionsUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+export type usersUpdateAiUserPermissionsResponse200 = {
+  data: UsersUpdateAiUserPermissions200
+  status: 200
+}
+
+export type usersUpdateAiUserPermissionsResponse400 = {
+  data: ApiErrorResponse
+  status: 400
+}
+
+export type usersUpdateAiUserPermissionsResponse401 = {
+  data: ApiErrorResponse
+  status: 401
+}
+
+export type usersUpdateAiUserPermissionsResponse403 = {
+  data: ApiErrorResponse
+  status: 403
+}
+
+export type usersUpdateAiUserPermissionsResponse404 = {
+  data: ApiErrorResponse
+  status: 404
+}
+
+export type usersUpdateAiUserPermissionsResponse409 = {
+  data: ApiErrorResponse
+  status: 409
+}
+
+export type usersUpdateAiUserPermissionsResponse429 = {
+  data: ApiErrorResponse
+  status: 429
+}
+
+export type usersUpdateAiUserPermissionsResponse500 = {
+  data: ApiErrorResponse
+  status: 500
+}
+
+export type usersUpdateAiUserPermissionsResponseSuccess = (usersUpdateAiUserPermissionsResponse200) & {
+  headers: Headers;
+};
+export type usersUpdateAiUserPermissionsResponseError = (usersUpdateAiUserPermissionsResponse400 | usersUpdateAiUserPermissionsResponse401 | usersUpdateAiUserPermissionsResponse403 | usersUpdateAiUserPermissionsResponse404 | usersUpdateAiUserPermissionsResponse409 | usersUpdateAiUserPermissionsResponse429 | usersUpdateAiUserPermissionsResponse500) & {
+  headers: Headers;
+};
+
+export type usersUpdateAiUserPermissionsResponse = (usersUpdateAiUserPermissionsResponseSuccess | usersUpdateAiUserPermissionsResponseError)
+
+export const getUsersUpdateAiUserPermissionsUrl = () => {
+
+
+
+
+  return `/api/v1/users/roles/ai-user/permissions`
+}
+
+export const usersUpdateAiUserPermissions = async (updateAiUserPermissionsDto: UpdateAiUserPermissionsDto, options?: RequestInit): Promise<usersUpdateAiUserPermissionsResponse> => {
+
+  return apiMutator<usersUpdateAiUserPermissionsResponse>(getUsersUpdateAiUserPermissionsUrl(),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(updateAiUserPermissionsDto)
   }
 );}
 

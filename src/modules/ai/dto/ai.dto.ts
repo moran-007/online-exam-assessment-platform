@@ -210,8 +210,8 @@ export class AiSummaryResultDto {
 }
 
 export class AiChatContextSourceDto {
-  @ApiProperty({ enum: ['question', 'paper', 'class', 'student', 'teacher', 'schedule', 'exam'] })
-  type: 'question' | 'paper' | 'class' | 'student' | 'teacher' | 'schedule' | 'exam';
+  @ApiProperty({ enum: ['question', 'paper', 'class', 'student', 'teacher', 'schedule', 'exam', 'lesson_plan'] })
+  type: 'question' | 'paper' | 'class' | 'student' | 'teacher' | 'schedule' | 'exam' | 'lesson_plan';
   @ApiProperty({ format: 'uuid' }) id: string;
   @ApiProperty() name: string;
 }

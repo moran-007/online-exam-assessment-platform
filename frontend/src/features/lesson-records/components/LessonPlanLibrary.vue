@@ -5,7 +5,7 @@
         <h1 class="page-title">教案库</h1>
         <p class="muted">系统通用教案与教师个人教案统一管理；同一课程、知识点可保存多份教案。</p>
       </div>
-      <el-button type="primary" @click="() => openCreate()">录入个人教案</el-button>
+      <el-button v-if="canManageLessonPlans" type="primary" @click="() => openCreate()">录入个人教案</el-button>
     </section>
 
     <section class="panel lesson-plan-panel">
@@ -41,7 +41,7 @@
           <template #default="{ row }">
             <el-button link type="primary" @click="openPreviewRow(row)">查看/导出</el-button>
             <el-button v-if="canManagePlanRow(row)" link type="primary" @click="openEditRow(row)">编辑</el-button>
-            <el-button v-if="row.source === 'SYSTEM'" link type="success" @click="copyPlanAsPersonal(row)">复制为个人</el-button>
+            <el-button v-if="canManageLessonPlans && row.source === 'SYSTEM'" link type="success" @click="copyPlanAsPersonal(row)">复制为个人</el-button>
             <el-button v-if="canManagePlanRow(row)" link type="danger" @click="removePlanRow(row)">删除</el-button>
           </template>
         </el-table-column>
@@ -254,7 +254,7 @@
       </div>
       <template #footer>
         <el-button @click="previewVisible=false">关闭</el-button>
-        <el-button v-if="previewPlan" @click="editPreviewPlan">编辑教案</el-button>
+        <el-button v-if="previewPlan && canManagePlan(previewPlan)" @click="editPreviewPlan">编辑教案</el-button>
         <el-button v-if="previewPlan" :loading="exportingExcel" @click="exportPreviewExcel">导出 Excel</el-button>
         <el-button v-if="previewPlan" type="primary" @click="printPreview">打印 / 保存 PDF</el-button>
       </template>
@@ -308,6 +308,7 @@ import {
   normalizeAiLessonPlanDurations,
 } from '../composables/lessonPlanTimeAllocation';
 import { parseStructuredAiOutput, pickStructuredText } from '../composables/structuredAiOutput';
+import { hasAnyPermission } from '../../../access';
 import {
   createTeachingProcessStage,
   createSuggestedTeachingProcess,
@@ -324,13 +325,20 @@ import {
 
 type Course = { id: string; name: string };
 type KnowledgePoint = { id: string; name: string; children?: KnowledgePoint[] };
-type CurrentUser = { id?: string; username?: string; realName?: string | null; userType?: string | null };
+type CurrentUser = {
+  id?: string;
+  username?: string;
+  realName?: string | null;
+  userType?: string | null;
+  permissions?: string[];
+};
 const props = defineProps<{ courses: Course[] }>();
 const route = useRoute();
 const currentUser = getCurrentUser() as CurrentUser | null;
 const currentAuthorId = String(currentUser?.id || currentUser?.username || 'current-user');
 const currentAuthorName = String(currentUser?.realName || currentUser?.username || '当前教师');
-const canManageSystemPlans = ['SUPER_ADMIN', 'ADMIN'].includes(currentUser?.userType || '');
+const canManageLessonPlans = hasAnyPermission(currentUser, ['lesson-plan:manage']);
+const canManageSystemPlans = canManageLessonPlans && ['SUPER_ADMIN', 'ADMIN'].includes(currentUser?.userType || '');
 const { plans, load, save, remove } = useLessonPlanCatalog();
 const catalogReady = ref(false);
 const configurations = ref<AiProviderConfig[]>([]);
@@ -440,11 +448,8 @@ async function copyPlanAsPersonal(row: unknown) {
 
 async function openPreview(plan: LessonPlan) {
   previewPlanId.value = plan.id;
-  previewKnowledgePointName.value = '';
-  if (plan.knowledgePointId) {
-    const points = flattenPoints(await getKnowledgeTree(plan.courseId) as unknown as KnowledgePoint[]);
-    previewKnowledgePointName.value = points.find((item) => item.id === plan.knowledgePointId)?.name || '未找到对应知识点';
-  }
+  previewKnowledgePointName.value = plan.knowledgePointName
+    || (plan.knowledgePointId ? '已关联课程知识点' : '通用教案');
   previewVisible.value = true;
 }
 
@@ -876,6 +881,7 @@ function editablePlanCopy(plan: LessonPlan): LessonPlanEditable {
   delete editable.id;
   delete editable.createdAt;
   delete editable.updatedAt;
+  delete editable.knowledgePointName;
   return editable as LessonPlanEditable;
 }
 function generationOutputLimit() {
@@ -918,7 +924,8 @@ function compactPromptPreview(value: string) {
   return normalized.length > 92 ? `${normalized.slice(0, 92)}…` : normalized;
 }
 function canManagePlan(plan: LessonPlan) {
-  return canManageSystemPlans || (plan.source === 'PERSONAL' && plan.authorId === currentAuthorId);
+  return canManageLessonPlans
+    && (canManageSystemPlans || (plan.source === 'PERSONAL' && plan.authorId === currentAuthorId));
 }
 const planRow = (row: unknown) => row as LessonPlan;
 const canManagePlanRow = (row: unknown) => canManagePlan(row as LessonPlan);
@@ -928,7 +935,8 @@ function expandAllEditorSections() {
 function inlinePreviewContext(plan: LessonPlan) {
   return {
     courseName: courseName(plan.courseId),
-    knowledgePointName: plan.knowledgePointId ? '已关联课程知识点' : '通用教案',
+    knowledgePointName: plan.knowledgePointName
+      || (plan.knowledgePointId ? '已关联课程知识点' : '通用教案'),
   };
 }
 function processPreview(plan: LessonPlan) {
@@ -949,8 +957,9 @@ watch(
     if (handledRouteEntry.value === token) return;
     handledRouteEntry.value = token;
     courseFilter.value = courseId;
-    const matchedPlan = plans.value.find((item) => item.id === planId)
-      || plans.value.find((item) => item.courseId === courseId && item.knowledgePointId === knowledgePointId);
+    const matchedPlan = planId
+      ? plans.value.find((item) => item.id === planId)
+      : undefined;
     if (matchedPlan) await openPreview(matchedPlan);
     else await openCreate({ courseId, knowledgePointId });
   },

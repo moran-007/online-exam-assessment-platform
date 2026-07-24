@@ -54,7 +54,9 @@ curl -fsSL https://raw.githubusercontent.com/<owner>/<repo>/<branch>/deploy/inst
 
 已有服务器再次部署时，脚本会复用 `/opt/online-exam-platform/shared/.env`，不会覆盖已有密钥。发布前先创建备份，再执行 Prisma 迁移和幂等的旧资源迁移。Nginx 不公开 `/uploads`，附件与导出由应用鉴权接口输出。
 
-本次题型/材料题/评分历史版本包含新增表与增量迁移：`question_compositions`、`scoring_rule_versions`、`regrade_runs`、`scoring_evaluations`，并会补齐细分权限与中文权限名称。生产升级顺序建议固定为：创建备份并完成隔离恢复校验 → 拉取新 release → `pnpm exec prisma migrate deploy` → 构建与重启 PM2 → 验证登录、题库、考试、批改、附件预览和导出下载。
+本次题型/材料题/评分历史版本包含新增表与增量迁移：`question_compositions`、`scoring_rule_versions`、`regrade_runs`、`scoring_evaluations`，并会补齐细分权限与中文权限名称。生产升级顺序建议固定为：创建备份并完成隔离恢复校验 → 拉取新 release → `pnpm exec prisma migrate deploy` → `pnpm permissions:sync` → 构建与重启 PM2 → 验证登录、AI 读取权限、题库、考试、批改、附件预览和导出下载。
+
+`permissions:sync` 会幂等登记权限并为 AI 用户补齐新增读取权限，同时保留超级管理员已手动关闭的读取项；不要在迁移后省略该步骤。一键部署脚本已自动执行。
 
 ## 备份与恢复演练
 

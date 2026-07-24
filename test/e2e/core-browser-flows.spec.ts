@@ -24,6 +24,9 @@ let materialExamId = '';
 let paperName = '';
 let classId = '';
 let operationsDate = '';
+let lessonPlanCourseId = '';
+let lessonPlanKnowledgePointId = '';
+let lessonPlanId = '';
 
 test.beforeAll(async ({ request }) => {
   await rm(process.env.UPLOADS_DIR!, { recursive: true, force: true });
@@ -132,6 +135,8 @@ test.beforeAll(async ({ request }) => {
   const chapter = await prisma.knowledgePoint.create({
     data: { courseId: course.id, name: 'E2E 第一章', code: 'e2e_chapter_1', level: 1, sortOrder: 1 },
   });
+  lessonPlanCourseId = course.id;
+  lessonPlanKnowledgePointId = chapter.id;
   await prisma.knowledgePoint.createMany({
     data: [1, 2, 3].map((sequence) => ({
       courseId: course.id,
@@ -146,6 +151,30 @@ test.beforeAll(async ({ request }) => {
     prisma.user.findUniqueOrThrow({ where: { username: 'e2e_admin' } }),
     prisma.user.findUniqueOrThrow({ where: { username: 'e2e_student' } }),
   ]);
+  lessonPlanId = (await prisma.lessonPlan.create({
+    data: {
+      source: 'SYSTEM',
+      courseId: lessonPlanCourseId,
+      knowledgePointId: lessonPlanKnowledgePointId,
+      authorId: admin.id,
+      theme: 'E2E 教案预览路由',
+      content: {
+        durationMinutes: 45,
+        knowledgeObjectives: '验证教案预览深链',
+        teachingProcess: [{
+          id: 'e2e-preview-stage',
+          title: '路由验证',
+          duration: 45,
+          coreQuestion: '',
+          teacherActivity: '打开教案预览',
+          studentActivity: '查看教案内容',
+          assessment: '',
+          designIntent: '',
+          resources: '',
+        }],
+      },
+    },
+  })).id;
   await seedExamSummaryPrompt(admin.id);
   await api(request, 'post', `/classes/${classId}/students`, token, { userIds: [student.id] });
   operationsDate = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
@@ -644,6 +673,23 @@ test('course and nested knowledge items support create, view, edit, and delete t
   await page.getByRole('dialog', { name: '删除课程' }).locator('.el-message-box__btns .el-button--primary').click();
   await expect(page.getByText('课程已删除')).toBeVisible();
   await expect(page.getByRole('row', { name: new RegExp(editedCourseName) })).toHaveCount(0);
+});
+
+test('lesson plan preview only opens from an explicit plan deep link', async ({ page }) => {
+  await login(page, 'e2e_admin');
+  await page.goto(
+    `/courses?section=lesson-plans&courseId=${lessonPlanCourseId}`
+      + `&knowledgePointId=${lessonPlanKnowledgePointId}&planId=${lessonPlanId}`,
+  );
+  await expect(page.getByRole('dialog', { name: '教案表格预览' })).toBeVisible();
+  await page.getByRole('dialog', { name: '教案表格预览' })
+    .getByRole('button', { name: '关闭', exact: true })
+    .click();
+
+  await page.getByRole('tab', { name: '课程知识点' }).click();
+  await page.getByRole('tab', { name: '教案' }).click();
+  await expect(page.getByRole('heading', { name: '教案库' })).toBeVisible();
+  await expect(page.getByRole('dialog', { name: '教案表格预览' })).toHaveCount(0);
 });
 
 test('academic profiles, parent scope and Gate C are operable through browser clicks', async ({ browser }) => {

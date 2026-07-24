@@ -496,9 +496,10 @@ model Permission {
   createdAt   DateTime       @default(now()) @map("created_at")
   updatedAt   DateTime       @updatedAt @map("updated_at")
 
-  parent   Permission?      @relation("PermissionTree", fields: [parentId], references: [id])
-  children Permission[]     @relation("PermissionTree")
-  roles    RolePermission[]
+  parent          Permission?                @relation("PermissionTree", fields: [parentId], references: [id])
+  children        Permission[]               @relation("PermissionTree")
+  roles           RolePermission[]
+  aiUserExclusion AiUserPermissionExclusion?
 
   @@index([parentId])
   @@map("permissions")
@@ -517,6 +518,19 @@ model RolePermission {
   @@index([roleId])
   @@index([permissionId])
   @@map("role_permissions")
+}
+
+model AiUserPermissionExclusion {
+  id           String   @id @default(uuid()) @db.Uuid
+  permissionId String   @unique @map("permission_id") @db.Uuid
+  updatedBy    String?  @map("updated_by") @db.Uuid
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@index([updatedBy])
+  @@map("ai_user_permission_exclusions")
 }
 
 model UserRole {

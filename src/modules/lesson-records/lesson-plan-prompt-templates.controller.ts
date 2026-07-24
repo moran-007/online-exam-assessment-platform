@@ -26,7 +26,7 @@ export class LessonPlanPromptTemplatesController {
   ) {}
 
   @Get()
-  @Permissions('lesson-record:read')
+  @Permissions('lesson-plan:read')
   @ApiOperation({ summary: '获取系统内置及当前教师的教案生成指令模板' })
   @ApiOkResponse({ type: [LessonPlanPromptTemplateResponseDto] })
   list(@CurrentUser() actor: RequestUser) {
@@ -34,7 +34,7 @@ export class LessonPlanPromptTemplatesController {
   }
 
   @Post()
-  @Permissions('lesson-record:manage')
+  @Permissions('lesson-plan:manage')
   @ApiOperation({ summary: '创建当前教师的个人教案生成指令模板' })
   @ApiCreatedResponse({ type: LessonPlanPromptTemplateResponseDto })
   create(
@@ -45,7 +45,7 @@ export class LessonPlanPromptTemplatesController {
   }
 
   @Patch(':id')
-  @Permissions('lesson-record:manage')
+  @Permissions('lesson-plan:manage')
   @ApiOperation({ summary: '修改当前教师的个人教案生成指令模板' })
   @ApiOkResponse({ type: LessonPlanPromptTemplateResponseDto })
   update(
@@ -57,7 +57,7 @@ export class LessonPlanPromptTemplatesController {
   }
 
   @Delete(':id')
-  @Permissions('lesson-record:manage')
+  @Permissions('lesson-plan:manage')
   @ApiOperation({ summary: '删除当前教师的个人教案生成指令模板' })
   @ApiOkResponse({ schema: { type: 'boolean' } })
   remove(@Param('id') id: string, @CurrentUser() actor: RequestUser) {

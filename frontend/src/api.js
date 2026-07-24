@@ -8,6 +8,7 @@ const ACTIVITY_WRITE_INTERVAL_MS = 15 * 1000;
 const HEARTBEAT_INTERVAL_MS = 60 * 1000;
 
 let refreshingSession = null;
+let syncingCurrentUser = null;
 let lastActivityWriteAt = 0;
 let lastHeartbeatAt = 0;
 
@@ -80,7 +81,9 @@ export function setSession(data, options = {}) {
   if (data.refreshToken) store.setItem('refreshToken', data.refreshToken);
 
   const user = data.user ?? previousUser;
-  if (user) store.setItem('currentUser', JSON.stringify(user));
+  if (user) {
+    store.setItem('currentUser', JSON.stringify(user));
+  }
 
   writeSessionMeta(store, {
     rememberMe,
@@ -89,6 +92,21 @@ export function setSession(data, options = {}) {
     expiresAt: data.session?.expiresAt ?? previousMeta?.expiresAt ?? null,
   });
   notifySessionChange('updated');
+}
+
+export function syncCurrentUser() {
+  if (!hasActiveSession()) return Promise.resolve(getCurrentUser());
+  if (!syncingCurrentUser) {
+    syncingCurrentUser = apiWire('/auth/me')
+      .then((payload) => {
+        setSession({ user: payload.data }, { preserveActivity: true });
+        return payload.data;
+      })
+      .finally(() => {
+        syncingCurrentUser = null;
+      });
+  }
+  return syncingCurrentUser;
 }
 
 export function clearSession(reason = 'logout') {

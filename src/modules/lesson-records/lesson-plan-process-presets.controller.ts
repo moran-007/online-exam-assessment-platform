@@ -27,7 +27,7 @@ export class LessonPlanProcessPresetsController {
   ) {}
 
   @Get()
-  @Permissions('lesson-record:read')
+  @Permissions('lesson-plan:read')
   @ApiOperation({ summary: '获取系统内置及当前教师的教学过程预设' })
   @ApiOkResponse({ type: [LessonPlanProcessPresetResponseDto] })
   list(@CurrentUser() actor: RequestUser) {
@@ -35,7 +35,7 @@ export class LessonPlanProcessPresetsController {
   }
 
   @Post()
-  @Permissions('lesson-record:manage')
+  @Permissions('lesson-plan:manage')
   @ApiOperation({ summary: '创建当前教师的个人教学过程预设' })
   @ApiCreatedResponse({ type: LessonPlanProcessPresetResponseDto })
   create(
@@ -46,7 +46,7 @@ export class LessonPlanProcessPresetsController {
   }
 
   @Patch(':id')
-  @Permissions('lesson-record:manage')
+  @Permissions('lesson-plan:manage')
   @ApiOperation({ summary: '修改当前教师的个人教学过程预设' })
   @ApiOkResponse({ type: LessonPlanProcessPresetResponseDto })
   update(
@@ -58,7 +58,7 @@ export class LessonPlanProcessPresetsController {
   }
 
   @Delete(':id')
-  @Permissions('lesson-record:manage')
+  @Permissions('lesson-plan:manage')
   @ApiOperation({ summary: '删除当前教师的个人教学过程预设' })
   @ApiOkResponse({ schema: { type: 'boolean' } })
   remove(@Param('id') id: string, @CurrentUser() actor: RequestUser) {
