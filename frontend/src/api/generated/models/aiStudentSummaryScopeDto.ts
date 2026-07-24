@@ -5,6 +5,7 @@
  * Online exam and intelligent assessment platform API
  * OpenAPI spec version: 1.0
  */
+import type { AiStudentSummaryScopeDtoSummaryDomainsItem } from './aiStudentSummaryScopeDtoSummaryDomainsItem';
 
 export interface AiStudentSummaryScopeDto {
   /** @nullable */
@@ -12,4 +13,10 @@ export interface AiStudentSummaryScopeDto {
   /** @nullable */
   courseName: string | null;
   examIds: string[];
+  /**
+     * @minimum 1
+     * @nullable
+     */
+  recentExamCount: number | null;
+  summaryDomains: AiStudentSummaryScopeDtoSummaryDomainsItem[];
 }

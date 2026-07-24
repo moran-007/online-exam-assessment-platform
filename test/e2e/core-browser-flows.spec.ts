@@ -129,6 +129,19 @@ test.beforeAll(async ({ request }) => {
     name: 'E2E Browser Class', courseId: course.id, code: 'e2e_browser_class', status: 'active',
   });
   classId = classGroup.id;
+  const chapter = await prisma.knowledgePoint.create({
+    data: { courseId: course.id, name: 'E2E 第一章', code: 'e2e_chapter_1', level: 1, sortOrder: 1 },
+  });
+  await prisma.knowledgePoint.createMany({
+    data: [1, 2, 3].map((sequence) => ({
+      courseId: course.id,
+      parentId: chapter.id,
+      name: `E2E 知识点 ${sequence}`,
+      code: `e2e_kp_${sequence}`,
+      level: 2,
+      sortOrder: sequence,
+    })),
+  });
   const [admin, student] = await Promise.all([
     prisma.user.findUniqueOrThrow({ where: { username: 'e2e_admin' } }),
     prisma.user.findUniqueOrThrow({ where: { username: 'e2e_student' } }),
@@ -136,6 +149,8 @@ test.beforeAll(async ({ request }) => {
   await seedExamSummaryPrompt(admin.id);
   await api(request, 'post', `/classes/${classId}/students`, token, { userIds: [student.id] });
   operationsDate = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const operationsEndDate = new Date(new Date(`${operationsDate}T00:00:00.000Z`).getTime() + 14 * 86_400_000)
+    .toISOString().slice(0, 10);
   const operationsType = await api(request, 'post', '/lesson-types', token, {
     name: 'E2E 计费正课', defaultHours: 1, countInStatistics: true, active: true,
   });
@@ -160,7 +175,7 @@ test.beforeAll(async ({ request }) => {
     startMinute: 1080,
     endMinute: 1140,
     effectiveFrom: operationsDate,
-    effectiveTo: operationsDate,
+    effectiveTo: operationsEndDate,
     timezone: 'Asia/Shanghai',
     lessonHours: 1,
     classroom: 'E2E Lab',
@@ -339,7 +354,7 @@ test('public visitors and teachers load their lazy feature routes', async ({ bro
   await login(teacherPage, 'e2e_teacher');
   await expect(teacherPage).toHaveURL(/\/dashboard$/);
   await teacherPage.goto('/ai-settings');
-  await expect(teacherPage.getByRole('heading', { name: 'AI 模型配置' })).toBeVisible();
+  await expect(teacherPage.getByRole('heading', { name: 'AI 中心' })).toBeVisible();
   await teacherPage.goto('/external-accounts');
   await expect(teacherPage.getByRole('heading', { name: '外部账号' })).toBeVisible();
   await expect(teacherPage.getByText('我的账号', { exact: true })).toBeVisible();
@@ -358,7 +373,7 @@ test('question, paper, result, and grading exports download usable files', async
   await page.getByPlaceholder('题目关键词').fill('E2E autosave question');
   await page.getByRole('button', { name: '查询' }).click();
   const questionRow = page.getByRole('row', { name: /E2E autosave question/ });
-  await expect(page.locator('.question-table-panel')).toContainText(/E2E autosave question|No Data/);
+  await expect(page.locator('.question-table-panel')).toContainText(/E2E autosave question|暂无数据/);
   if (!(await questionRow.isVisible())) {
     await page.getByRole('tab', { name: '已公开' }).click();
     await expect(questionRow).toBeVisible();
@@ -468,10 +483,65 @@ test('privileged users can open AI settings while students are denied', async ({
   await login(studentPage, 'e2e_student');
   await studentPage.goto('/ai-settings');
   await expect(studentPage).not.toHaveURL(/\/ai-settings$/);
-  await expect(studentPage.getByRole('heading', { name: 'AI 模型配置' })).toHaveCount(0);
+  await expect(studentPage.getByRole('heading', { name: 'AI 中心' })).toHaveCount(0);
 
   await adminContext.close();
   await studentContext.close();
+});
+
+test('AI configuration deletion uses a styled Chinese confirmation and preserves usage history', async ({ page }) => {
+  const admin = await prisma.user.findUniqueOrThrow({ where: { username: 'e2e_admin' } });
+  const name = `E2E 可删除历史配置 ${Date.now()}`;
+  const config = await prisma.aiProviderConfig.create({
+    data: {
+      name,
+      provider: 'custom',
+      baseUrl: 'https://delete-guard.example.com/v1',
+      model: 'delete-guard-model',
+      apiKeyCiphertext: 'e2e-delete-ciphertext',
+      apiKeyIv: 'e2e-delete-iv',
+      apiKeyAuthTag: 'e2e-delete-tag',
+      apiKeyKeyVersion: 1,
+      enabled: false,
+      createdBy: admin.id,
+      updatedBy: admin.id,
+    },
+  });
+  await prisma.aiUsageEvent.create({
+    data: {
+      providerConfigId: config.id,
+      operation: 'e2e-delete-guard',
+      correlationId: `e2e-delete-${config.id}`,
+      reservationOutputTokens: 1,
+      inputTokens: 0,
+      outputTokens: 0,
+      totalTokens: 0,
+      usageReported: false,
+      createdBy: admin.id,
+    },
+  });
+
+  await login(page, 'e2e_admin');
+  await page.goto('/ai-settings');
+  const row = page.getByRole('row', { name: new RegExp(name) });
+  await row.getByRole('button', { name: '删除' }).click();
+
+  const confirmation = page.getByRole('dialog', { name: '删除 AI 配置' });
+  await expect(confirmation.getByRole('button', { name: '取消' })).toBeVisible();
+  await expect(confirmation.getByRole('button', { name: '确定' })).toBeVisible();
+  const box = await confirmation.locator('.el-message-box').boundingBox();
+  expect(box).not.toBeNull();
+  expect(box!.width).toBeLessThan(600);
+  expect(box!.x).toBeGreaterThan(0);
+  expect(box!.y).toBeGreaterThan(0);
+
+  await confirmation.getByRole('button', { name: '确定' }).click();
+  await expect(page.getByText('AI 配置已删除')).toBeVisible();
+  await expect(row).toHaveCount(0);
+  const retired = await prisma.aiProviderConfig.findUniqueOrThrow({ where: { id: config.id } });
+  expect(retired.deletedAt).toBeInstanceOf(Date);
+  expect(retired.apiKeyCiphertext).not.toBe('e2e-delete-ciphertext');
+  expect(await prisma.aiUsageEvent.count({ where: { providerConfigId: config.id } })).toBe(1);
 });
 
 test('teaching operations honors independent read permissions without forbidden requests', async ({ browser }) => {
@@ -479,16 +549,16 @@ test('teaching operations honors independent read permissions without forbidden 
     {
       username: 'e2e_schedule_reader',
       visible: ['排课日历', '排课规则'],
-      hidden: ['考勤确认', '课时台账', '课型与课程单元'],
+      hidden: ['考勤确认', '课时台账', '课型设置'],
     },
     {
       username: 'e2e_ledger_reader',
       visible: ['课时台账'],
-      hidden: ['排课日历', '考勤确认', '排课规则', '课型与课程单元'],
+      hidden: ['排课日历', '考勤确认', '排课规则', '课型设置'],
     },
     {
       username: 'e2e_catalog_reader',
-      visible: ['课型与课程单元'],
+      visible: ['课型设置'],
       hidden: ['排课日历', '考勤确认', '课时台账', '排课规则'],
     },
   ];
@@ -506,9 +576,7 @@ test('teaching operations honors independent read permissions without forbidden 
     for (const tab of item.hidden) await expect(page.getByRole('tab', { name: tab })).toHaveCount(0);
     if (item.username === 'e2e_catalog_reader') {
       await expect(page.getByTestId('lesson-type-table')).toBeVisible();
-      await expect(page.getByTestId('course-unit-table')).toBeVisible();
       await expect(page.getByTestId('create-lesson-type')).toHaveCount(0);
-      await expect(page.getByTestId('create-course-unit')).toHaveCount(0);
     }
     expect(forbidden).toEqual([]);
     await context.close();
@@ -521,14 +589,8 @@ test('course and nested knowledge items support create, view, edit, and delete t
   const editedCourseName = `${courseName} Updated`;
   await login(page, 'e2e_admin');
   await page.goto('/courses');
-  const academicsMenu = page.getByTestId('menu-group-academics');
-  const assessmentMenu = page.getByTestId('menu-group-assessment');
-  await expect(academicsMenu).toHaveClass(/is-open/);
-  await assessmentMenu.locator('.el-sub-menu__title').click();
-  await expect(assessmentMenu).toHaveClass(/is-open/);
-  await expect(academicsMenu).not.toHaveClass(/is-open/);
-  await academicsMenu.locator('.el-sub-menu__title').click();
-  await expect(academicsMenu).toHaveClass(/is-open/);
+  await expect(page.getByRole('menuitem', { name: '课程与知识点' })).toBeVisible();
+  await expect(page.getByRole('menuitem', { name: '题库' })).toBeVisible();
   await page.getByRole('button', { name: '新增课程' }).click();
   const createCourseDialog = page.getByRole('dialog', { name: '新增课程' });
   await formInput(createCourseDialog, '名称').fill(courseName);
@@ -671,18 +733,21 @@ test('academic profiles, parent scope and Gate C are operable through browser cl
   await studentContext.close();
 });
 
-test('academic catalog and schedule rules support create, edit, disable, and archive through clicks', async ({ page }) => {
+test('lesson types and schedule presets support create, edit, disable, and archive through clicks', async ({ page }) => {
   const suffix = Date.now();
   const typeName = `E2E 课型 ${suffix}`;
   const editedTypeName = `${typeName} 已停用`;
-  const unitName = `E2E 课程单元 ${suffix}`;
-  const editedUnitName = `${unitName} 已归档`;
+  const teacher = await prisma.user.findUniqueOrThrow({ where: { username: 'e2e_teacher' } });
+  await prisma.classTeacher.upsert({
+    where: { classId_teacherId: { classId, teacherId: teacher.id } },
+    update: { status: 'ACTIVE', leftAt: null },
+    create: { classId, teacherId: teacher.id, role: 'LEAD' },
+  });
 
   await login(page, 'e2e_admin');
   await page.goto('/teaching-operations');
-  await page.getByRole('tab', { name: '课型与课程单元' }).click();
+  await page.getByRole('tab', { name: '课型设置' }).click();
   const lessonTypeTable = page.getByTestId('lesson-type-table');
-  const courseUnitTable = page.getByTestId('course-unit-table');
 
   await page.getByTestId('create-lesson-type').click();
   const typeDialog = page.getByRole('dialog', { name: '新增课型' });
@@ -691,24 +756,6 @@ test('academic catalog and schedule rules support create, edit, disable, and arc
   await typeDialog.getByRole('button', { name: '保存课型' }).click();
   let typeRow = lessonTypeTable.getByRole('row', { name: new RegExp(typeName) });
   await expect(typeRow).toContainText('启用');
-
-  await page.getByTestId('create-course-unit').click();
-  const unitDialog = page.getByRole('dialog', { name: '新增课程单元' });
-  await selectFormOption(page, unitDialog, '所属课程', 'E2E Browser Course');
-  await formInput(unitDialog, '编码').fill(`e2e_unit_${suffix}`);
-  await formInput(unitDialog, '名称').fill(unitName);
-  await selectFormOption(page, unitDialog, '课型', typeName);
-  await unitDialog.getByRole('button', { name: '保存单元' }).click();
-  let unitRow = courseUnitTable.getByRole('row', { name: new RegExp(unitName) });
-  await expect(unitRow).toContainText('E2E Browser Course');
-
-  await unitRow.getByRole('button', { name: '编辑课程单元' }).click();
-  const editUnitDialog = page.getByRole('dialog', { name: '编辑课程单元' });
-  await formInput(editUnitDialog, '名称').fill(editedUnitName);
-  await selectFormOption(page, editUnitDialog, '状态', '归档');
-  await editUnitDialog.getByRole('button', { name: '保存单元' }).click();
-  unitRow = courseUnitTable.getByRole('row', { name: new RegExp(editedUnitName) });
-  await expect(unitRow).toContainText('归档');
 
   await typeRow.getByRole('button', { name: '编辑课型' }).click();
   const editTypeDialog = page.getByRole('dialog', { name: '编辑课型' });
@@ -723,13 +770,17 @@ test('academic catalog and schedule rules support create, edit, disable, and arc
   await page.getByTestId('create-rule').click();
   const createRuleDialog = page.getByRole('dialog', { name: '新增排课规则' });
   await selectFormOption(page, createRuleDialog, '班级', 'E2E Browser Class');
-  await selectFormOption(page, createRuleDialog, '课型', 'E2E 计费正课');
+  await expect(formInput(createRuleDialog, '课程')).toHaveValue('E2E Browser Course');
+  await selectFormOption(page, createRuleDialog, '默认教师', 'E2E Teacher');
+  await selectFormOption(page, createRuleDialog, '上课类型', 'E2E 计费正课');
   await createRuleDialog.getByRole('button', { name: '保存规则' }).click();
 
   const ruleRow = ruleTable.getByRole('row')
     .filter({ hasText: 'E2E Browser Class' })
     .filter({ hasText: '18:00-20:00' });
   await expect(ruleRow).toContainText('启用');
+  await expect(ruleRow).toContainText('E2E Browser Course');
+  await expect(ruleRow).toContainText('E2E Teacher');
   await ruleRow.getByRole('button', { name: '编辑排课规则' }).click();
   const ruleDialog = page.getByRole('dialog', { name: '编辑排课规则' });
   await selectFormOption(page, ruleDialog, '规则状态', '暂停');
@@ -757,12 +808,13 @@ test('Gate D completes reschedule, makeup, cancellation, material change, attend
   await login(adminPage, 'e2e_admin');
   await adminPage.goto('/teaching-operations');
   await expect(adminPage.getByRole('heading', { name: '教学运营' })).toBeVisible();
-  await expect(adminPage.getByTestId('menu-group-academics')).toHaveClass(/is-open/);
   await adminPage.getByTestId('generate-sessions').click();
-  const generateDialog = adminPage.getByRole('dialog', { name: '批量生成课次' });
+  const generateDialog = adminPage.getByRole('dialog', { name: '顺序排课' });
   await expect(generateDialog).toBeVisible();
+  await expect(formInput(generateDialog, '课程')).toHaveValue('E2E Browser Course');
+  await expect(generateDialog.locator('.sequence-preview')).toContainText('E2E 知识点 1');
   await generateDialog.getByTestId('submit-generate').click();
-  await expect(adminPage.getByText(/生成 1 节，跳过重复 0 节/)).toBeVisible();
+  await expect(adminPage.getByText(/生成 3 节，跳过重复 0 节/)).toBeVisible();
 
   const sessionRow = await rescheduleGeneratedLesson(adminPage);
   await publishChangedLessonMaterial(adminPage, sessionRow);
@@ -805,7 +857,7 @@ test('Gate D completes reschedule, makeup, cancellation, material change, attend
   await studentPage.goto('/teaching-operations');
   await expect(studentPage.getByRole('heading', { name: '教学运营' })).toBeVisible();
   await expect(studentPage.getByRole('tab', { name: '排课规则' })).toBeVisible();
-  await expect(studentPage.getByRole('tab', { name: '课型与课程单元' })).toHaveCount(0);
+  await expect(studentPage.getByRole('tab', { name: '课型设置' })).toHaveCount(0);
   await studentPage.getByRole('tab', { name: '排课规则' }).click();
   await expect(studentPage.getByTestId('schedule-rule-table')).toBeVisible();
   await expect(studentPage.getByTestId('create-rule')).toHaveCount(0);
@@ -814,7 +866,7 @@ test('Gate D completes reschedule, makeup, cancellation, material change, attend
   await expect(studentPage.getByRole('button', { name: '登记课时变动' })).toHaveCount(0);
   await studentPage.goto('/learning-portal');
   const portalRow = studentPage.getByTestId('portal-lessons').getByRole('row')
-    .filter({ hasText: 'E2E Browser Class课程' }).filter({ hasText: '调课后实际讲授内容' });
+    .filter({ hasText: 'E2E 知识点 1' }).filter({ hasText: '调课后实际讲授内容' });
   await expect(portalRow).toBeVisible();
   await portalRow.getByTestId('open-portal-lesson').click();
   await expect(studentPage.getByText('素材已由 v1 替换为 v2', { exact: true })).toBeVisible();
@@ -873,14 +925,17 @@ test('material context keeps child answers independent and rubric grading is ava
   await expect(aiDialog).toBeVisible();
   await expect(aiDialog.getByText('统计预览始终来自确定性查询')).toBeVisible();
   await expect(aiDialog.getByText('本次输出上限（可选）')).toBeVisible();
-  await aiDialog.locator('.ai-summary-toolbar .el-select').click();
+  const modelSelectors = aiDialog.locator('.ai-model-selector .el-select');
+  await modelSelectors.first().click();
+  await adminPage.locator('.el-select-dropdown__item:visible', { hasText: /^qwen（/ }).click();
+  await modelSelectors.nth(1).click();
   await adminPage.locator('.el-select-dropdown__item:visible', { hasText: 'E2E Manual Model' }).click();
   await expect(aiDialog.getByPlaceholder('自动')).toHaveValue('');
   await expect(aiDialog.getByText('尚未生成总结')).toBeVisible();
   await expect(aiDialog.getByText('模型调用')).toHaveCount(0);
   await aiDialog.getByRole('button', { name: '生成/复用草稿' }).click();
   await expect(adminPage.getByText('考试草稿已生成')).toBeVisible();
-  await expect(aiDialog.getByText('v1', { exact: false })).toBeVisible();
+  await expect(aiDialog.getByRole('heading', { name: '总结草稿 · v1' })).toBeVisible();
   const headline = aiDialog.getByLabel('核心结论');
   await expect(headline).toHaveValue('E2E 模型生成的可审核结论');
   await headline.fill('浏览器人工编辑后的总结结论');
@@ -919,7 +974,7 @@ test('Stage 7 fused dashboard and AI academic entry points work through browser 
   await adminPage.getByRole('button', { name: 'AI 班级总结' }).click();
   const classDialog = adminPage.getByRole('dialog', { name: /AI 班级 · E2E Browser Class/ });
   await expect(classDialog.getByText('class_aggregate_only')).toBeVisible();
-  await expect(classDialog.getByText('v1', { exact: true })).toBeVisible();
+  await expect(classDialog.getByText('v2', { exact: true })).toBeVisible();
   await classDialog.locator('.el-dialog__headerbtn').click();
 
   await adminPage.getByRole('button', { name: '家长报告' }).click();
@@ -928,6 +983,8 @@ test('Stage 7 fused dashboard and AI academic entry points work through browser 
   await parentReportDialog.locator('.el-dialog__headerbtn').click();
 
   await adminPage.goto('/ai-settings');
+  await expect(adminPage.getByRole('heading', { name: 'AI 中心' })).toBeVisible();
+  await adminPage.getByRole('tab', { name: '质量与回归' }).click();
   await expect(adminPage.getByRole('heading', { name: 'AI 质量、成本与回归' })).toBeVisible();
   await adminPage.getByRole('tab', { name: '模型切换回归' }).click();
   await expect(adminPage.getByRole('button', { name: '执行回归' })).toBeVisible();
@@ -1089,7 +1146,7 @@ async function createE2eAiConfiguration(page: Page, options: {
 
 async function ensureE2eAiConfigurations(page: Page) {
   await page.goto('/ai-settings');
-  await expect(page.getByRole('heading', { name: 'AI 模型配置' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'AI 中心' })).toBeVisible();
   await expect(page.locator('.ai-preset-card')).toHaveCount(9);
   const configurations = [
     { presetName: /^DeepSeek /, name: 'E2E Default Model', scope: 'system' as const, isDefault: true },
@@ -1104,8 +1161,8 @@ async function ensureE2eAiConfigurations(page: Page) {
 
 async function rescheduleGeneratedLesson(page: Page) {
   const table = page.getByTestId('session-table');
-  const originalRow = table.getByRole('row', { name: /E2E Browser Class课程/ });
-  await expect(originalRow).toContainText('E2E Browser Class课程');
+  const originalRow = table.getByRole('row', { name: /E2E 知识点 1/ });
+  await expect(originalRow).toContainText('E2E 知识点 1');
   await originalRow.getByRole('button', { name: '调课' }).click();
   const dialog = page.getByRole('dialog', { name: '调整上课安排' });
   const dateInputs = dialog.locator('.el-date-editor input');
@@ -1116,7 +1173,7 @@ async function rescheduleGeneratedLesson(page: Page) {
   await dialog.getByTestId('submit-session-change').click();
   await expect(page.getByText('调课完成，原课次已保留追溯记录')).toBeVisible();
 
-  const matchingRows = table.getByRole('row').filter({ hasText: 'E2E Browser Class课程' });
+  const matchingRows = table.getByRole('row').filter({ hasText: 'E2E 知识点 1' });
   await expect(matchingRows).toHaveCount(2);
   const rescheduledOriginal = matchingRows.filter({ hasText: '已调课' });
   await expect(rescheduledOriginal).toBeVisible();
@@ -1130,7 +1187,7 @@ async function rescheduleGeneratedLesson(page: Page) {
   await makeupDialog.getByTestId('submit-session-change').click();
   await expect(page.getByText('补课课次已创建')).toBeVisible();
 
-  const rowsAfterMakeup = table.getByRole('row').filter({ hasText: 'E2E Browser Class课程' });
+  const rowsAfterMakeup = table.getByRole('row').filter({ hasText: 'E2E 知识点 1' });
   await expect(rowsAfterMakeup).toHaveCount(3);
   const makeup = rowsAfterMakeup.filter({ hasText: 'E2E Makeup Lab' });
   await makeup.getByRole('button', { name: '取消课次' }).click();

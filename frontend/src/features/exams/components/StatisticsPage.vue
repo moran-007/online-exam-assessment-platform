@@ -3,16 +3,16 @@
     <div class="page-head statistics-head">
       <h1 class="page-title">统计分析</h1>
       <div class="toolbar statistics-toolbar">
-        <el-select v-model="filter.courseId" clearable filterable placeholder="课程" @change="load">
+        <el-select v-model="filter.courseId" clearable filterable placeholder="课程" @change="loadFirstPage">
           <el-option v-for="course in courses" :key="course.id" :label="course.name" :value="course.id" />
         </el-select>
-        <el-select v-model="filter.classId" clearable filterable placeholder="班级" @change="load">
+        <el-select v-model="filter.classId" clearable filterable placeholder="班级" @change="loadFirstPage">
           <el-option v-for="item in classes" :key="item.id" :label="item.name" :value="item.id" />
         </el-select>
-        <el-select v-model="filter.examId" clearable filterable placeholder="考试" @change="load">
+        <el-select v-model="filter.examId" clearable filterable placeholder="考试" @change="loadFirstPage">
           <el-option v-for="exam in exams" :key="exam.id" :label="exam.name" :value="exam.id" />
         </el-select>
-        <el-select v-model="filter.sourceType" clearable placeholder="错题来源" @change="load">
+        <el-select v-model="filter.sourceType" clearable placeholder="错题来源" @change="loadFirstPage">
           <el-option label="考试错题" value="exam" />
           <el-option label="练习错题" value="practice" />
           <el-option label="手动加入" value="manual" />
@@ -24,7 +24,7 @@
           start-placeholder="开始"
           end-placeholder="结束"
           value-format="YYYY-MM-DD"
-          @change="load"
+          @change="loadFirstPage"
         />
         <el-button :icon="Refresh" @click="load">刷新</el-button>
         <el-button plain :icon="Setting" @click="openReviewRules">复习规则</el-button>
@@ -90,9 +90,11 @@
       </div>
     </div>
 
-    <div class="panel library-table-panel statistics-detail-panel">
-      <el-tabs class="statistics-tabs">
-        <el-tab-pane label="考试表现">
+    <div v-loading="loading" class="panel statistics-detail-panel">
+      <el-tabs v-model="activeStatisticsTab" class="statistics-tabs">
+        <el-tab-pane label="考试表现" name="exams">
+          <div class="statistics-tab-pane">
+          <div class="statistics-table-viewport">
           <el-table :data="examStats" height="100%" class="question-list-table" @row-click="loadExamDetail">
             <el-table-column prop="examName" label="考试" min-width="180" show-overflow-tooltip />
             <el-table-column v-if="showMediumColumns" prop="courseName" label="课程" width="130" show-overflow-tooltip />
@@ -106,9 +108,27 @@
               </template>
             </el-table-column>
           </el-table>
+          </div>
+          <div class="table-footer statistics-table-footer">
+            <span class="muted">共 {{ examPagination.total }} 场考试</span>
+            <el-pagination
+              v-model:current-page="examPagination.page"
+              v-model:page-size="examPagination.pageSize"
+              background
+              size="small"
+              layout="sizes, prev, pager, next"
+              :page-sizes="statisticsPageSizes"
+              :total="examPagination.total"
+              @size-change="handleExamSizeChange"
+              @current-change="handleExamCurrentChange"
+            />
+          </div>
+          </div>
         </el-tab-pane>
-        <el-tab-pane label="知识点表现">
-          <el-table :data="knowledgeStats" height="100%" class="question-list-table">
+        <el-tab-pane label="知识点表现" name="knowledge">
+          <div class="statistics-tab-pane">
+          <div class="statistics-table-viewport">
+          <el-table :data="pagedKnowledgeStats" height="100%" class="question-list-table">
             <el-table-column prop="name" label="知识点" min-width="180" show-overflow-tooltip />
             <el-table-column prop="answerCount" label="作答" width="80" />
             <el-table-column prop="correctRate" label="正确率" width="100">
@@ -116,18 +136,40 @@
             </el-table-column>
             <el-table-column v-if="showMediumColumns" prop="averageScore" label="平均分" width="100" />
           </el-table>
+          </div>
+          <StatisticsLocalPagination
+            :pagination="knowledgePagination"
+            label="个知识点"
+            :page-sizes="statisticsPageSizes"
+            @size-change="handleLocalSizeChange(knowledgePagination, $event)"
+            @page-change="handleLocalCurrentChange(knowledgePagination, $event)"
+          />
+          </div>
         </el-tab-pane>
-        <el-tab-pane label="班级概览">
-          <el-table :data="classStats" height="100%" class="question-list-table">
+        <el-tab-pane label="班级概览" name="classes">
+          <div class="statistics-tab-pane">
+          <div class="statistics-table-viewport">
+          <el-table :data="pagedClassStats" height="100%" class="question-list-table">
             <el-table-column prop="className" label="班级" min-width="160" show-overflow-tooltip />
             <el-table-column v-if="showMediumColumns" prop="courseName" label="课程" width="130" show-overflow-tooltip />
             <el-table-column prop="studentCount" label="学生" width="80" />
             <el-table-column prop="submitCount" label="提交" width="80" />
             <el-table-column v-if="showMediumColumns" prop="averageScore" label="平均分" width="100" />
           </el-table>
+          </div>
+          <StatisticsLocalPagination
+            :pagination="classPagination"
+            label="个班级"
+            :page-sizes="statisticsPageSizes"
+            @size-change="handleLocalSizeChange(classPagination, $event)"
+            @page-change="handleLocalCurrentChange(classPagination, $event)"
+          />
+          </div>
         </el-tab-pane>
-        <el-tab-pane label="Hydro 判题">
-          <el-table :data="hydroSummary.items || []" height="100%" class="question-list-table">
+        <el-tab-pane label="Hydro 判题" name="hydro">
+          <div class="statistics-tab-pane">
+          <div class="statistics-table-viewport">
+          <el-table :data="pagedHydroItems" height="100%" class="question-list-table">
             <el-table-column prop="examName" label="考试" min-width="150" show-overflow-tooltip />
             <el-table-column prop="studentName" label="学生" width="120" show-overflow-tooltip />
             <el-table-column prop="questionTitle" label="题目" min-width="180" show-overflow-tooltip />
@@ -151,16 +193,26 @@
               </template>
             </el-table-column>
           </el-table>
+          </div>
+          <StatisticsLocalPagination
+            :pagination="hydroPagination"
+            label="条判题记录"
+            :page-sizes="statisticsPageSizes"
+            @size-change="handleLocalSizeChange(hydroPagination, $event)"
+            @page-change="handleLocalCurrentChange(hydroPagination, $event)"
+          />
+          </div>
         </el-tab-pane>
       </el-tabs>
     </div>
 
-    <div class="panel library-table-panel stats-question-panel statistics-question-panel">
+    <div class="panel stats-question-panel statistics-question-panel">
       <div class="section-head">
         <h2>题目分析</h2>
         <span class="muted">{{ selectedExamName || '点击上方考试查看题目正确率' }}</span>
       </div>
-      <el-table :data="questionStats" height="100%" class="question-list-table">
+      <div class="statistics-table-viewport">
+      <el-table :data="pagedQuestionStats" height="100%" class="question-list-table">
         <el-table-column prop="title" label="题目" min-width="260" show-overflow-tooltip />
         <el-table-column prop="type" label="题型" width="120" />
         <el-table-column v-if="showMediumColumns" prop="difficulty" label="难度" width="90" />
@@ -170,14 +222,23 @@
         </el-table-column>
         <el-table-column v-if="showMediumColumns" prop="averageScore" label="平均分" width="100" />
       </el-table>
+      </div>
+      <StatisticsLocalPagination
+        :pagination="questionPagination"
+        label="道题目"
+        :page-sizes="statisticsPageSizes"
+        @size-change="handleLocalSizeChange(questionPagination, $event)"
+        @page-change="handleLocalCurrentChange(questionPagination, $event)"
+      />
     </div>
 
-    <div class="panel library-table-panel high-wrong-panel">
+    <div class="panel high-wrong-panel">
       <div class="section-head">
         <h2>高频错题</h2>
         <span class="muted">按班级、课程、时间和来源聚合</span>
       </div>
-      <el-table :data="wrongQuestionStats" height="100%" class="question-list-table">
+      <div class="statistics-table-viewport">
+      <el-table :data="pagedWrongQuestionStats" height="100%" class="question-list-table">
         <el-table-column prop="title" label="题目" min-width="260" show-overflow-tooltip />
         <el-table-column v-if="showMediumColumns" prop="courseName" label="课程" width="140" show-overflow-tooltip />
         <el-table-column v-if="showMediumColumns" label="知识点" min-width="180" show-overflow-tooltip>
@@ -202,6 +263,14 @@
           <template #default="{ row }">{{ formatDate(row.latestAt) }}</template>
         </el-table-column>
       </el-table>
+      </div>
+      <StatisticsLocalPagination
+        :pagination="wrongQuestionPagination"
+        label="道高频错题"
+        :page-sizes="statisticsPageSizes"
+        @size-change="handleLocalSizeChange(wrongQuestionPagination, $event)"
+        @page-change="handleLocalCurrentChange(wrongQuestionPagination, $event)"
+      />
     </div>
 
     <HydroWritebackDialog />
@@ -218,6 +287,7 @@ import { MagicStick } from '@element-plus/icons-vue';
 import { useStatisticsPage } from '../composables/useStatisticsPage';
 import { provideStatisticsPageContext } from '../composables/statisticsPageContext';
 import StatisticsMetrics from './StatisticsMetrics.vue';
+import StatisticsLocalPagination from './StatisticsLocalPagination.vue';
 import EChartPanel from '../../../components/EChartPanel.vue';
 import HydroWritebackDialog from './HydroWritebackDialog.vue';
 import ReviewRulesDrawer from './ReviewRulesDrawer.vue';
@@ -225,7 +295,7 @@ import ExamAiSummaryDialog from '../../ai/components/ExamAiSummaryDialog.vue';
 
 export default defineComponent({
   name: 'StatisticsPage',
-  components: { StatisticsMetrics, EChartPanel, HydroWritebackDialog, ReviewRulesDrawer, ExamAiSummaryDialog },
+  components: { StatisticsMetrics, StatisticsLocalPagination, EChartPanel, HydroWritebackDialog, ReviewRulesDrawer, ExamAiSummaryDialog },
   setup() {
     const context = useStatisticsPage();
     const aiSummaryDialog = ref<InstanceType<typeof ExamAiSummaryDialog>>();
@@ -243,205 +313,4 @@ export default defineComponent({
 });
 </script>
 
-<style>
-.statistics-page {
-  --statistics-panel-height: clamp(250px, 30vh, 340px);
-}
-
-.statistics-head {
-  align-items: flex-start;
-}
-
-.statistics-toolbar {
-  flex: 1 1 680px;
-  justify-content: flex-end;
-}
-
-.statistics-toolbar > .el-select {
-  flex: 0 1 220px;
-}
-
-.statistics-toolbar :deep(.el-date-editor) {
-  flex: 0 1 280px;
-  min-width: 220px;
-}
-
-.statistics-metric-row {
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-}
-
-.statistics-insight-grid {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 14px;
-  flex: 0 0 clamp(230px, 28vh, 330px);
-  min-height: 230px;
-}
-
-.statistics-card {
-  min-width: 0;
-  min-height: 0;
-  overflow: hidden;
-}
-
-.statistics-diagnostic-card {
-  grid-column: span 1;
-}
-
-.compact-table :deep(.el-table__cell) {
-  padding: 7px 0;
-}
-
-.statistics-detail-panel {
-  flex: 0 0 var(--statistics-panel-height);
-  min-height: 0;
-  height: var(--statistics-panel-height);
-}
-
-.statistics-tabs {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-}
-
-.statistics-tabs :deep(.el-tabs__content) {
-  flex: 1;
-  min-height: 0;
-}
-
-.statistics-tabs :deep(.el-tab-pane) {
-  height: 100%;
-  min-height: 0;
-}
-
-.statistics-detail-panel :deep(.el-table__empty-block) {
-  min-height: 140px;
-}
-
-.statistics-question-panel {
-  flex: 1 1 260px;
-  min-height: 260px;
-}
-
-.high-wrong-panel {
-  flex: 1 1 300px;
-  min-height: 300px;
-}
-
-.source-chip {
-  margin-right: 6px;
-  margin-bottom: 4px;
-}
-
-.review-rule-drawer :deep(.el-drawer__body) {
-  min-height: 0;
-  overflow: hidden;
-}
-
-.review-rule-body {
-  height: 100%;
-  min-height: 0;
-  display: grid;
-  grid-template-rows: auto auto minmax(260px, 1fr);
-  gap: 14px;
-}
-
-.review-rule-editor,
-.review-rule-list {
-  min-width: 0;
-}
-
-.review-rule-form {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0 12px;
-}
-
-.review-rule-form .review-rule-wide,
-.review-rule-form .el-form-item:nth-last-child(-n + 2) {
-  grid-column: 1 / -1;
-}
-
-.review-mastery-grid {
-  width: 100%;
-  display: grid;
-  grid-template-columns: repeat(2, minmax(220px, 1fr));
-  gap: 10px 16px;
-  align-items: center;
-}
-
-.review-mastery-item {
-  min-width: 0;
-  display: flex;
-  gap: 10px;
-  align-items: center;
-}
-
-.review-mastery-item :deep(.el-input-number) {
-  flex: 0 0 120px;
-  width: 120px;
-}
-
-.review-mastery-item .muted {
-  min-width: 0;
-  line-height: 1.4;
-  white-space: normal;
-}
-
-.review-rule-list {
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-}
-
-.review-rule-list > .el-table {
-  flex: 1;
-  min-height: 0;
-}
-
-@media (max-width: 1500px) {
-  .statistics-insight-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    flex-basis: 520px;
-  }
-
-  .statistics-detail-panel {
-    height: 300px;
-  }
-
-  .high-wrong-panel {
-    min-height: 280px;
-  }
-}
-
-@media (max-width: 980px) {
-  .statistics-insight-grid {
-    grid-template-columns: 1fr;
-    flex: 0 0 auto;
-  }
-
-  .statistics-card {
-    height: 280px;
-  }
-
-  .statistics-detail-panel {
-    height: 300px;
-  }
-
-  .statistics-toolbar :deep(.el-date-editor),
-  .statistics-toolbar > .el-select {
-    flex: 1 1 100%;
-  }
-}
-
-@media (max-width: 760px) {
-  .review-rule-form {
-    grid-template-columns: 1fr;
-  }
-
-  .review-mastery-grid {
-    grid-template-columns: 1fr;
-  }
-}
-</style>
+<style src="./StatisticsPage.css"></style>

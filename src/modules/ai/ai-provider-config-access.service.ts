@@ -39,7 +39,7 @@ export class AiProviderConfigAccessService {
   }
 
   async requireManageable(id: string, user: RequestUser) {
-    const row = await this.prisma.aiProviderConfig.findUnique({ where: { id } });
+    const row = await this.prisma.aiProviderConfig.findFirst({ where: { id, deletedAt: null } });
     if (!row) throw new NotFoundException('AI 配置不存在');
     const allowed = this.canManage(row, user);
     if (!allowed) throw new NotFoundException('AI 配置不存在');
@@ -67,12 +67,13 @@ export class AiProviderConfigAccessService {
 
   defaultPeers(row: { scope: AiProviderConfigScope; ownerUserId: string | null }): Prisma.AiProviderConfigWhereInput {
     return row.scope === AiProviderConfigScope.SYSTEM
-      ? { scope: AiProviderConfigScope.SYSTEM }
-      : { scope: AiProviderConfigScope.PERSONAL, ownerUserId: row.ownerUserId };
+      ? { scope: AiProviderConfigScope.SYSTEM, deletedAt: null }
+      : { scope: AiProviderConfigScope.PERSONAL, ownerUserId: row.ownerUserId, deletedAt: null };
   }
 
   private visibleWhere(user: RequestUser): Prisma.AiProviderConfigWhereInput {
     return {
+      deletedAt: null,
       OR: [
         { scope: AiProviderConfigScope.SYSTEM },
         { scope: AiProviderConfigScope.PERSONAL, ownerUserId: user.id },

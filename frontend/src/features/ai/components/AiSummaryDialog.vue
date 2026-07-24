@@ -1,5 +1,12 @@
 <template>
-  <el-dialog v-model="visible" :title="`AI ${kindLabel} · ${subjectName}`" width="min(1120px, 94vw)" destroy-on-close>
+  <el-dialog
+    v-model="visible"
+    :title="`AI ${kindLabel} · ${subjectName}`"
+    width="min(1120px, 94vw)"
+    top="5vh"
+    class="ai-summary-modal"
+    destroy-on-close
+  >
     <div v-loading="loading" class="ai-summary-dialog">
       <el-alert
         :title="summaryKind === 'lesson'
@@ -9,6 +16,52 @@
         show-icon
         :closable="false"
       />
+
+      <section v-if="summaryKind === 'student' || summaryKind === 'class' || summaryKind === 'parent_report'" class="ai-summary-scope">
+        <div class="scope-field scope-domains">
+          <span class="scope-label">总结内容（可单选或多选）</span>
+          <el-checkbox-group v-model="scope.summaryDomains">
+            <el-checkbox value="lessons">上课</el-checkbox>
+            <el-checkbox value="exams">考试</el-checkbox>
+            <el-checkbox value="homework">作业</el-checkbox>
+          </el-checkbox-group>
+        </div>
+        <div class="scope-field scope-range">
+          <span class="scope-label">时间范围（留空不限制）</span>
+          <el-date-picker
+            v-model="scopeDateRange"
+            type="datetimerange"
+            start-placeholder="开始时间"
+            end-placeholder="结束时间"
+            range-separator="至"
+            unlink-panels
+            style="width: 390px"
+          />
+        </div>
+        <div class="scope-field scope-count">
+          <span class="scope-label">最近考试次数（留空不限制）</span>
+          <div class="scope-count-control">
+            <el-input-number
+              v-model="scope.recentExamCount"
+              :min="1"
+              :step="1"
+              :disabled="!scope.summaryDomains?.includes('exams')"
+              placeholder="不限"
+              style="width: 140px"
+            />
+            <el-button
+              v-if="scope.recentExamCount !== undefined"
+              link
+              :disabled="!scope.summaryDomains?.includes('exams')"
+              @click="scope.recentExamCount = undefined"
+            >
+              不限
+            </el-button>
+          </div>
+        </div>
+        <el-button type="primary" plain :loading="loading" @click="applySummaryScope">应用范围并刷新预览</el-button>
+        <span class="muted">先按时间筛选，再取最近 N 场考试；作业与上课按所属课次时间筛选。</span>
+      </section>
 
       <div v-if="preview" class="ai-summary-metrics">
         <template v-if="isExamPreview(preview)">
@@ -51,14 +104,7 @@
       />
 
       <div class="ai-summary-toolbar">
-        <el-select v-model="selectedConfigId" clearable placeholder="自动选择默认模型" style="min-width: 280px">
-          <el-option
-            v-for="config in enabledConfigs"
-            :key="config.id"
-            :label="`${config.name} · ${config.model} · ${config.scope === 'personal' ? '个人' : '系统'}`"
-            :value="config.id"
-          />
-        </el-select>
+        <AiModelSelector v-model="selectedConfigId" :configurations="enabledConfigs" />
         <span class="muted">本次输出上限（可选）</span>
         <el-input-number v-model="requestedMaxTokens" :min="100" :max="8192" :step="100" placeholder="自动" style="width: 140px" />
         <el-button v-if="requestedMaxTokens !== undefined" link @click="requestedMaxTokens = undefined">恢复自动</el-button>
@@ -100,11 +146,11 @@
           </button>
         </aside>
 
-        <section class="ai-summary-editor">
+        <section :key="active?.id || 'empty'" class="ai-summary-editor">
           <el-empty v-if="!active" description="选择模型生成第一个草稿" />
           <template v-else>
             <div class="section-head">
-              <div><h3>总结草稿</h3><span class="muted">编辑会使旧审核失效，并生成新的草稿版本。</span></div>
+              <div><h3>总结草稿 · v{{ active.draftVersion }}</h3><span class="muted">编辑会使旧审核失效，并生成新的草稿版本。</span></div>
               <div class="toolbar">
                 <el-button :disabled="!canEdit" :loading="working" @click="save">保存编辑</el-button>
                 <template v-if="summaryKind !== 'lesson'">
@@ -151,14 +197,15 @@ import type {
   StudentSummaryDatasetPreview,
 } from '../models';
 import { useAiSummaryDialog, type AiSummaryKind } from '../composables/useAiSummaryDialog';
+import AiModelSelector from './AiModelSelector.vue';
 
 const props = defineProps<{ kind: AiSummaryKind }>();
 const emit = defineEmits<{ applyLesson: [content: Record<string, unknown>] }>();
 const state = useAiSummaryDialog(props.kind);
 const {
-  active, canApply, canEdit, canPublish, canReview, canRevoke, editor, effectiveOutputLimit, enabledConfigs,
+  active, applySummaryScope, canApply, canEdit, canPublish, canReview, canRevoke, editor, effectiveOutputLimit, enabledConfigs,
   generate, history, lastTask, loading, open, outputLimitHint, preview, publish, regenerate,
-  requestedMaxTokens, review, revoke, save, selectSummary, selectedConfigId, subjectName, visible, working, kindLabel,
+  requestedMaxTokens, review, revoke, save, scope, scopeDateRange, selectSummary, selectedConfigId, subjectName, visible, working, kindLabel,
 } = state;
 const summaryKind = props.kind;
 
@@ -251,14 +298,20 @@ function limitChanged(task: AiSummaryTask) {
 </script>
 
 <style scoped>
+:global(.ai-summary-modal) { max-height: 90vh; display: flex; flex-direction: column; margin-bottom: 0; }
+:global(.ai-summary-modal .el-dialog__body) { min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
 .ai-summary-dialog { display: grid; gap: 16px; min-height: 520px; }
+.ai-summary-scope { display: flex; align-items: flex-end; flex-wrap: wrap; gap: 12px 18px; padding: 14px; border: 1px solid var(--el-border-color-lighter); border-radius: 8px; background: var(--el-fill-color-extra-light); }
+.scope-field { display: grid; gap: 7px; }
+.scope-label { color: var(--el-text-color-secondary); font-size: 12px; }
+.scope-count-control { display: flex; align-items: center; gap: 4px; }
 .ai-summary-metrics { display: grid; grid-template-columns: repeat(6, minmax(90px, 1fr)); gap: 10px; }
 .ai-summary-metrics > div { padding: 12px; border: 1px solid var(--el-border-color-lighter); border-radius: 8px; background: var(--el-fill-color-light); }
 .ai-summary-metrics span { display: block; color: var(--el-text-color-secondary); font-size: 12px; }
 .ai-summary-metrics strong { display: block; margin-top: 5px; font-size: 20px; }
 .ai-summary-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
 .ai-summary-workspace { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 16px; min-height: 420px; }
-.ai-summary-history { border-right: 1px solid var(--el-border-color-lighter); padding-right: 12px; }
+.ai-summary-history { min-height: 0; max-height: 420px; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; border-right: 1px solid var(--el-border-color-lighter); padding-right: 12px; }
 .ai-summary-history-item { width: 100%; display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 10px; margin-bottom: 8px; border: 1px solid var(--el-border-color); border-radius: 7px; background: transparent; cursor: pointer; text-align: left; }
 .ai-summary-history-item.active { border-color: var(--el-color-primary); background: var(--el-color-primary-light-9); }
 .ai-summary-editor { min-width: 0; }

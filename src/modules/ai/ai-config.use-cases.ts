@@ -105,7 +105,20 @@ export class AiConfigUseCases {
 
   async remove(id: string, user: RequestUser) {
     const existing = await this.access.requireManageable(id, user);
-    await this.prisma.aiProviderConfig.delete({ where: { id } });
+    const retiredCredential = this.cipher.encrypt(`deleted:${randomUUID()}`, this.purpose(id));
+    await this.prisma.aiProviderConfig.update({
+      where: { id },
+      data: {
+        apiKeyCiphertext: retiredCredential.ciphertext,
+        apiKeyIv: retiredCredential.iv,
+        apiKeyAuthTag: retiredCredential.authTag,
+        apiKeyKeyVersion: retiredCredential.keyVersion,
+        enabled: false,
+        isDefault: false,
+        deletedAt: new Date(),
+        updatedBy: user.id,
+      },
+    });
     await this.audit.log({ userId: user.id, action: 'ai:config-delete', module: 'ai', targetType: 'ai_provider_config', targetId: id, beforeData: this.auditData(existing) });
     return { id, deleted: true };
   }

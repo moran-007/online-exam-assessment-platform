@@ -35,7 +35,15 @@ import type {
 import { emptySummaryEditor, populateSummaryEditor, summaryContentFromEditor } from './summary-editor';
 
 export type AiSummaryKind = 'exam' | 'student' | 'class' | 'parent_report' | 'lesson';
-export type StudentSummaryScope = { courseId?: string; examIds?: string[]; from?: string; to?: string };
+export type SummaryDataDomain = 'lessons' | 'exams' | 'homework';
+export type StudentSummaryScope = {
+  courseId?: string;
+  examIds?: string[];
+  from?: string;
+  to?: string;
+  summaryDomains?: SummaryDataDomain[];
+  recentExamCount?: number;
+};
 type SummaryPreview = ExamSummaryDatasetPreview | StudentSummaryDatasetPreview | IntegratedSummaryDatasetPreview;
 
 const KIND_META: Record<AiSummaryKind, { label: string; schemaVersion: string; publishMessage: string }> = {
@@ -70,6 +78,7 @@ export function useAiSummaryDialog(kind: AiSummaryKind) {
   const subjectId = ref('');
   const subjectName = ref('');
   const scope = ref<StudentSummaryScope>({});
+  const scopeDateRange = ref<[Date, Date] | null>(null);
   const selectedConfigId = ref('');
   const requestedMaxTokens = ref<number>();
   const preview = ref<SummaryPreview | null>(null);
@@ -87,8 +96,7 @@ export function useAiSummaryDialog(kind: AiSummaryKind) {
   const canRevoke = computed(() => active.value?.reviewStatus === 'published');
   const canApply = computed(() => kind === 'lesson' && Boolean(active.value));
   const selectedConfiguration = computed(() => enabledConfigs.value.find((item) => item.id === selectedConfigId.value)
-    ?? enabledConfigs.value.find((item) => item.isDefault)
-    ?? enabledConfigs.value[0]);
+    ?? preferredConfiguration(enabledConfigs.value));
   const effectiveOutputLimit = computed(() => {
     const configured = selectedConfiguration.value?.maxTokens;
     const requested = optionalOutputLimit(requestedMaxTokens.value).maxTokens;
@@ -113,7 +121,14 @@ export function useAiSummaryDialog(kind: AiSummaryKind) {
   async function open(id: string, name: string, nextScope: StudentSummaryScope = {}) {
     subjectId.value = id;
     subjectName.value = name;
-    scope.value = { ...nextScope };
+    const configurableScope = kind === 'student' || kind === 'class' || kind === 'parent_report';
+    scope.value = configurableScope
+      ? { summaryDomains: ['lessons', 'exams', 'homework'], recentExamCount: 5, ...nextScope }
+      : { ...nextScope };
+    if (nextScope.examIds?.length && nextScope.recentExamCount === undefined) delete scope.value.recentExamCount;
+    scopeDateRange.value = scope.value.from || scope.value.to
+      ? [new Date(scope.value.from ?? 0), new Date(scope.value.to ?? Date.now())]
+      : null;
     visible.value = true;
     loading.value = true;
     lastTask.value = null;
@@ -138,12 +153,15 @@ export function useAiSummaryDialog(kind: AiSummaryKind) {
   }
 
   async function generate() {
+    if (!validateScope()) return;
+    syncDateRange();
     let retryConfirmed = false;
     if (lastTask.value?.status === 'failed') {
       retryConfirmed = await confirmFailedRetry();
       if (!retryConfirmed) return;
     }
     await execute(`生成${KIND_META[kind].label}`, async () => {
+      if (kind === 'student' || kind === 'class' || kind === 'parent_report') preview.value = await loadPreview();
       const task = await createTaskAfterConfirmation(retryConfirmed);
       if (!task) return;
       lastTask.value = task;
@@ -248,14 +266,62 @@ export function useAiSummaryDialog(kind: AiSummaryKind) {
     };
     if (kind === 'exam') return createExamSummary({ examId: subjectId.value, ...options });
     if (kind === 'student') return createStudentSummary({ studentId: subjectId.value, ...scope.value, ...options });
-    if (kind === 'class') return createClassSummary({ classId: subjectId.value, from: scope.value.from, to: scope.value.to, ...options });
-    if (kind === 'parent_report') return createParentReport({ studentId: subjectId.value, from: scope.value.from, to: scope.value.to, ...options });
+    if (kind === 'class') return createClassSummary({
+      classId: subjectId.value,
+      from: scope.value.from,
+      to: scope.value.to,
+      summaryDomains: scope.value.summaryDomains,
+      recentExamCount: scope.value.recentExamCount,
+      ...options,
+    });
+    if (kind === 'parent_report') return createParentReport({
+      studentId: subjectId.value,
+      from: scope.value.from,
+      to: scope.value.to,
+      summaryDomains: scope.value.summaryDomains,
+      recentExamCount: scope.value.recentExamCount,
+      ...options,
+    });
     return createLessonAssistant({ sessionId: subjectId.value, ...options });
   }
 
   async function refresh(selectedId?: string) {
     history.value = await loadHistory();
     selectSummary(history.value.find((item) => item.id === selectedId) ?? history.value[0] ?? null);
+  }
+
+  async function applySummaryScope() {
+    if (!validateScope()) return;
+    syncDateRange();
+    loading.value = true;
+    try {
+      preview.value = await loadPreview();
+      lastTask.value = null;
+      ElMessage.success('总结范围已应用');
+    } catch (error: unknown) {
+      ElMessage.error(errorMessage(error, '总结范围预览加载失败'));
+    } finally {
+      loading.value = false;
+    }
+  }
+
+  function syncDateRange() {
+    const range = scopeDateRange.value;
+    if (!range) {
+      delete scope.value.from;
+      delete scope.value.to;
+      return;
+    }
+    scope.value.from = range[0].toISOString();
+    scope.value.to = range[1].toISOString();
+  }
+
+  function validateScope() {
+    if ((kind === 'student' || kind === 'class' || kind === 'parent_report') && !scope.value.summaryDomains?.length) {
+      ElMessage.warning('请至少选择上课、考试或作业中的一项');
+      return false;
+    }
+    return true;
   }
 
   function contentFromEditor(): Record<string, unknown> {
@@ -282,9 +348,9 @@ export function useAiSummaryDialog(kind: AiSummaryKind) {
   }
 
   return {
-    active, canApply, canEdit, canPublish, canReview, canRevoke, editor, effectiveOutputLimit, enabledConfigs,
+    active, applySummaryScope, canApply, canEdit, canPublish, canReview, canRevoke, editor, effectiveOutputLimit, enabledConfigs,
     generate, history, kind, kindLabel: KIND_META[kind].label, lastTask, loading, open, outputLimitHint,
-    preview, publish, regenerate, requestedMaxTokens, review, revoke, save, selectSummary, selectedConfigId,
+    preview, publish, regenerate, requestedMaxTokens, review, revoke, save, scope, scopeDateRange, selectSummary, selectedConfigId,
     subjectName, visible, working,
   };
 }
@@ -307,4 +373,11 @@ function retryConfirmationRequired(error: unknown) {
 
 async function confirm(message: string, title: string) {
   return ElMessageBox.confirm(message, title, { type: 'warning' }).then(() => true).catch(() => false);
+}
+
+function preferredConfiguration(configurations: AiProviderConfig[]) {
+  return configurations.find((item) => item.scope === 'personal' && item.isDefault)
+    ?? configurations.find((item) => item.isDefault)
+    ?? configurations.find((item) => item.scope === 'personal')
+    ?? configurations[0];
 }

@@ -102,6 +102,55 @@
         ],
         "type": "object"
       },
+      "AiChatContextSourceDto": {
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "question",
+              "paper",
+              "class",
+              "student",
+              "teacher",
+              "schedule",
+              "exam"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "id",
+          "name"
+        ],
+        "type": "object"
+      },
+      "AiChatHistoryMessageDto": {
+        "properties": {
+          "content": {
+            "maxLength": 20000,
+            "type": "string"
+          },
+          "role": {
+            "enum": [
+              "user",
+              "assistant"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "role",
+          "content"
+        ],
+        "type": "object"
+      },
       "AiDataCoverageDto": {
         "properties": {
           "excludes": {
@@ -634,6 +683,13 @@
           "model": {
             "type": "string"
           },
+          "models": {
+            "description": "该预设已登记的可选模型；model 为默认值",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
           "name": {
             "type": "string"
           },
@@ -649,6 +705,7 @@
           "name",
           "baseUrl",
           "model",
+          "models",
           "documentationUrl",
           "note"
         ],
@@ -920,6 +977,9 @@
           "gradedAnswerCount": {
             "$ref": "#/components/schemas/AiEvidencedNumberDto"
           },
+          "gradedAttemptCount": {
+            "$ref": "#/components/schemas/AiEvidencedNumberDto"
+          },
           "gradedExamCount": {
             "$ref": "#/components/schemas/AiEvidencedNumberDto"
           },
@@ -947,6 +1007,9 @@
           "selectedExamCount": {
             "$ref": "#/components/schemas/AiEvidencedNumberDto"
           },
+          "submittedAttemptCount": {
+            "$ref": "#/components/schemas/AiEvidencedNumberDto"
+          },
           "ungradedExamCount": {
             "$ref": "#/components/schemas/AiEvidencedNumberDto"
           }
@@ -954,6 +1017,8 @@
         "required": [
           "selectedExamCount",
           "gradedExamCount",
+          "submittedAttemptCount",
+          "gradedAttemptCount",
           "notSubmittedExamCount",
           "ungradedExamCount",
           "gradedAnswerCount",
@@ -965,6 +1030,48 @@
           "scratchWorkCount",
           "scratchSubmittedCount",
           "scratchReviewedCount"
+        ],
+        "type": "object"
+      },
+      "AiStudentExamAttemptDto": {
+        "properties": {
+          "attemptId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "examId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "examName": {
+            "type": "string"
+          },
+          "fullScore": {
+            "$ref": "#/components/schemas/AiEvidencedNumberDto"
+          },
+          "score": {
+            "$ref": "#/components/schemas/AiEvidencedNumberDto"
+          },
+          "scoreRate": {
+            "$ref": "#/components/schemas/AiEvidencedNumberDto"
+          },
+          "status": {
+            "$ref": "#/components/schemas/AiEvidencedStringDto"
+          },
+          "submittedAt": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "attemptId",
+          "examId",
+          "examName",
+          "submittedAt",
+          "status",
+          "score",
+          "fullScore",
+          "scoreRate"
         ],
         "type": "object"
       },
@@ -1198,12 +1305,30 @@
               "type": "string"
             },
             "type": "array"
+          },
+          "recentExamCount": {
+            "minimum": 1,
+            "nullable": true,
+            "type": "number"
+          },
+          "summaryDomains": {
+            "items": {
+              "enum": [
+                "lessons",
+                "exams",
+                "homework"
+              ],
+              "type": "string"
+            },
+            "type": "array"
           }
         },
         "required": [
           "courseId",
           "courseName",
-          "examIds"
+          "examIds",
+          "summaryDomains",
+          "recentExamCount"
         ],
         "type": "object"
       },
@@ -1420,10 +1545,90 @@
         ],
         "type": "object"
       },
+      "AiSummaryPresetResponseDto": {
+        "properties": {
+          "changeReason": {
+            "nullable": true,
+            "type": "string"
+          },
+          "code": {
+            "type": "string"
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "createdBy": {
+            "format": "uuid",
+            "nullable": true,
+            "type": "string"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "reviewedBy": {
+            "format": "uuid",
+            "nullable": true,
+            "type": "string"
+          },
+          "summaryType": {
+            "enum": [
+              "EXAM",
+              "STUDENT",
+              "CLASS",
+              "PARENT_REPORT",
+              "LESSON"
+            ],
+            "type": "string"
+          },
+          "systemPrompt": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "version": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "id",
+          "code",
+          "summaryType",
+          "version",
+          "systemPrompt",
+          "enabled",
+          "changeReason",
+          "reviewedBy",
+          "createdBy",
+          "createdAt",
+          "updatedAt"
+        ],
+        "type": "object"
+      },
       "AiSummaryResultDto": {
         "properties": {
+          "contextSources": {
+            "items": {
+              "$ref": "#/components/schemas/AiChatContextSourceDto"
+            },
+            "type": "array"
+          },
+          "directAnswerAllowed": {
+            "description": "当前角色是否允许 AI 直接给出答案",
+            "type": "boolean"
+          },
           "durationMs": {
             "type": "number"
+          },
+          "generalKnowledgeAllowed": {
+            "description": "当前角色是否允许脱离平台题目和试卷回答通用知识",
+            "type": "boolean"
           },
           "model": {
             "type": "string"
@@ -1453,7 +1658,10 @@
           "outputLimitTokens",
           "usage",
           "tokenQuota",
-          "durationMs"
+          "durationMs",
+          "contextSources",
+          "directAnswerAllowed",
+          "generalKnowledgeAllowed"
         ],
         "type": "object"
       },
@@ -2538,6 +2746,25 @@
             "minimum": 1,
             "type": "number"
           },
+          "recentExamCount": {
+            "description": "时间筛选后取最近 N 场考试；不传时不限制考试数量",
+            "minimum": 1,
+            "type": "number"
+          },
+          "summaryDomains": {
+            "description": "班级总结内容，可单选或多选；不传时包含上课、考试和作业",
+            "items": {
+              "enum": [
+                "lessons",
+                "exams",
+                "homework"
+              ],
+              "type": "string"
+            },
+            "minItems": 1,
+            "type": "array",
+            "uniqueItems": true
+          },
           "to": {
             "format": "date-time",
             "type": "string"
@@ -2878,6 +3105,28 @@
         ],
         "type": "object"
       },
+      "CreateLessonPlanProcessPresetDto": {
+        "properties": {
+          "name": {
+            "example": "我的讲练结合方案",
+            "maxLength": 80,
+            "type": "string"
+          },
+          "stages": {
+            "items": {
+              "$ref": "#/components/schemas/LessonPlanProcessPresetStageDto"
+            },
+            "maxItems": 20,
+            "minItems": 1,
+            "type": "array"
+          }
+        },
+        "required": [
+          "name",
+          "stages"
+        ],
+        "type": "object"
+      },
       "CreateManagedUserDto": {
         "properties": {
           "password": {
@@ -2982,9 +3231,28 @@
             "minimum": 1,
             "type": "number"
           },
+          "recentExamCount": {
+            "description": "时间筛选后取最近 N 场考试；不传时不限制考试数量",
+            "minimum": 1,
+            "type": "number"
+          },
           "studentId": {
             "format": "uuid",
             "type": "string"
+          },
+          "summaryDomains": {
+            "description": "班级总结内容，可单选或多选；不传时包含上课、考试和作业",
+            "items": {
+              "enum": [
+                "lessons",
+                "exams",
+                "homework"
+              ],
+              "type": "string"
+            },
+            "minItems": 1,
+            "type": "array",
+            "uniqueItems": true
           },
           "to": {
             "format": "date-time",
@@ -3213,6 +3481,10 @@
             ],
             "type": "string"
           },
+          "knowledgePointId": {
+            "format": "uuid",
+            "type": "string"
+          },
           "lessonHours": {
             "minimum": 0,
             "type": "number"
@@ -3308,9 +3580,28 @@
             "minimum": 100,
             "type": "number"
           },
+          "recentExamCount": {
+            "description": "时间筛选后取最近 N 场考试；不传时不限制考试数量",
+            "minimum": 1,
+            "type": "number"
+          },
           "studentId": {
             "format": "uuid",
             "type": "string"
+          },
+          "summaryDomains": {
+            "description": "总结内容，可单选或多选；不传时包含上课、考试和作业",
+            "items": {
+              "enum": [
+                "lessons",
+                "exams",
+                "homework"
+              ],
+              "type": "string"
+            },
+            "minItems": 1,
+            "type": "array",
+            "uniqueItems": true
           },
           "to": {
             "description": "按考试结束时间筛选",
@@ -3404,12 +3695,31 @@
             "minimum": 100,
             "type": "number"
           },
+          "recentExamCount": {
+            "description": "时间筛选后取最近 N 场考试；不传时不限制考试数量",
+            "minimum": 1,
+            "type": "number"
+          },
           "studentIds": {
             "items": {
               "format": "uuid",
               "type": "string"
             },
             "maxItems": 20,
+            "minItems": 1,
+            "type": "array",
+            "uniqueItems": true
+          },
+          "summaryDomains": {
+            "description": "总结内容，可单选或多选；不传时包含上课、考试和作业",
+            "items": {
+              "enum": [
+                "lessons",
+                "exams",
+                "homework"
+              ],
+              "type": "string"
+            },
             "minItems": 1,
             "type": "array",
             "uniqueItems": true
@@ -3847,12 +4157,20 @@
             "type": "string"
           },
           "content": {
-            "description": "待总结内容，最多 20000 字符",
+            "description": "问答测试问题，最多 20000 字符；不会自动读取平台业务数据",
             "maxLength": 20000,
             "type": "string"
           },
+          "history": {
+            "description": "当前页面会话的最近消息；仅用于连续问答，不持久化",
+            "items": {
+              "$ref": "#/components/schemas/AiChatHistoryMessageDto"
+            },
+            "maxItems": 20,
+            "type": "array"
+          },
           "instruction": {
-            "description": "附加总结要求，最多 500 字符",
+            "description": "补充背景或回答要求，最多 500 字符",
             "maxLength": 500,
             "type": "string"
           },
@@ -4007,6 +4325,15 @@
             "type": "string"
           },
           "ruleId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "sessionCount": {
+            "maximum": 366,
+            "minimum": 1,
+            "type": "number"
+          },
+          "startKnowledgePointId": {
             "format": "uuid",
             "type": "string"
           },
@@ -4479,6 +4806,136 @@
             "type": "string"
           }
         },
+        "type": "object"
+      },
+      "LessonPlanProcessPresetResponseDto": {
+        "properties": {
+          "canManage": {
+            "description": "当前用户是否可以修改或删除该预设",
+            "type": "boolean"
+          },
+          "createdAt": {
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          },
+          "createdBy": {
+            "format": "uuid",
+            "nullable": true,
+            "type": "string"
+          },
+          "id": {
+            "description": "内置预设使用稳定字符串 ID；个人预设使用 UUID",
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "source": {
+            "enum": [
+              "SYSTEM",
+              "PERSONAL"
+            ],
+            "type": "string"
+          },
+          "stages": {
+            "items": {
+              "$ref": "#/components/schemas/LessonPlanProcessPresetStageDto"
+            },
+            "type": "array"
+          },
+          "updatedAt": {
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "stages",
+          "source",
+          "canManage"
+        ],
+        "type": "object"
+      },
+      "LessonPlanProcessPresetStageDto": {
+        "properties": {
+          "duration": {
+            "description": "环节预计分钟数",
+            "maximum": 300,
+            "minimum": 1,
+            "type": "number"
+          },
+          "title": {
+            "example": "导入新课",
+            "maxLength": 120,
+            "type": "string"
+          }
+        },
+        "required": [
+          "title",
+          "duration"
+        ],
+        "type": "object"
+      },
+      "LessonPlanPromptTemplateResponseDto": {
+        "properties": {
+          "canManage": {
+            "description": "当前用户是否可以修改或删除该模板",
+            "type": "boolean"
+          },
+          "createdAt": {
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          },
+          "createdBy": {
+            "format": "uuid",
+            "nullable": true,
+            "type": "string"
+          },
+          "id": {
+            "description": "内置模板使用稳定字符串 ID；个人模板使用 UUID",
+            "type": "string"
+          },
+          "maxTokens": {
+            "description": "单次生成最大输出 Token；null 表示自动",
+            "maximum": 8192,
+            "minimum": 512,
+            "nullable": true,
+            "type": "number"
+          },
+          "name": {
+            "type": "string"
+          },
+          "source": {
+            "enum": [
+              "SYSTEM",
+              "PERSONAL"
+            ],
+            "type": "string"
+          },
+          "templateContent": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "templateContent",
+          "maxTokens",
+          "source",
+          "canManage",
+          "createdBy",
+          "createdAt",
+          "updatedAt"
+        ],
         "type": "object"
       },
       "LessonRecordTransitionDto": {
@@ -5345,6 +5802,178 @@
         ],
         "type": "object"
       },
+      "SaveLessonPlanDto": {
+        "properties": {
+          "assessment": {
+            "maxLength": 20000,
+            "type": "string"
+          },
+          "boardDesign": {
+            "maxLength": 20000,
+            "type": "string"
+          },
+          "classroom": {
+            "maxLength": 160,
+            "type": "string"
+          },
+          "coreCompetencies": {
+            "maxLength": 20000,
+            "type": "string"
+          },
+          "courseId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "difficultPoints": {
+            "maxLength": 20000,
+            "type": "string"
+          },
+          "doubtfulPoints": {
+            "maxLength": 20000,
+            "type": "string"
+          },
+          "durationMinutes": {
+            "maximum": 300,
+            "minimum": 1,
+            "type": "number"
+          },
+          "gradeLevel": {
+            "maxLength": 120,
+            "type": "string"
+          },
+          "homework": {
+            "maxLength": 20000,
+            "type": "string"
+          },
+          "instructorName": {
+            "maxLength": 80,
+            "type": "string"
+          },
+          "keyPoints": {
+            "maxLength": 20000,
+            "type": "string"
+          },
+          "knowledgeObjectives": {
+            "maxLength": 20000,
+            "type": "string"
+          },
+          "knowledgePointId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "learnerAnalysis": {
+            "maxLength": 20000,
+            "type": "string"
+          },
+          "preparation": {
+            "maxLength": 20000,
+            "type": "string"
+          },
+          "processObjectives": {
+            "maxLength": 20000,
+            "type": "string"
+          },
+          "reflection": {
+            "maxLength": 20000,
+            "type": "string"
+          },
+          "scheduledAt": {
+            "maxLength": 64,
+            "type": "string"
+          },
+          "source": {
+            "enum": [
+              "SYSTEM",
+              "PERSONAL"
+            ],
+            "type": "string"
+          },
+          "teachingContent": {
+            "maxLength": 20000,
+            "type": "string"
+          },
+          "teachingMeans": {
+            "maxLength": 20000,
+            "type": "string"
+          },
+          "teachingMethods": {
+            "maxLength": 20000,
+            "type": "string"
+          },
+          "teachingProcess": {
+            "items": {
+              "$ref": "#/components/schemas/TeachingProcessStageDto"
+            },
+            "maxItems": 30,
+            "minItems": 1,
+            "type": "array"
+          },
+          "theme": {
+            "maxLength": 200,
+            "type": "string"
+          },
+          "valueObjectives": {
+            "maxLength": 20000,
+            "type": "string"
+          }
+        },
+        "required": [
+          "source",
+          "courseId",
+          "theme",
+          "scheduledAt",
+          "classroom",
+          "instructorName",
+          "gradeLevel",
+          "durationMinutes",
+          "learnerAnalysis",
+          "knowledgeObjectives",
+          "processObjectives",
+          "valueObjectives",
+          "coreCompetencies",
+          "teachingContent",
+          "keyPoints",
+          "difficultPoints",
+          "doubtfulPoints",
+          "teachingMethods",
+          "teachingMeans",
+          "preparation",
+          "teachingProcess",
+          "homework",
+          "assessment",
+          "boardDesign",
+          "reflection"
+        ],
+        "type": "object"
+      },
+      "SaveLessonPlanPromptTemplateDto": {
+        "properties": {
+          "maxTokens": {
+            "description": "单次生成最大输出 Token；null 或不传表示自动",
+            "example": 6000,
+            "maximum": 8192,
+            "minimum": 512,
+            "nullable": true,
+            "type": "number"
+          },
+          "name": {
+            "description": "指令模板名称",
+            "example": "我的数学探究课详案",
+            "maxLength": 80,
+            "type": "string"
+          },
+          "templateContent": {
+            "description": "附加到教案生成上下文中的教师自定义要求",
+            "maxLength": 6000,
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "templateContent"
+        ],
+        "type": "object"
+      },
       "SaveLessonRecordDto": {
         "properties": {
           "internalClassPerformance": {
@@ -5798,6 +6427,12 @@
             },
             "type": "array"
           },
+          "examAttemptHistory": {
+            "items": {
+              "$ref": "#/components/schemas/AiStudentExamAttemptDto"
+            },
+            "type": "array"
+          },
           "examPerformance": {
             "items": {
               "$ref": "#/components/schemas/AiStudentExamPerformanceDto"
@@ -5868,6 +6503,7 @@
           "scope",
           "coverage",
           "examPerformance",
+          "examAttemptHistory",
           "questionTypes",
           "knowledgePoints",
           "wrongQuestions",
@@ -5972,6 +6608,59 @@
         ],
         "type": "object"
       },
+      "TeachingProcessStageDto": {
+        "properties": {
+          "assessment": {
+            "maxLength": 20000,
+            "type": "string"
+          },
+          "coreQuestion": {
+            "maxLength": 20000,
+            "type": "string"
+          },
+          "designIntent": {
+            "maxLength": 20000,
+            "type": "string"
+          },
+          "duration": {
+            "maximum": 300,
+            "minimum": 1,
+            "type": "number"
+          },
+          "id": {
+            "maxLength": 100,
+            "type": "string"
+          },
+          "resources": {
+            "maxLength": 20000,
+            "type": "string"
+          },
+          "studentActivity": {
+            "maxLength": 20000,
+            "type": "string"
+          },
+          "teacherActivity": {
+            "maxLength": 20000,
+            "type": "string"
+          },
+          "title": {
+            "maxLength": 120,
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "duration",
+          "coreQuestion",
+          "teacherActivity",
+          "studentActivity",
+          "assessment",
+          "designIntent",
+          "resources"
+        ],
+        "type": "object"
+      },
       "UpdateAiProviderConfigDto": {
         "properties": {
           "apiKey": {
@@ -6038,6 +6727,30 @@
         },
         "required": [
           "content"
+        ],
+        "type": "object"
+      },
+      "UpdateAiSummaryPresetDto": {
+        "properties": {
+          "activate": {
+            "default": true,
+            "description": "保存后立即启用该新版本",
+            "type": "boolean"
+          },
+          "changeReason": {
+            "description": "本次调整原因",
+            "maxLength": 300,
+            "type": "string"
+          },
+          "systemPrompt": {
+            "description": "系统提示词；输出 JSON 结构由系统固定维护",
+            "maxLength": 12000,
+            "type": "string"
+          }
+        },
+        "required": [
+          "systemPrompt",
+          "changeReason"
         ],
         "type": "object"
       },
@@ -6270,6 +6983,24 @@
               "ARCHIVED"
             ],
             "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "UpdateLessonPlanProcessPresetDto": {
+        "properties": {
+          "name": {
+            "example": "我的讲练结合方案",
+            "maxLength": 80,
+            "type": "string"
+          },
+          "stages": {
+            "items": {
+              "$ref": "#/components/schemas/LessonPlanProcessPresetStageDto"
+            },
+            "maxItems": 20,
+            "minItems": 1,
+            "type": "array"
           }
         },
         "type": "object"
@@ -8512,6 +9243,35 @@
               "format": "date-time",
               "type": "string"
             }
+          },
+          {
+            "description": "班级总结内容，可单选或多选；不传时包含上课、考试和作业",
+            "in": "query",
+            "name": "summaryDomains",
+            "required": false,
+            "schema": {
+              "items": {
+                "enum": [
+                  "lessons",
+                  "exams",
+                  "homework"
+                ],
+                "type": "string"
+              },
+              "minItems": 1,
+              "type": "array",
+              "uniqueItems": true
+            }
+          },
+          {
+            "description": "时间筛选后取最近 N 场考试；不传时不限制考试数量",
+            "in": "query",
+            "name": "recentExamCount",
+            "required": false,
+            "schema": {
+              "minimum": 1,
+              "type": "number"
+            }
           }
         ],
         "responses": {
@@ -8977,6 +9737,35 @@
               "format": "date-time",
               "type": "string"
             }
+          },
+          {
+            "description": "班级总结内容，可单选或多选；不传时包含上课、考试和作业",
+            "in": "query",
+            "name": "summaryDomains",
+            "required": false,
+            "schema": {
+              "items": {
+                "enum": [
+                  "lessons",
+                  "exams",
+                  "homework"
+                ],
+                "type": "string"
+              },
+              "minItems": 1,
+              "type": "array",
+              "uniqueItems": true
+            }
+          },
+          {
+            "description": "时间筛选后取最近 N 场考试；不传时不限制考试数量",
+            "in": "query",
+            "name": "recentExamCount",
+            "required": false,
+            "schema": {
+              "minimum": 1,
+              "type": "number"
+            }
           }
         ],
         "responses": {
@@ -9167,6 +9956,35 @@
             "schema": {
               "format": "date-time",
               "type": "string"
+            }
+          },
+          {
+            "description": "总结内容，可单选或多选；不传时包含上课、考试和作业",
+            "in": "query",
+            "name": "summaryDomains",
+            "required": false,
+            "schema": {
+              "items": {
+                "enum": [
+                  "lessons",
+                  "exams",
+                  "homework"
+                ],
+                "type": "string"
+              },
+              "minItems": 1,
+              "type": "array",
+              "uniqueItems": true
+            }
+          },
+          {
+            "description": "时间筛选后取最近 N 场考试；不传时不限制考试数量",
+            "in": "query",
+            "name": "recentExamCount",
+            "required": false,
+            "schema": {
+              "minimum": 1,
+              "type": "number"
             }
           }
         ],
@@ -9891,6 +10709,232 @@
         ],
         "tags": [
           "AI"
+        ]
+      }
+    },
+    "/api/v1/ai/summary-presets": {
+      "get": {
+        "operationId": "AiSummaryPreset_list",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "code": {
+                      "example": 0,
+                      "type": "integer"
+                    },
+                    "data": {
+                      "items": {
+                        "$ref": "#/components/schemas/AiSummaryPresetResponseDto"
+                      },
+                      "type": "array"
+                    },
+                    "message": {
+                      "example": "ok",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "code",
+                    "message",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "401": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "404": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "409": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "429": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "500": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "AI Summary Preset"
+        ]
+      }
+    },
+    "/api/v1/ai/summary-presets/{id}": {
+      "patch": {
+        "operationId": "AiSummaryPreset_revise",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateAiSummaryPresetDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "code": {
+                      "example": 0,
+                      "type": "integer"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/AiSummaryPresetResponseDto"
+                    },
+                    "message": {
+                      "example": "ok",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "code",
+                    "message",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "401": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "404": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "409": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "429": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "500": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "AI Summary Preset"
+        ]
+      }
+    },
+    "/api/v1/ai/summary-presets/{id}/activate": {
+      "post": {
+        "operationId": "AiSummaryPreset_activate",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "code": {
+                      "example": 0,
+                      "type": "integer"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/AiSummaryPresetResponseDto"
+                    },
+                    "message": {
+                      "example": "ok",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "code",
+                    "message",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "401": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "404": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "409": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "429": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "500": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "AI Summary Preset"
         ]
       }
     },
@@ -18953,6 +19997,858 @@
         ]
       }
     },
+    "/api/v1/lesson-plan-process-presets": {
+      "get": {
+        "operationId": "LessonPlanProcessPresets_list",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "code": {
+                      "example": 0,
+                      "type": "integer"
+                    },
+                    "data": {
+                      "items": {
+                        "$ref": "#/components/schemas/LessonPlanProcessPresetResponseDto"
+                      },
+                      "type": "array"
+                    },
+                    "message": {
+                      "example": "ok",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "code",
+                    "message",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "401": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "404": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "409": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "429": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "500": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "获取系统内置及当前教师的教学过程预设",
+        "tags": [
+          "Lesson plan process preset"
+        ]
+      },
+      "post": {
+        "operationId": "LessonPlanProcessPresets_create",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateLessonPlanProcessPresetDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "code": {
+                      "example": 0,
+                      "type": "integer"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/LessonPlanProcessPresetResponseDto"
+                    },
+                    "message": {
+                      "example": "ok",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "code",
+                    "message",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "401": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "404": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "409": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "429": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "500": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "创建当前教师的个人教学过程预设",
+        "tags": [
+          "Lesson plan process preset"
+        ]
+      }
+    },
+    "/api/v1/lesson-plan-process-presets/{id}": {
+      "delete": {
+        "operationId": "LessonPlanProcessPresets_remove",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "code": {
+                      "example": 0,
+                      "type": "integer"
+                    },
+                    "data": {
+                      "type": "boolean"
+                    },
+                    "message": {
+                      "example": "ok",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "code",
+                    "message",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "401": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "404": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "409": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "429": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "500": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "删除当前教师的个人教学过程预设",
+        "tags": [
+          "Lesson plan process preset"
+        ]
+      },
+      "patch": {
+        "operationId": "LessonPlanProcessPresets_update",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateLessonPlanProcessPresetDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "code": {
+                      "example": 0,
+                      "type": "integer"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/LessonPlanProcessPresetResponseDto"
+                    },
+                    "message": {
+                      "example": "ok",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "code",
+                    "message",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "401": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "404": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "409": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "429": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "500": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "修改当前教师的个人教学过程预设",
+        "tags": [
+          "Lesson plan process preset"
+        ]
+      }
+    },
+    "/api/v1/lesson-plan-prompt-templates": {
+      "get": {
+        "operationId": "LessonPlanPromptTemplates_list",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "code": {
+                      "example": 0,
+                      "type": "integer"
+                    },
+                    "data": {
+                      "items": {
+                        "$ref": "#/components/schemas/LessonPlanPromptTemplateResponseDto"
+                      },
+                      "type": "array"
+                    },
+                    "message": {
+                      "example": "ok",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "code",
+                    "message",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "401": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "404": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "409": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "429": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "500": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "获取系统内置及当前教师的教案生成指令模板",
+        "tags": [
+          "Lesson plan prompt template"
+        ]
+      },
+      "post": {
+        "operationId": "LessonPlanPromptTemplates_create",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SaveLessonPlanPromptTemplateDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "code": {
+                      "example": 0,
+                      "type": "integer"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/LessonPlanPromptTemplateResponseDto"
+                    },
+                    "message": {
+                      "example": "ok",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "code",
+                    "message",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "401": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "404": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "409": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "429": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "500": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "创建当前教师的个人教案生成指令模板",
+        "tags": [
+          "Lesson plan prompt template"
+        ]
+      }
+    },
+    "/api/v1/lesson-plan-prompt-templates/{id}": {
+      "delete": {
+        "operationId": "LessonPlanPromptTemplates_remove",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "code": {
+                      "example": 0,
+                      "type": "integer"
+                    },
+                    "data": {
+                      "type": "boolean"
+                    },
+                    "message": {
+                      "example": "ok",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "code",
+                    "message",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "401": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "404": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "409": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "429": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "500": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "删除当前教师的个人教案生成指令模板",
+        "tags": [
+          "Lesson plan prompt template"
+        ]
+      },
+      "patch": {
+        "operationId": "LessonPlanPromptTemplates_update",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SaveLessonPlanPromptTemplateDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "code": {
+                      "example": 0,
+                      "type": "integer"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/LessonPlanPromptTemplateResponseDto"
+                    },
+                    "message": {
+                      "example": "ok",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "code",
+                    "message",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "401": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "404": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "409": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "429": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "500": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "修改当前教师的个人教案生成指令模板",
+        "tags": [
+          "Lesson plan prompt template"
+        ]
+      }
+    },
+    "/api/v1/lesson-plans": {
+      "get": {
+        "operationId": "LessonPlans_list",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "courseId",
+            "required": false,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "knowledgePointId",
+            "required": false,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "source",
+            "required": false,
+            "schema": {
+              "enum": [
+                "SYSTEM",
+                "PERSONAL"
+              ],
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "401": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "404": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "409": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "429": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "500": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "Lesson plan"
+        ]
+      },
+      "post": {
+        "operationId": "LessonPlans_create",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SaveLessonPlanDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "401": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "404": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "409": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "429": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "500": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "Lesson plan"
+        ]
+      }
+    },
+    "/api/v1/lesson-plans/{id}": {
+      "delete": {
+        "operationId": "LessonPlans_remove",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "code": {
+                      "example": 0,
+                      "type": "integer"
+                    },
+                    "data": {
+                      "type": "boolean"
+                    },
+                    "message": {
+                      "example": "ok",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "code",
+                    "message",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "401": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "404": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "409": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "429": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "500": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "Lesson plan"
+        ]
+      },
+      "patch": {
+        "operationId": "LessonPlans_update",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SaveLessonPlanDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "401": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "404": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "409": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "429": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "500": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "Lesson plan"
+        ]
+      }
+    },
     "/api/v1/lesson-records": {
       "get": {
         "operationId": "LessonRecords_list",
@@ -23400,6 +25296,56 @@
         ],
         "tags": [
           "ReviewRule"
+        ]
+      }
+    },
+    "/api/v1/schedule-context": {
+      "get": {
+        "operationId": "LessonSchedule_context",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "classId",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "401": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "404": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "409": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "429": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "500": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "Academic operations - schedule"
         ]
       }
     },

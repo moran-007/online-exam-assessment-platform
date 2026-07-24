@@ -7,6 +7,7 @@ import {
   IsArray,
   IsBoolean,
   IsDateString,
+  IsIn,
   IsInt,
   IsOptional,
   IsUUID,
@@ -22,6 +23,7 @@ import {
   AiEvidenceRefDto,
   AiEvidencedNumberDto,
 } from './ai-summary.dto';
+import { SUMMARY_DATA_DOMAINS, type SummaryDataDomain } from '../datasets/summary-scope';
 
 export class StudentSummaryScopeQueryDto {
   @ApiPropertyOptional({ format: 'uuid' })
@@ -40,6 +42,20 @@ export class StudentSummaryScopeQueryDto {
   @ApiPropertyOptional({ format: 'date-time', description: '按考试结束时间筛选' })
   @IsOptional() @IsDateString()
   to?: string;
+
+  @ApiPropertyOptional({
+    type: [String],
+    enum: SUMMARY_DATA_DOMAINS,
+    description: '总结内容，可单选或多选；不传时包含上课、考试和作业',
+  })
+  @Transform(({ value }) => normalizeArray(value))
+  @IsOptional() @IsArray() @ArrayMinSize(1) @ArrayUnique() @IsIn(SUMMARY_DATA_DOMAINS, { each: true })
+  summaryDomains?: SummaryDataDomain[];
+
+  @ApiPropertyOptional({ minimum: 1, description: '时间筛选后取最近 N 场考试；不传时不限制考试数量' })
+  @Transform(({ value }) => value === '' || value === undefined ? undefined : Number(value))
+  @IsOptional() @IsInt() @Min(1)
+  recentExamCount?: number;
 }
 
 export class CreateStudentSummaryTaskDto extends StudentSummaryScopeQueryDto {
@@ -123,11 +139,15 @@ export class AiStudentSummaryScopeDto {
   @ApiProperty({ nullable: true, format: 'uuid' }) courseId: string | null;
   @ApiProperty({ nullable: true }) courseName: string | null;
   @ApiProperty({ type: [String], format: 'uuid' }) examIds: string[];
+  @ApiProperty({ type: [String], enum: SUMMARY_DATA_DOMAINS }) summaryDomains: SummaryDataDomain[];
+  @ApiProperty({ nullable: true, minimum: 1 }) recentExamCount: number | null;
 }
 
 export class AiStudentCoverageMetricsDto {
   @ApiProperty({ type: () => AiEvidencedNumberDto }) selectedExamCount: AiEvidencedNumberDto;
   @ApiProperty({ type: () => AiEvidencedNumberDto }) gradedExamCount: AiEvidencedNumberDto;
+  @ApiProperty({ type: () => AiEvidencedNumberDto }) submittedAttemptCount: AiEvidencedNumberDto;
+  @ApiProperty({ type: () => AiEvidencedNumberDto }) gradedAttemptCount: AiEvidencedNumberDto;
   @ApiProperty({ type: () => AiEvidencedNumberDto }) notSubmittedExamCount: AiEvidencedNumberDto;
   @ApiProperty({ type: () => AiEvidencedNumberDto }) ungradedExamCount: AiEvidencedNumberDto;
   @ApiProperty({ type: () => AiEvidencedNumberDto }) gradedAnswerCount: AiEvidencedNumberDto;
@@ -147,6 +167,17 @@ export class AiStudentExamPerformanceDto {
   @ApiProperty({ format: 'date-time' }) endedAt: string;
   @ApiProperty({ type: () => AiEvidencedStringDto }) status: AiEvidencedStringDto;
   @ApiProperty({ nullable: true, format: 'date-time' }) submittedAt: string | null;
+  @ApiProperty({ type: () => AiEvidencedNumberDto }) score: AiEvidencedNumberDto;
+  @ApiProperty({ type: () => AiEvidencedNumberDto }) fullScore: AiEvidencedNumberDto;
+  @ApiProperty({ type: () => AiEvidencedNumberDto }) scoreRate: AiEvidencedNumberDto;
+}
+
+export class AiStudentExamAttemptDto {
+  @ApiProperty({ format: 'uuid' }) attemptId: string;
+  @ApiProperty({ format: 'uuid' }) examId: string;
+  @ApiProperty() examName: string;
+  @ApiProperty({ format: 'date-time' }) submittedAt: string;
+  @ApiProperty({ type: () => AiEvidencedStringDto }) status: AiEvidencedStringDto;
   @ApiProperty({ type: () => AiEvidencedNumberDto }) score: AiEvidencedNumberDto;
   @ApiProperty({ type: () => AiEvidencedNumberDto }) fullScore: AiEvidencedNumberDto;
   @ApiProperty({ type: () => AiEvidencedNumberDto }) scoreRate: AiEvidencedNumberDto;
@@ -226,6 +257,7 @@ export class StudentSummaryDatasetPreviewDto {
   @ApiProperty({ type: () => AiStudentSummaryScopeDto }) scope: AiStudentSummaryScopeDto;
   @ApiProperty({ type: () => AiStudentCoverageMetricsDto }) coverage: AiStudentCoverageMetricsDto;
   @ApiProperty({ type: () => [AiStudentExamPerformanceDto] }) examPerformance: AiStudentExamPerformanceDto[];
+  @ApiProperty({ type: () => [AiStudentExamAttemptDto] }) examAttemptHistory: AiStudentExamAttemptDto[];
   @ApiProperty({ type: () => [AiStudentQuestionTypeFactDto] }) questionTypes: AiStudentQuestionTypeFactDto[];
   @ApiProperty({ type: () => [AiStudentKnowledgePointFactDto] }) knowledgePoints: AiStudentKnowledgePointFactDto[];
   @ApiProperty({ type: () => [AiStudentWrongQuestionFactDto] }) wrongQuestions: AiStudentWrongQuestionFactDto[];

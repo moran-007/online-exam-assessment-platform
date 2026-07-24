@@ -1,4 +1,4 @@
-import { onMounted, reactive, ref } from 'vue';
+import { computed, onMounted, reactive, ref } from 'vue';
 import { ElMessage } from 'element-plus';
 import { DocumentAdd, Download, Refresh, Setting } from '@element-plus/icons-vue';
 import {
@@ -46,6 +46,23 @@ type StatisticsFilter = {
   dateRange: [] | [string, string];
 };
 type StatisticsParams = Parameters<typeof loadStatisticsOverview>[0];
+type StatisticsPagination = { page: number; pageSize: number; total: number };
+
+const statisticsPageSizes = [5, 10, 20, 50];
+
+function createPagination(pageSize = statisticsPageSizes[0]): StatisticsPagination {
+  return { page: 1, pageSize, total: 0 };
+}
+
+function pageItems<T>(items: T[], pagination: StatisticsPagination) {
+  const start = (pagination.page - 1) * pagination.pageSize;
+  return items.slice(start, start + pagination.pageSize);
+}
+
+function syncPagination(pagination: StatisticsPagination, total: number) {
+  pagination.total = total;
+  pagination.page = Math.min(pagination.page, Math.max(1, Math.ceil(total / pagination.pageSize)));
+}
 
 function recordValue(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== 'object') throw new Error('记录格式无效');
@@ -64,6 +81,8 @@ function hydroSummaryItemFrom(value: unknown) {
 
 export function useStatisticsPage() {
 const filter = reactive<StatisticsFilter>({ courseId: '', classId: '', examId: '', sourceType: '', dateRange: [] });
+const loading = ref(false);
+const activeStatisticsTab = ref('exams');
 const overview = reactive<StatisticsOverview>({
   submittedAttempts: 0,
   averageScore: 0,
@@ -90,6 +109,17 @@ const hydroSummary = ref<HydroStatisticsSummary>({
   items: [],
 });
 const selectedExamName = ref('');
+const examPagination = reactive(createPagination());
+const knowledgePagination = reactive(createPagination());
+const classPagination = reactive(createPagination());
+const hydroPagination = reactive(createPagination());
+const questionPagination = reactive(createPagination());
+const wrongQuestionPagination = reactive(createPagination());
+const pagedKnowledgeStats = computed(() => pageItems(knowledgeStats.value, knowledgePagination));
+const pagedClassStats = computed(() => pageItems(classStats.value, classPagination));
+const pagedHydroItems = computed(() => pageItems(hydroSummary.value.items ?? [], hydroPagination));
+const pagedQuestionStats = computed(() => pageItems(questionStats.value, questionPagination));
+const pagedWrongQuestionStats = computed(() => pageItems(wrongQuestionStats.value, wrongQuestionPagination));
 const exporting = ref(false);
 const generatingWrongPaper = ref(false);
 const hydroWritebackVisible = ref(false);
@@ -106,57 +136,126 @@ const { showMediumColumns, showLowColumns } = useResponsiveColumns();
 const { scoreDistributionOption, classComparisonOption, knowledgeTrendOption, questionDiagnosticsOption } =
   useStatisticsCharts({ scoreDistribution, classComparison, knowledgeTrend, questionDiagnostics });
 const reviewRulesContext = useStatisticsReviewRules({ courses, classes, loadStatistics: load });
+let statisticsRequestId = 0;
+let examDetailRequestId = 0;
 
 async function load() {
-  const params = statisticsPayload();
-  const [
-    coursePage,
-    classPage,
-    examPage,
-    overviewData,
-    examPageStats,
-    knowledge,
-    classData,
-    wrongQuestions,
-    distribution,
-    classCompare,
-    trend,
-    diagnostics,
-    hydroData,
-  ] = await Promise.all([
-    listExamCourses(),
-    listExamClasses(),
-    listManagedExams({ pageSize: 100, sortBy: 'createdAt', sortOrder: 'desc' }),
-    loadStatisticsOverview(params),
-    loadStatisticsExams(params),
-    loadStatisticsKnowledge(params),
-    loadStatisticsClasses(params),
-    loadStatisticsWrongQuestions(params),
-    loadStatisticsScoreDistribution(params),
-    loadStatisticsClassComparison(params),
-    loadStatisticsKnowledgeTrend(params),
-    loadStatisticsQuestionDiagnostics(params),
-    getHydroSummary(params),
-  ]);
-  courses.value = coursePage.items;
-  classes.value = classPage.items;
-  exams.value = examPage.items;
-  Object.assign(overview, overviewData);
-  examStats.value = examPageStats.items;
-  knowledgeStats.value = knowledge;
-  classStats.value = classData;
-  wrongQuestionStats.value = wrongQuestions;
-  scoreDistribution.value = distribution;
-  classComparison.value = Array.isArray(classCompare) ? classCompare : [];
-  knowledgeTrend.value = Array.isArray(trend) ? trend : [];
-  questionDiagnostics.value = Array.isArray(diagnostics) ? diagnostics : [];
-  hydroSummary.value = hydroData;
-  if (filter.examId) {
-    await loadExamDetail({ examId: filter.examId });
-  } else {
-    questionStats.value = [];
-    selectedExamName.value = '';
+  const requestId = ++statisticsRequestId;
+  examDetailRequestId += 1;
+  loading.value = true;
+  try {
+    const params = statisticsPayload();
+    const [
+      coursePage,
+      classPage,
+      examPage,
+      overviewData,
+      examPageStats,
+      knowledge,
+      classData,
+      wrongQuestions,
+      distribution,
+      classCompare,
+      trend,
+      diagnostics,
+      hydroData,
+    ] = await Promise.all([
+      listExamCourses(),
+      listExamClasses(),
+      listManagedExams({ pageSize: 100, sortBy: 'createdAt', sortOrder: 'desc' }),
+      loadStatisticsOverview(params),
+      loadStatisticsExams({ ...params, page: examPagination.page, pageSize: examPagination.pageSize }),
+      loadStatisticsKnowledge(params),
+      loadStatisticsClasses(params),
+      loadStatisticsWrongQuestions(params),
+      loadStatisticsScoreDistribution(params),
+      loadStatisticsClassComparison(params),
+      loadStatisticsKnowledgeTrend(params),
+      loadStatisticsQuestionDiagnostics(params),
+      getHydroSummary(params),
+    ]);
+    if (requestId !== statisticsRequestId) return;
+    courses.value = coursePage.items;
+    classes.value = classPage.items;
+    exams.value = examPage.items;
+    Object.assign(overview, overviewData);
+    applyExamPage(examPageStats);
+    knowledgeStats.value = knowledge;
+    classStats.value = classData;
+    wrongQuestionStats.value = wrongQuestions;
+    scoreDistribution.value = distribution;
+    classComparison.value = Array.isArray(classCompare) ? classCompare : [];
+    knowledgeTrend.value = Array.isArray(trend) ? trend : [];
+    questionDiagnostics.value = Array.isArray(diagnostics) ? diagnostics : [];
+    hydroSummary.value = hydroData;
+    syncLocalPaginations();
+    if (filter.examId) {
+      await loadExamDetail({ examId: filter.examId });
+    } else {
+      questionStats.value = [];
+      selectedExamName.value = '';
+      syncPagination(questionPagination, 0);
+    }
+  } finally {
+    if (requestId === statisticsRequestId) loading.value = false;
   }
+}
+
+async function loadFirstPage() {
+  resetPaginations();
+  await load();
+}
+
+async function loadExamPage() {
+  const requestId = ++statisticsRequestId;
+  loading.value = true;
+  try {
+    const page = await loadStatisticsExams({
+      ...statisticsPayload(),
+      page: examPagination.page,
+      pageSize: examPagination.pageSize,
+    });
+    if (requestId === statisticsRequestId) applyExamPage(page);
+  } finally {
+    if (requestId === statisticsRequestId) loading.value = false;
+  }
+}
+
+function applyExamPage(page: { items: ExamPerformance[]; page: number; pageSize: number; total: number }) {
+  examStats.value = page.items;
+  Object.assign(examPagination, { page: page.page, pageSize: page.pageSize, total: page.total });
+}
+
+function syncLocalPaginations() {
+  syncPagination(knowledgePagination, knowledgeStats.value.length);
+  syncPagination(classPagination, classStats.value.length);
+  syncPagination(hydroPagination, hydroSummary.value.items?.length ?? 0);
+  syncPagination(wrongQuestionPagination, wrongQuestionStats.value.length);
+}
+
+function resetPaginations() {
+  [examPagination, knowledgePagination, classPagination, hydroPagination, questionPagination, wrongQuestionPagination]
+    .forEach((pagination) => { pagination.page = 1; });
+}
+
+async function handleExamSizeChange(pageSize: number) {
+  examPagination.pageSize = pageSize;
+  examPagination.page = 1;
+  await loadExamPage();
+}
+
+async function handleExamCurrentChange(page: number) {
+  examPagination.page = page;
+  await loadExamPage();
+}
+
+function handleLocalSizeChange(pagination: StatisticsPagination, pageSize: number) {
+  pagination.pageSize = pageSize;
+  pagination.page = 1;
+}
+
+function handleLocalCurrentChange(pagination: StatisticsPagination, page: number) {
+  pagination.page = page;
 }
 
 function openHydroWriteback(value: unknown) {
@@ -209,9 +308,12 @@ function statisticsPayload(): StatisticsParams {
 async function loadExamDetail(value: unknown) {
   const row = recordValue(value);
   if (typeof row.examId !== 'string') throw new Error('考试统计记录缺少考试 ID');
+  const requestId = ++examDetailRequestId;
   const detail = await loadStatisticsExamDetail(row.examId);
+  if (requestId !== examDetailRequestId) return;
   questionStats.value = detail.questionStats;
   selectedExamName.value = detail.examName;
+  syncPagination(questionPagination, questionStats.value.length);
 }
 
 async function exportCurrentStatistics() {
@@ -296,15 +398,18 @@ onMounted(load);
 
 return {
   ...reviewRulesContext,
+  activeStatisticsTab,
   DocumentAdd,
   Download,
   Refresh,
   Setting,
   classComparisonOption,
   classStats,
+  classPagination,
   classes,
   courses,
   examStats,
+  examPagination,
   exams,
   exportCurrentStatistics,
   exporting,
@@ -315,19 +420,33 @@ return {
   generatingWrongPaper,
   hydroStatusLabel,
   hydroSummary,
+  hydroPagination,
   hydroWritebackForm,
   hydroWritebackSaving,
   hydroWritebackVisible,
   knowledgeStats,
+  knowledgePagination,
   knowledgeTrendOption,
   load,
+  loadFirstPage,
   loadExamDetail,
+  handleExamCurrentChange,
+  handleExamSizeChange,
+  handleLocalCurrentChange,
+  handleLocalSizeChange,
+  loading,
   openHydroWriteback,
   overview,
   percent,
+  pagedClassStats,
+  pagedHydroItems,
+  pagedKnowledgeStats,
+  pagedQuestionStats,
+  pagedWrongQuestionStats,
   questionDiagnostics,
   questionDiagnosticsOption,
   questionStats,
+  questionPagination,
   scoreDistribution,
   scoreDistributionOption,
   selectedExamName,
@@ -335,7 +454,9 @@ return {
   showMediumColumns,
   signed,
   sourceLabel,
+  statisticsPageSizes,
   submitHydroWriteback,
   wrongQuestionStats,
+  wrongQuestionPagination,
 };
 }

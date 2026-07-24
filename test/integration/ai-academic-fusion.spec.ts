@@ -43,6 +43,9 @@ describe('AI and academic fusion', () => {
     const teacherPermissions = [
       'ai.summary.class.generate', 'ai.summary.parent-report.generate', 'ai.summary.lesson.generate',
       'dashboard:read', 'ai.quality.read', 'ai.quality.manage',
+      'grading:score:read', 'attendance:read', 'schedule:read', 'lesson-record:read',
+      'ai.data.grade-history', 'ai.data.attendance', 'ai.data.schedule',
+      'ai.data.student-identity', 'ai.data.teacher-identity', 'ai.data.teacher-materials',
     ];
     const studentPermissions = ['dashboard:read', 'ai.feedback.create'];
     const permissions = await Promise.all([...new Set([...teacherPermissions, ...studentPermissions])].map((code) =>
@@ -222,6 +225,9 @@ describe('AI and academic fusion', () => {
     teacherToken = await token(teacher, [
       'ai.summary.class.generate', 'ai.summary.parent-report.generate', 'ai.summary.lesson.generate',
       'dashboard:read', 'ai.quality.read', 'ai.quality.manage',
+      'grading:score:read', 'attendance:read', 'schedule:read', 'lesson-record:read',
+      'ai.data.grade-history', 'ai.data.attendance', 'ai.data.schedule',
+      'ai.data.student-identity', 'ai.data.teacher-identity', 'ai.data.teacher-materials',
     ]);
     studentToken = await token(student, ['dashboard:read', 'ai.feedback.create']);
     adminToken = await token(admin, ['ai.quality.read', 'ai.quality.manage']);
@@ -234,7 +240,7 @@ describe('AI and academic fusion', () => {
 
   it('exposes role-scoped integrated previews with explicit privacy boundaries', async () => {
     const classPreview = await api('get', `/api/v1/ai-summaries/classes/${classId}/preview`, teacherToken);
-    expect(classPreview).toMatchObject({ datasetVersion: 'class-summary/v1', dataset: { type: 'class' } });
+    expect(classPreview).toMatchObject({ datasetVersion: 'class-summary/v2', dataset: { type: 'class' } });
     expect(classPreview.dataset.dataCoverage.excludes).toEqual(expect.arrayContaining(['student_names', 'student_ids']));
 
     const parentPreview = await api('get', `/api/v1/ai-summaries/parent-reports/${studentId}/preview`, teacherToken);

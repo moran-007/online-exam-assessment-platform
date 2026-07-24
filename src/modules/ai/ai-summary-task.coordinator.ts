@@ -11,6 +11,7 @@ import { resolveOutputTokenPolicy } from './ai-summary-limits';
 import { AiTokenUsageService } from './ai-token-usage.service';
 import type { SupportedSummaryDataset } from './datasets/summary-dataset';
 import { createSummaryDatasetInputHash } from './summary-input-hash';
+import { AiDataPermissionService } from './ai-data-permission.service';
 
 export type SummaryTaskDefinition = {
   type: AiSummaryType;
@@ -46,9 +47,16 @@ export class AiSummaryTaskCoordinator {
     private readonly runner: AiSummaryTaskRunner,
     private readonly tokenUsage: AiTokenUsageService,
     private readonly metrics: MetricsService,
+    private readonly aiDataPermissions: AiDataPermissionService,
   ) {}
 
   async create(definition: SummaryTaskDefinition, user: RequestUser, options: SummaryTaskOptions = {}) {
+    const selectedDomains = definition.dataset.type === 'student'
+      || definition.dataset.type === 'class'
+      || definition.dataset.type === 'parent_report'
+      ? definition.dataset.scope.summaryDomains
+      : undefined;
+    await this.aiDataPermissions.assertSummaryAllowed(definition.type, user, selectedDomains);
     const [config, template] = await Promise.all([
       this.configAccess.resolve(user, definition.configId),
       this.activeTemplate(definition.type, definition.templateCode),

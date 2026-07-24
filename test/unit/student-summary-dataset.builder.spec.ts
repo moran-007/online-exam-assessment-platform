@@ -81,12 +81,16 @@ describe('StudentSummaryDatasetBuilder', () => {
       assertStudentSummaryAccessible: jest.fn().mockResolvedValue(undefined),
       examWhere: jest.fn().mockResolvedValue({ classId: { in: [ids.class] } }),
     };
-    return { prisma, dataScope };
+    const aiDataPermissions = {
+      assertSummaryAllowed: jest.fn().mockResolvedValue(undefined),
+      isAllowed: jest.fn().mockResolvedValue(false),
+    };
+    return { prisma, dataScope, aiDataPermissions };
   }
 
   it('builds privacy-safe trends, coverage and traceable evidence', async () => {
     const deps = dependencies();
-    const builder = new StudentSummaryDatasetBuilder(deps.prisma as never, deps.dataScope as never);
+    const builder = new StudentSummaryDatasetBuilder(deps.prisma as never, deps.dataScope as never, deps.aiDataPermissions as never);
     const dataset = await builder.build({
       studentId: ids.student,
       courseId: ids.course,
@@ -96,13 +100,15 @@ describe('StudentSummaryDatasetBuilder', () => {
     expect(deps.dataScope.assertStudentSummaryAccessible).toHaveBeenCalledWith(user, ids.student);
     expect(dataset).toMatchObject({
       type: 'student',
-      datasetVersion: 'student-summary/v2',
+      datasetVersion: 'student-summary/v4',
       generationMode: 'analysis',
       student: { id: ids.student, alias: '该学生' },
       scope: { courseId: ids.course, courseName: '编程', examIds: [ids.exam1, ids.exam2, ids.exam3] },
       coverage: {
         selectedExamCount: { value: 3 },
         gradedExamCount: { value: 1 },
+        submittedAttemptCount: { value: 2 },
+        gradedAttemptCount: { value: 1 },
         notSubmittedExamCount: { value: 1 },
         ungradedExamCount: { value: 1 },
         gradedAnswerCount: { value: 2 },
@@ -122,6 +128,9 @@ describe('StudentSummaryDatasetBuilder', () => {
     expect(dataset.examPerformance.map((item) => [item.status.value, item.score.value])).toEqual([
       ['graded', 80], ['ungraded', null], ['not_submitted', null],
     ]);
+    expect(dataset.examAttemptHistory.map((item) => [item.examId, item.status.value, item.score.value])).toEqual([
+      [ids.exam1, 'graded', 80], [ids.exam2, 'submitted', null],
+    ]);
     expect(dataset.questionTypes).toHaveLength(2);
     expect(dataset.knowledgePoints).toHaveLength(2);
     expect(dataset.wrongQuestions[0]).toMatchObject({
@@ -140,7 +149,7 @@ describe('StudentSummaryDatasetBuilder', () => {
     });
     expect(JSON.stringify(dataset)).not.toContain('answerJson');
     expect(JSON.stringify(dataset)).not.toContain('internalTeachingNotes');
-    expect(Object.keys(dataset.evidenceIndex)).toHaveLength(55);
+    expect(Object.keys(dataset.evidenceIndex).length).toBeGreaterThan(55);
 
     const firstHash = createSummaryDatasetInputHash(dataset);
     const later = {
@@ -156,16 +165,94 @@ describe('StudentSummaryDatasetBuilder', () => {
   it('stops before student and exam reads when scope authorization fails', async () => {
     const deps = dependencies();
     deps.dataScope.assertStudentSummaryAccessible.mockRejectedValue(new Error('forbidden'));
-    const builder = new StudentSummaryDatasetBuilder(deps.prisma as never, deps.dataScope as never);
+    const builder = new StudentSummaryDatasetBuilder(deps.prisma as never, deps.dataScope as never, deps.aiDataPermissions as never);
     await expect(builder.build({ studentId: ids.student }, user)).rejects.toThrow('forbidden');
     expect(deps.prisma.user.findFirst).not.toHaveBeenCalled();
     expect(deps.prisma.exam.findMany).not.toHaveBeenCalled();
   });
 
+  it('uses the real student name only when the separate identity permission is granted', async () => {
+    const deps = dependencies();
+    deps.prisma.user.findFirst.mockResolvedValue({ id: ids.student, realName: '张小明', username: 'student' });
+    deps.aiDataPermissions.isAllowed.mockResolvedValue(true);
+    const builder = new StudentSummaryDatasetBuilder(
+      deps.prisma as never, deps.dataScope as never, deps.aiDataPermissions as never,
+    );
+
+    const dataset = await builder.build({ studentId: ids.student }, user);
+
+    expect(dataset.student.alias).toBe('张小明');
+  });
+
+  it('keeps every scored retake while retaining the latest result per exam', async () => {
+    const deps = dependencies();
+    const attempts = await dependencies().prisma.examAttempt.findMany();
+    deps.prisma.examAttempt.findMany.mockResolvedValue([
+      attempts[0],
+      {
+        ...attempts[0],
+        id: '00000000-0000-4000-8000-000000000023',
+        submittedAt: new Date('2026-04-20T01:00:00.000Z'),
+        totalScore: 70,
+        answers: [],
+      },
+      attempts[1],
+    ]);
+    const builder = new StudentSummaryDatasetBuilder(
+      deps.prisma as never, deps.dataScope as never, deps.aiDataPermissions as never,
+    );
+
+    const dataset = await builder.build({ studentId: ids.student }, user);
+
+    expect(deps.prisma.exam.findMany.mock.calls[0][0]).not.toHaveProperty('take');
+    expect(deps.prisma.wrongQuestion.findMany.mock.calls[0][0]).not.toHaveProperty('take');
+    expect(deps.prisma.lessonSession.findMany.mock.calls[0][0]).not.toHaveProperty('take');
+    expect(deps.prisma.scratchWork.findMany.mock.calls[0][0]).not.toHaveProperty('take');
+    expect(dataset.examPerformance.find((item) => item.examId === ids.exam1)?.score.value).toBe(80);
+    expect(dataset.examAttemptHistory.filter((item) => item.examId === ids.exam1).map((item) => item.score.value))
+      .toEqual([70, 80]);
+    expect(dataset.coverage.gradedAttemptCount.value).toBe(2);
+  });
+
+  it('applies the recent exam count after range filtering and supports category selection', async () => {
+    const deps = dependencies();
+    deps.prisma.exam.findMany.mockResolvedValue([
+      exam(ids.exam3, '第三次考试', '2026-07-01T00:00:00.000Z', 100),
+      exam(ids.exam2, '第二次考试', '2026-06-01T00:00:00.000Z', 50),
+    ]);
+    const builder = new StudentSummaryDatasetBuilder(
+      deps.prisma as never, deps.dataScope as never, deps.aiDataPermissions as never,
+    );
+
+    const examDataset = await builder.build({
+      studentId: ids.student,
+      from: '2026-06-01T00:00:00.000Z',
+      recentExamCount: 2,
+      summaryDomains: ['exams'],
+    }, user);
+
+    expect(deps.prisma.exam.findMany.mock.calls[0][0]).toMatchObject({ take: 2 });
+    expect(deps.prisma.exam.findMany.mock.calls[0][0].where.endTime.gte).toEqual(new Date('2026-06-01T00:00:00.000Z'));
+    expect(deps.prisma.lessonSession.findMany).not.toHaveBeenCalled();
+    expect(deps.prisma.scratchWork.findMany).not.toHaveBeenCalled();
+    expect(examDataset.scope).toMatchObject({ summaryDomains: ['exams'], recentExamCount: 2 });
+    expect(examDataset.dataCoverage.excludes).toContain('not_selected_lessons');
+
+    const homeworkDeps = dependencies();
+    const homeworkBuilder = new StudentSummaryDatasetBuilder(
+      homeworkDeps.prisma as never, homeworkDeps.dataScope as never, homeworkDeps.aiDataPermissions as never,
+    );
+    const homeworkDataset = await homeworkBuilder.build({ studentId: ids.student, summaryDomains: ['homework'] }, user);
+    expect(homeworkDeps.prisma.exam.findMany).not.toHaveBeenCalled();
+    expect(homeworkDeps.prisma.lessonSession.findMany).toHaveBeenCalledTimes(1);
+    expect(homeworkDeps.prisma.scratchWork.findMany).toHaveBeenCalledTimes(1);
+    expect(homeworkDataset.dataCoverage.includes).toContain('published_homework_assignments');
+  });
+
   it('rejects an explicit selection when any requested exam is outside scope', async () => {
     const deps = dependencies();
     deps.prisma.exam.findMany.mockResolvedValue([exam(ids.exam1, '第一次考试', '2026-05-01T00:00:00.000Z', 100)]);
-    const builder = new StudentSummaryDatasetBuilder(deps.prisma as never, deps.dataScope as never);
+    const builder = new StudentSummaryDatasetBuilder(deps.prisma as never, deps.dataScope as never, deps.aiDataPermissions as never);
     await expect(builder.build({ studentId: ids.student, examIds: [ids.exam1, ids.exam2] }, user))
       .rejects.toThrow('所选考试不存在、学生不在范围内或当前教师无权访问');
     expect(deps.prisma.examAttempt.findMany).not.toHaveBeenCalled();

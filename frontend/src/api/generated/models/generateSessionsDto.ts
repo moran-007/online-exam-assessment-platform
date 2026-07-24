@@ -10,5 +10,11 @@ export interface GenerateSessionsDto {
   classId?: string;
   from: string;
   ruleId?: string;
+  /**
+     * @minimum 1
+     * @maximum 366
+     */
+  sessionCount?: number;
+  startKnowledgePointId?: string;
   to: string;
 }

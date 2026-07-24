@@ -5,11 +5,17 @@
  * Online exam and intelligent assessment platform API
  * OpenAPI spec version: 1.0
  */
+import type { AiChatContextSourceDto } from './aiChatContextSourceDto';
 import type { AiTokenQuotaDto } from './aiTokenQuotaDto';
 import type { AiUsageDto } from './aiUsageDto';
 
 export interface AiSummaryResultDto {
+  contextSources: AiChatContextSourceDto[];
+  /** 当前角色是否允许 AI 直接给出答案 */
+  directAnswerAllowed: boolean;
   durationMs: number;
+  /** 当前角色是否允许脱离平台题目和试卷回答通用知识 */
+  generalKnowledgeAllowed: boolean;
   model: string;
   /**
      * 本次发送给供应商的输出 Token 上限；null 表示未显式限制

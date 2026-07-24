@@ -1,4 +1,5 @@
 import type { EvidenceIndex, EvidencedValue } from './evidence-ref';
+import type { SummaryDataDomain } from './summary-scope';
 
 export type DatasetCoverage = {
   from: string | null;
@@ -70,10 +71,14 @@ export type StudentSummaryDataset = SummaryDatasetBase & {
     courseId: string | null;
     courseName: string | null;
     examIds: string[];
+    summaryDomains: SummaryDataDomain[];
+    recentExamCount: number | null;
   };
   coverage: {
     selectedExamCount: EvidencedValue<number>;
     gradedExamCount: EvidencedValue<number>;
+    submittedAttemptCount: EvidencedValue<number>;
+    gradedAttemptCount: EvidencedValue<number>;
     notSubmittedExamCount: EvidencedValue<number>;
     ungradedExamCount: EvidencedValue<number>;
     gradedAnswerCount: EvidencedValue<number>;
@@ -92,6 +97,16 @@ export type StudentSummaryDataset = SummaryDatasetBase & {
     endedAt: string;
     status: EvidencedValue<'graded' | 'not_submitted' | 'ungraded'>;
     submittedAt: string | null;
+    score: EvidencedValue<number | null>;
+    fullScore: EvidencedValue<number>;
+    scoreRate: EvidencedValue<number | null>;
+  }>;
+  examAttemptHistory: Array<{
+    attemptId: string;
+    examId: string;
+    examName: string;
+    submittedAt: string;
+    status: EvidencedValue<string>;
     score: EvidencedValue<number | null>;
     fullScore: EvidencedValue<number>;
     scoreRate: EvidencedValue<number | null>;
@@ -158,6 +173,7 @@ export type StudentSummaryDataset = SummaryDatasetBase & {
 export type ClassSummaryDataset = SummaryDatasetBase & {
   type: 'class';
   class: { id: string; alias: string; courseName: string };
+  scope: { summaryDomains: SummaryDataDomain[]; recentExamCount: number | null };
   coverage: {
     studentCount: EvidencedValue<number>;
     examCount: EvidencedValue<number>;
@@ -195,12 +211,14 @@ export type ClassSummaryDataset = SummaryDatasetBase & {
 export type ParentReportDataset = SummaryDatasetBase & {
   type: 'parent_report';
   student: { id: string; alias: string };
+  scope: { summaryDomains: SummaryDataDomain[]; recentExamCount: number | null };
   coverage: {
     visibleExamCount: EvidencedValue<number>;
     publishedLessonRecordCount: EvidencedValue<number>;
     confirmedAttendanceCount: EvidencedValue<number>;
   };
   exams: Array<{
+    attemptId: string;
     examId: string;
     examName: string;
     submittedAt: string;
@@ -231,6 +249,10 @@ export type LessonAssistantDataset = SummaryDatasetBase & {
     title: string;
     startsAt: string;
     classAlias: string;
+  };
+  teacher: {
+    id: string | null;
+    alias: string;
   };
   currentRecord: {
     status: EvidencedValue<string>;

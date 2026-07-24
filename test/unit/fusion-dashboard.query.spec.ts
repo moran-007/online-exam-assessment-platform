@@ -61,6 +61,11 @@ describe('FusionDashboardQuery', () => {
       scheduledLessons: 1, completedLessons: 1, publishedLessonRecords: 1, attendanceRate: 1,
       assignedLessonHours: 2, consumedLessonHours: 2, remainingLessonHours: 8,
     });
+    const [periodLedgerCall, balanceLedgerCall] = prisma.lessonHourLedger.findMany.mock.calls;
+    expect(periodLedgerCall[0].where).toMatchObject({
+      classId: { in: ['class-1'] }, studentId: { in: ['student-1'] },
+    });
+    expect(balanceLedgerCall[0].where).toEqual({ studentId: { in: ['student-1'] } });
     expect(result.teacherPerformance).toEqual([]);
     expect(result.drilldowns).toEqual(expect.arrayContaining([
       expect.objectContaining({ label: '考试记录', path: '/learning-portal?tab=exams' }),

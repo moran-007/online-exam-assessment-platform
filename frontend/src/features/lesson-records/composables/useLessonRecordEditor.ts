@@ -13,6 +13,11 @@ import {
   type LessonRecordDetail,
   type LessonRecordVersionView,
 } from '../api';
+import {
+  hasLessonRecordDraftConflict,
+  isMessageBoxDismissal,
+  nonEmptyLessonRecordDraft,
+} from './lessonRecordDraft';
 
 export function useLessonRecordEditor(sessionId: Ref<string>, changed: () => void) {
   const loading = ref(false);
@@ -49,7 +54,7 @@ export function useLessonRecordEditor(sessionId: Ref<string>, changed: () => voi
   }
 
   async function submit() {
-    await ElMessageBox.confirm('提交后进入待发布状态；继续编辑会自动退回草稿。', '提交教学记录', { type: 'warning' });
+    if (!await confirmRecordAction('提交后进入待发布状态；继续编辑会自动退回草稿。', '提交教学记录')) return;
     detail.value = await submitLessonRecord(sessionId.value);
     Object.assign(form, editableRecordFields(detail.value.record));
     await refreshVersions();
@@ -58,7 +63,7 @@ export function useLessonRecordEditor(sessionId: Ref<string>, changed: () => voi
   }
 
   async function publish() {
-    await ElMessageBox.confirm('发布后学生与已关联家长可查看公开字段和公开附件。', '发布教学记录', { type: 'warning' });
+    if (!await confirmRecordAction('发布后学生与已关联家长可查看公开字段和公开附件。', '发布教学记录')) return;
     detail.value = await publishLessonRecord(sessionId.value);
     Object.assign(form, editableRecordFields(detail.value.record));
     await refreshVersions();
@@ -89,7 +94,7 @@ export function useLessonRecordEditor(sessionId: Ref<string>, changed: () => voi
   }
 
   async function removeAsset(asset: LessonAssetView) {
-    await ElMessageBox.confirm(`确认移除附件“${asset.title || asset.fileName}”吗？`, '移除附件', { type: 'warning' });
+    if (!await confirmRecordAction(`确认移除附件“${asset.title || asset.fileName}”吗？`, '移除附件')) return;
     await removeLessonAsset(sessionId.value, asset.id);
     await load();
     ElMessage.success('附件已移除，记录已退回草稿');
@@ -101,21 +106,62 @@ export function useLessonRecordEditor(sessionId: Ref<string>, changed: () => voi
   }
 
   async function applyAiDraft(content: Record<string, unknown>) {
-    const replacement = aiLessonFields(content);
-    const willReplace = Object.entries(replacement).some(([key, value]) => value && form[key as keyof typeof form]);
-    if (willReplace) {
-      await ElMessageBox.confirm('AI 草稿会覆盖对应的非空教学记录字段，是否继续？', '应用课堂助手草稿', {
-        type: 'warning',
-      });
+    await applyRecordDraft(aiLessonFields(content), {
+      confirmMessage: 'AI 草稿会覆盖对应的非空教学记录字段，是否继续？',
+      confirmTitle: '应用课堂助手草稿',
+      successMessage: 'AI 内容已应用到本地草稿，请检查后点击“保存草稿”',
+    });
+  }
+
+  async function applyLessonPlanDraft(content: Record<string, unknown>) {
+    return applyRecordDraft(content, {
+      confirmMessage: '预填会覆盖已有的对应公开字段，是否继续？',
+      confirmTitle: '按教案预填',
+      successMessage: '教案内容已分别预填到公开草稿，请按实际上课调整',
+    });
+  }
+
+  async function applyPublicAiDraft(content: Record<string, unknown>) {
+    return applyRecordDraft(content, {
+      confirmMessage: 'AI 生成内容会覆盖对应的非空公开字段，是否继续？',
+      confirmTitle: '应用课后公开草稿',
+      successMessage: 'AI 已将课后内容分别填入家长/学生可见字段，请检查后保存草稿',
+    });
+  }
+
+  async function applyRecordDraft(
+    content: Record<string, unknown>,
+    options: { confirmMessage: string; confirmTitle: string; successMessage: string },
+  ) {
+    const replacement = nonEmptyLessonRecordDraft(content);
+    if (!Object.keys(replacement).length) {
+      ElMessage.warning('没有可应用的非空教学记录内容');
+      return false;
     }
-    Object.assign(form, Object.fromEntries(Object.entries(replacement).filter(([, value]) => value)));
-    ElMessage.success('AI 内容已应用到本地草稿，请检查后点击“保存草稿”');
+    if (hasLessonRecordDraftConflict(form, replacement)
+      && !await confirmRecordAction(options.confirmMessage, options.confirmTitle)) {
+      return false;
+    }
+    Object.assign(form, replacement);
+    ElMessage.success(options.successMessage);
+    return true;
   }
 
   return {
-    applyAiDraft, detail, form, load, loading, openLessonAsset, publish, removeAsset, save, saving,
+    applyAiDraft, applyLessonPlanDraft, applyPublicAiDraft, detail, form, load, loading,
+    openLessonAsset, publish, removeAsset, save, saving,
     selectFile, submit, upload, uploadFile, uploadForm, versions,
   };
+}
+
+async function confirmRecordAction(message: string, title: string) {
+  try {
+    await ElMessageBox.confirm(message, title, { type: 'warning' });
+    return true;
+  } catch (reason) {
+    if (isMessageBoxDismissal(reason)) return false;
+    throw reason;
+  }
 }
 
 function aiLessonFields(content: Record<string, unknown>) {

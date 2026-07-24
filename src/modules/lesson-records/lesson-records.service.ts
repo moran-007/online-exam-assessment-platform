@@ -18,10 +18,11 @@ import { LessonRecordAccessService } from './lesson-record-access.service';
 import { LessonRecordVersionService } from './lesson-record-version.service';
 
 const sessionSummary = {
-  classGroup: { select: { id: true, name: true } },
+  classGroup: { select: { id: true, name: true, course: { select: { id: true, name: true } } } },
   teacher: { select: { id: true, realName: true, username: true } },
   lessonType: { select: { id: true, name: true } },
   unitTemplate: { select: { id: true, name: true } },
+  knowledgePoint: { select: { id: true, name: true } },
 } as const;
 
 const recordAssets = {
@@ -317,6 +318,7 @@ export class LessonRecordsService {
       teacher: session.teacher,
       lessonType: session.lessonType,
       unitTemplate: session.unitTemplate,
+      knowledgePoint: session.knowledgePoint,
     };
   }
 

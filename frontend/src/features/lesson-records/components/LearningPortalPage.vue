@@ -6,7 +6,7 @@
         <el-select v-if="students.length > 1" v-model="selectedStudentId" style="width: 220px" @change="loadOverview">
           <el-option v-for="item in students" :key="item.student.id" :label="studentName(item.student)" :value="item.student.id" />
         </el-select>
-        <el-button :icon="Refresh" :loading="loading" @click="load">刷新</el-button>
+        <el-button :icon="Refresh" :loading="loading || overviewLoading" @click="load">刷新</el-button>
       </div>
     </section>
 
@@ -21,7 +21,7 @@
         </el-descriptions>
       </section>
 
-      <section v-loading="loading" class="panel portal-content">
+      <section :key="selectedStudentId" v-loading="loading || overviewLoading" class="panel portal-content">
         <el-tabs v-model="activeTab">
           <el-tab-pane label="课次学习" name="lessons">
             <el-table :data="overview.lessons.items" height="100%" data-testid="portal-lessons">
@@ -121,6 +121,7 @@ import { getCurrentUser } from '../../../api';
 import ScratchLearningPanel from '../../scratch/components/ScratchLearningPanel.vue';
 
 const loading = ref(false);
+const overviewLoading = ref(false);
 const route = useRoute();
 const requestedTab = Array.isArray(route.query.tab) ? route.query.tab[0] : route.query.tab;
 const activeTab = ref(['lessons', 'scratch', 'exams', 'summaries'].includes(String(requestedTab)) ? String(requestedTab) : 'lessons');
@@ -134,6 +135,7 @@ const feedbackVisible = ref(false);
 const feedbackSaving = ref(false);
 const feedbackSummary = ref<PortalSummary | null>(null);
 const feedbackForm = reactive({ rating: 5, verdict: 'helpful' as 'helpful' | 'partial' | 'incorrect', comment: '', correctionText: '' });
+let overviewRequestId = 0;
 
 async function load() {
   loading.value = true;
@@ -149,11 +151,24 @@ async function load() {
 }
 
 async function loadOverview() {
-  if (!selectedStudentId.value) {
+  const studentId = selectedStudentId.value;
+  const requestId = ++overviewRequestId;
+  if (!studentId) {
     overview.value = null;
+    overviewLoading.value = false;
     return;
   }
-  overview.value = await getPortalOverview(selectedStudentId.value);
+  overviewLoading.value = true;
+  try {
+    const nextOverview = await getPortalOverview(studentId);
+    if (requestId === overviewRequestId && studentId === selectedStudentId.value) {
+      overview.value = nextOverview;
+    }
+  } finally {
+    if (requestId === overviewRequestId) {
+      overviewLoading.value = false;
+    }
+  }
 }
 
 function openLesson(row: unknown) {
@@ -225,8 +240,11 @@ onMounted(load);
 <style scoped>
 .learning-portal-page { min-height: 0; }
 .portal-summary { flex: 0 0 auto; }
-.portal-content { flex: 1; min-height: 460px; overflow: hidden; }
-.portal-content :deep(.el-tabs), .portal-content :deep(.el-tabs__content), .portal-content :deep(.el-tab-pane) { height: 100%; }
+.portal-content { flex: 1; min-height: 460px; display: flex; flex-direction: column; overflow: hidden; }
+.portal-content :deep(.el-tabs) { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.portal-content :deep(.el-tabs__header) { flex: 0 0 auto; }
+.portal-content :deep(.el-tabs__content) { flex: 1; min-height: 0; display: flex; }
+.portal-content :deep(.el-tab-pane) { flex: 1; min-width: 0; min-height: 0; overflow: auto; }
 .summary-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); gap: 16px; overflow: auto; max-height: 100%; }
 .summary-card { border: 1px solid var(--el-border-color); border-radius: 10px; padding: 16px; }
 .summary-head { display: flex; justify-content: space-between; align-items: center; }

@@ -1,5 +1,6 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import {
+  AiSummaryType,
   AttemptStatus,
   AttendanceStatus,
   LessonRecordStatus,
@@ -15,11 +16,19 @@ import { assertSummaryDataset } from './dataset-validator';
 import { EvidenceCollector } from './evidence-collector';
 import { aggregateKnowledgePoints, type StudentAnswerFact } from './student-summary-aggregates';
 import type { ClassSummaryDataset } from './summary-dataset';
+import { AiDataPermissionService } from '../ai-data-permission.service';
+import {
+  normalizeRecentExamCount,
+  normalizeSummaryDomains,
+  type SummaryDataDomain,
+} from './summary-scope';
 
 export type ClassSummaryScopeInput = {
   classId: string;
   from?: string;
   to?: string;
+  summaryDomains?: SummaryDataDomain[];
+  recentExamCount?: number;
 };
 
 @Injectable()
@@ -27,12 +36,16 @@ export class ClassSummaryDatasetBuilder {
   constructor(
     private readonly prisma: PrismaService,
     private readonly dataScope: DataScopeService,
+    private readonly aiDataPermissions: AiDataPermissionService,
   ) {}
 
   async build(input: ClassSummaryScopeInput, user: RequestUser): Promise<ClassSummaryDataset> {
     this.assertStaff(user);
+    const summaryDomains = normalizeSummaryDomains(input.summaryDomains);
+    await this.aiDataPermissions.assertSummaryAllowed(AiSummaryType.CLASS, user, summaryDomains);
     await this.dataScope.assertAcademicClassAccessible(user, input.classId);
     const range = this.range(input);
+    const recentExamCount = normalizeRecentExamCount(input.recentExamCount);
     const classGroup = await this.prisma.classGroup.findFirst({
       where: { id: input.classId, deletedAt: null, status: 'active' },
       select: {
@@ -45,10 +58,10 @@ export class ClassSummaryDatasetBuilder {
     if (!classGroup) throw new NotFoundException('班级不存在');
 
     const [exams, sessions] = await Promise.all([
-      this.prisma.exam.findMany({
+      summaryDomains.includes('exams') ? this.prisma.exam.findMany({
         where: { classId: input.classId, deletedAt: null, ...(range.filter ? { endTime: range.filter } : {}) },
         orderBy: [{ endTime: 'desc' }, { id: 'desc' }],
-        take: 20,
+        ...(recentExamCount ? { take: recentExamCount } : {}),
         select: {
           id: true,
           attempts: {
@@ -73,8 +86,8 @@ export class ClassSummaryDatasetBuilder {
             },
           },
         },
-      }),
-      this.prisma.lessonSession.findMany({
+      }) : Promise.resolve([]),
+      summaryDomains.includes('lessons') || summaryDomains.includes('homework') ? this.prisma.lessonSession.findMany({
         where: { classId: input.classId, ...(range.filter ? { startsAt: range.filter } : {}) },
         select: {
           id: true,
@@ -86,9 +99,9 @@ export class ClassSummaryDatasetBuilder {
             select: { status: true },
           },
         },
-      }),
+      }) : Promise.resolve([]),
     ]);
-    return this.dataset(classGroup, exams, sessions, range);
+    return this.dataset(classGroup, exams, sessions, range, summaryDomains, recentExamCount);
   }
 
   private dataset(
@@ -96,6 +109,8 @@ export class ClassSummaryDatasetBuilder {
     exams: ExamRow[],
     sessions: SessionRow[],
     range: NormalizedRange,
+    summaryDomains: SummaryDataDomain[],
+    recentExamCount?: number,
   ): ClassSummaryDataset {
     const generatedAt = new Date().toISOString();
     const evidence = new EvidenceCollector(generatedAt);
@@ -126,21 +141,27 @@ export class ClassSummaryDatasetBuilder {
     });
     const dataset: ClassSummaryDataset = {
       type: 'class',
-      datasetVersion: 'class-summary/v1',
+      datasetVersion: 'class-summary/v2',
       generatedAt,
       dataCoverage: {
         from: range.from?.toISOString() ?? null,
         to: range.to?.toISOString() ?? null,
         includes: [
-          'class_aggregate_only', 'graded_exam_scores', 'knowledge_point_aggregate',
-          'confirmed_attendance', 'lesson_sessions', 'published_homework_assignments',
+          'class_aggregate_only',
+          ...(summaryDomains.includes('exams') ? ['graded_exam_scores', 'knowledge_point_aggregate'] : []),
+          ...(summaryDomains.includes('lessons') ? ['confirmed_attendance', 'lesson_sessions'] : []),
+          ...(summaryDomains.includes('homework') ? ['published_homework_assignments'] : []),
         ],
         excludes: [
           'student_names', 'student_ids', 'individual_answers', 'ungraded_scores',
           'internal_teaching_notes', 'parent_data',
+          ...(['exams', 'lessons', 'homework'] as SummaryDataDomain[])
+            .filter((domain) => !summaryDomains.includes(domain))
+            .map((domain) => `not_selected_${domain}`),
         ],
       },
       class: { id: classGroup.id, alias: classGroup.name, courseName: classGroup.course?.name ?? '未关联课程' },
+      scope: { summaryDomains, recentExamCount: recentExamCount ?? null },
       coverage: {
         studentCount: value('studentCount', classGroup._count.students, 'student'),
         examCount: value('examCount', exams.length, 'exam'),

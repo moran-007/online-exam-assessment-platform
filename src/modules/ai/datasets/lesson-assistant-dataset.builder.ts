@@ -1,20 +1,23 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { AiSummaryType, Prisma } from '@prisma/client';
 import { RequestUser } from '../../../common/interfaces/request-user.interface';
 import { DataScopeService } from '../../data-scope/data-scope.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { assertSummaryDataset } from './dataset-validator';
 import { EvidenceCollector } from './evidence-collector';
 import type { LessonAssistantDataset } from './summary-dataset';
+import { AiDataPermissionService } from '../ai-data-permission.service';
 
 @Injectable()
 export class LessonAssistantDatasetBuilder {
   constructor(
     private readonly prisma: PrismaService,
     private readonly dataScope: DataScopeService,
+    private readonly aiDataPermissions: AiDataPermissionService,
   ) {}
 
   async build(sessionId: string, user: RequestUser): Promise<LessonAssistantDataset> {
+    await this.aiDataPermissions.assertSummaryAllowed(AiSummaryType.LESSON, user);
     const session = await this.prisma.lessonSession.findUnique({
       where: { id: sessionId },
       select: {
@@ -23,6 +26,7 @@ export class LessonAssistantDatasetBuilder {
         startsAt: true,
         classId: true,
         classGroup: { select: { name: true } },
+        teacher: { select: { id: true, realName: true, username: true } },
         lessonRecord: {
           select: {
             id: true,
@@ -40,10 +44,11 @@ export class LessonAssistantDatasetBuilder {
     });
     if (!session) throw new NotFoundException('课次不存在');
     await this.dataScope.assertAcademicClassAccessible(user, session.classId);
-    return this.dataset(session);
+    const canUseTeacherName = await this.aiDataPermissions.isAllowed('teacher_identity', user);
+    return this.dataset(session, canUseTeacherName);
   }
 
-  private dataset(session: LessonAssistantSession): LessonAssistantDataset {
+  private dataset(session: LessonAssistantSession, canUseTeacherName: boolean): LessonAssistantDataset {
     const generatedAt = new Date().toISOString();
     const evidence = new EvidenceCollector(generatedAt);
     const record = session.lessonRecord;
@@ -74,6 +79,12 @@ export class LessonAssistantDatasetBuilder {
         title: session.title,
         startsAt: session.startsAt.toISOString(),
         classAlias: session.classGroup.name,
+      },
+      teacher: {
+        id: canUseTeacherName ? (session.teacher?.id ?? null) : null,
+        alias: canUseTeacherName
+          ? (session.teacher?.realName?.trim() || session.teacher?.username || '未指定教师')
+          : '授课教师',
       },
       currentRecord: {
         status: evidence.collect({
@@ -106,6 +117,7 @@ type LessonAssistantSession = Prisma.LessonSessionGetPayload<{
     startsAt: true;
     classId: true;
     classGroup: { select: { name: true } };
+    teacher: { select: { id: true; realName: true; username: true } };
     lessonRecord: {
       select: {
         id: true;

@@ -6,7 +6,6 @@ const LoginView = () => import('./views/LoginView.vue');
 const DashboardView = () => import('./views/DashboardView.vue');
 const CourseView = () => import('./views/CourseView.vue');
 const ClassView = () => import('./views/ClassView.vue');
-const KnowledgeView = () => import('./views/KnowledgeView.vue');
 const TagView = () => import('./views/TagView.vue');
 const QuestionView = () => import('./views/QuestionView.vue');
 const QuestionImportView = () => import('./views/QuestionImportView.vue');
@@ -36,7 +35,7 @@ const routes = [
   { path: '/public/questions', redirect: '/question-bank', meta: { public: true } },
   { path: '/', redirect: () => firstAccessiblePath(getCurrentUser()) },
   { path: '/dashboard', component: DashboardView, meta: { permissions: ['dashboard:read'] } },
-  { path: '/courses', component: CourseView, meta: { adminOnly: true, permissions: ['course:read'] } },
+  { path: '/courses', component: CourseView, meta: { adminOnly: true, permissions: ['course:read', 'knowledge-point:read'] } },
   { path: '/classes', component: ClassView, meta: { adminOnly: true, permissions: ['class:read'] } },
   { path: '/users', component: UserManagementView, meta: { adminOnly: true, userTypes: ['SUPER_ADMIN'] } },
   { path: '/academic-profiles', component: AcademicProfilesView, meta: { adminOnly: true, userTypes: ['SUPER_ADMIN', 'ADMIN'] } },
@@ -47,7 +46,16 @@ const routes = [
   },
   { path: '/learning-portal', component: LearningPortalView, meta: { permissions: ['lesson-record:read'] } },
   { path: '/ai-settings', component: AiSettingsView, meta: { adminOnly: true, userTypes: ['SUPER_ADMIN', 'ADMIN', 'TEACHER', 'ASSISTANT'] } },
-  { path: '/knowledge', component: KnowledgeView, meta: { adminOnly: true, permissions: ['knowledge-point:read'] } },
+  {
+    path: '/ai-data-permissions',
+    redirect: { path: '/ai-settings', query: { section: 'data-permissions' } },
+    meta: { adminOnly: true, userTypes: ['SUPER_ADMIN'] },
+  },
+  {
+    path: '/knowledge',
+    redirect: (to) => ({ path: '/courses', query: { ...to.query, section: 'knowledge' } }),
+    meta: { adminOnly: true, permissions: ['knowledge-point:read'] },
+  },
   { path: '/tags', component: TagView, meta: { adminOnly: true, permissions: ['tag:read'] } },
   { path: '/questions', component: QuestionView, meta: { adminOnly: true, permissions: ['question:read'] } },
   { path: '/question-import', component: QuestionImportView, meta: { adminOnly: true, permissions: ['question:create'] } },

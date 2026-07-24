@@ -36,7 +36,7 @@
 
             <el-table
               :data="papers"
-              max-height="340"
+              height="340"
               class="question-list-table"
               :default-sort="{ prop: paperFilter.sortBy, order: paperFilter.sortOrder === 'asc' ? 'ascending' : 'descending' }"
               @sort-change="handlePaperSortChange"
@@ -108,7 +108,7 @@
 
             <el-table
               :data="exams"
-              max-height="340"
+              height="340"
               class="question-list-table"
               :default-sort="{ prop: examFilter.sortBy, order: examFilter.sortOrder === 'asc' ? 'ascending' : 'descending' }"
               @sort-change="handleExamSortChange"
@@ -160,7 +160,7 @@
         </el-tabs>
       </div>
 
-      <div class="panel library-table-panel export-record-panel">
+      <div class="panel export-record-panel">
         <div class="section-head">
           <div>
             <h3>导出记录</h3>
@@ -190,7 +190,7 @@
             </el-button>
           </div>
         </div>
-        <el-table :data="tasks" height="100%" class="question-list-table" @selection-change="handleTaskSelectionChange">
+        <el-table :data="tasks" max-height="440" class="question-list-table" @selection-change="handleTaskSelectionChange">
           <el-table-column type="selection" width="46" :selectable="canSelectTaskAction" />
           <el-table-column prop="type" label="类型" min-width="130">
             <template #default="{ row }">{{ typeLabel(row.type) }}</template>
@@ -230,12 +230,12 @@
         </el-table>
         <div class="table-footer">
           <span class="muted">共 {{ taskPagination.total }} 个导出任务</span>
-        <el-pagination
-          v-model:current-page="taskPagination.page"
-          v-model:page-size="taskPagination.pageSize"
-          background
-          size="small"
-          layout="sizes, prev, pager, next"
+          <el-pagination
+            v-model:current-page="taskPagination.page"
+            v-model:page-size="taskPagination.pageSize"
+            background
+            size="small"
+            layout="sizes, prev, pager, next"
             :page-sizes="[20, 50, 100]"
             :total="taskPagination.total"
             @size-change="handleTaskSize"
@@ -310,7 +310,7 @@ export default defineComponent({
 
 .export-target-panel {
   flex: 0 0 auto;
-  overflow: hidden;
+  overflow: visible;
 }
 
 .export-filter-row {
@@ -323,8 +323,8 @@ export default defineComponent({
 }
 
 .export-record-panel {
-  flex: 1;
-  min-height: 280px;
+  flex: 0 0 auto;
+  min-height: 0;
 }
 
 .section-head h3 {

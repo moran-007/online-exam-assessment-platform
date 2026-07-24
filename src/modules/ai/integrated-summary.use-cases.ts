@@ -45,7 +45,11 @@ export class IntegratedSummaryUseCases {
     return this.coordinator.create({
       type: AiSummaryType.CLASS,
       subjectId: dto.classId,
-      scope: this.rangeScope(dto),
+      scope: this.rangeScope({
+        ...dto,
+        summaryDomains: dataset.scope.summaryDomains,
+        recentExamCount: dataset.scope.recentExamCount ?? undefined,
+      }),
       dataset,
       templateCode: 'class-summary',
       schemaVersion: CLASS_SUMMARY_OUTPUT_SCHEMA_VERSION,
@@ -68,7 +72,11 @@ export class IntegratedSummaryUseCases {
     return this.coordinator.create({
       type: AiSummaryType.PARENT_REPORT,
       subjectId: dto.studentId,
-      scope: this.rangeScope(dto),
+      scope: this.rangeScope({
+        ...dto,
+        summaryDomains: dataset.scope.summaryDomains,
+        recentExamCount: dataset.scope.recentExamCount ?? undefined,
+      }),
       dataset,
       templateCode: 'parent-report',
       schemaVersion: PARENT_REPORT_OUTPUT_SCHEMA_VERSION,
@@ -113,10 +121,17 @@ export class IntegratedSummaryUseCases {
     };
   }
 
-  private rangeScope(value: { from?: string; to?: string }): Prisma.InputJsonObject {
+  private rangeScope(value: {
+    from?: string;
+    to?: string;
+    summaryDomains?: string[];
+    recentExamCount?: number;
+  }): Prisma.InputJsonObject {
     return {
       ...(value.from ? { from: value.from } : {}),
       ...(value.to ? { to: value.to } : {}),
+      ...(value.summaryDomains ? { summaryDomains: value.summaryDomains } : {}),
+      ...(value.recentExamCount ? { recentExamCount: value.recentExamCount } : {}),
     };
   }
 }

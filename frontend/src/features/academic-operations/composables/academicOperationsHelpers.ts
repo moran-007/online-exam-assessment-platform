@@ -9,12 +9,13 @@ export function academicTab(value: unknown, access: AcademicTabAccess) {
   const requested = Array.isArray(value) ? value[0] : value;
   const key = typeof requested === 'string' ? requested : 'schedule';
   const tabs: Record<string, string> = {
-    schedule: 'calendar', calendar: 'calendar', attendance: 'attendance', ledger: 'ledger', catalog: 'catalog',
+    schedule: 'calendar', calendar: 'calendar', attendance: 'attendance', ledger: 'ledger', rules: 'rules', catalog: 'catalog',
   };
   const allowed = [
     access.canReadSchedule && 'calendar',
     access.canReadAttendance && 'attendance',
     access.canReadLessonHours && 'ledger',
+    access.canReadSchedule && 'rules',
     access.canReadCatalog && 'catalog',
   ].filter(Boolean) as string[];
   return tabs[key] && allowed.includes(tabs[key]) ? tabs[key] : allowed[0] ?? 'calendar';
@@ -23,21 +24,14 @@ export function academicTab(value: unknown, access: AcademicTabAccess) {
 export function baseRuleForm() {
   const [from, to] = defaultDateRange();
   return {
-    classId: '', lessonTypeId: '', unitTemplateId: '', weekday: 1, startTime: '18:00', endTime: '20:00',
+    classId: '', teacherId: '', lessonTypeId: '', weekday: 1, startTime: '18:00', endTime: '20:00',
     effectiveFrom: from, effectiveTo: to, lessonHours: 1, classroom: '', status: 'ACTIVE',
-  };
-}
-
-export function baseUnitForm() {
-  return {
-    code: '', courseId: '', lessonTypeId: '', category: '', stage: '', unitNo: 1,
-    name: '', defaultHours: 1, teachingContent: '', status: 'ACTIVE',
   };
 }
 
 export function baseSessionForm() {
   return {
-    classId: '', lessonTypeId: '', unitTemplateId: '', title: '', startsAt: '', endsAt: '', lessonHours: 1, classroom: '',
+    classId: '', teacherId: '', lessonTypeId: '', knowledgePointId: '', title: '', startsAt: '', endsAt: '', lessonHours: 1, classroom: '',
   };
 }
 

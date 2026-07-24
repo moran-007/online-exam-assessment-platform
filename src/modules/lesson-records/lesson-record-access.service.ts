@@ -20,10 +20,11 @@ export class LessonRecordAccessService {
     const session = await this.prisma.lessonSession.findUnique({
       where: { id: sessionId },
       include: {
-        classGroup: { select: { id: true, name: true } },
+        classGroup: { select: { id: true, name: true, course: { select: { id: true, name: true } } } },
         teacher: { select: { id: true, realName: true, username: true } },
         lessonType: { select: { id: true, name: true } },
         unitTemplate: { select: { id: true, name: true } },
+        knowledgePoint: { select: { id: true, name: true } },
       },
     });
     if (!session) throw new NotFoundException('课次不存在');
@@ -63,4 +64,3 @@ export class LessonRecordAccessService {
     return requestedStudentId;
   }
 }
-

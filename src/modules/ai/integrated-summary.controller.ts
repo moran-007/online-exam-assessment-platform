@@ -6,10 +6,11 @@ import { RequestUser } from '../../common/interfaces/request-user.interface';
 import { AiSummaryTaskResponseDto } from './dto/ai-summary.dto';
 import {
   CreateClassSummaryTaskDto,
+  ClassSummaryRangeDto,
   CreateLessonAssistantTaskDto,
   CreateParentReportTaskDto,
   IntegratedSummaryDatasetPreviewDto,
-  IntegratedSummaryRangeDto,
+  ReportSummaryRangeDto,
 } from './dto/integrated-summary.dto';
 import { IntegratedSummaryUseCases } from './integrated-summary.use-cases';
 
@@ -24,7 +25,7 @@ export class IntegratedSummaryController {
   @ApiOkResponse({ type: IntegratedSummaryDatasetPreviewDto })
   previewClass(
     @Param('classId', ParseUUIDPipe) classId: string,
-    @Query() query: IntegratedSummaryRangeDto,
+    @Query() query: ClassSummaryRangeDto,
     @CurrentUser() user: RequestUser,
   ) {
     return this.summaries.previewClass({ classId, ...query }, user);
@@ -43,7 +44,7 @@ export class IntegratedSummaryController {
   @ApiOkResponse({ type: IntegratedSummaryDatasetPreviewDto })
   previewParent(
     @Param('studentId', ParseUUIDPipe) studentId: string,
-    @Query() query: IntegratedSummaryRangeDto,
+    @Query() query: ReportSummaryRangeDto,
     @CurrentUser() user: RequestUser,
   ) {
     return this.summaries.previewParent({ studentId, ...query }, user);

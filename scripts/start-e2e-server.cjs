@@ -30,14 +30,22 @@ const { AiProviderGateway } = require('../dist/modules/ai/ai-provider.gateway.js
 
 function e2eCompletion(request) {
   const prompt = `${request.systemPrompt || ''}\n${request.userPrompt || ''}`;
-  const schemaVersion = [
+  const explicitSchemaVersion = [
     'exam-summary-output/v1',
     'student-summary-output/v1',
     'class-summary-output/v1',
     'parent-report-output/v1',
     'lesson-assistant-output/v1',
   ].find((candidate) => prompt.includes(candidate));
-  const evidenceRef = [...prompt.matchAll(/"refId"\s*:\s*"([^"]+)"/g)][0]?.[1];
+  const datasetType = prompt.match(/"type"\s*:\s*"(exam|student|class|parent_report|lesson)"/)?.[1];
+  const schemaVersion = explicitSchemaVersion || ({
+    exam: 'exam-summary-output/v1',
+    student: 'student-summary-output/v1',
+    class: 'class-summary-output/v1',
+    parent_report: 'parent-report-output/v1',
+    lesson: 'lesson-assistant-output/v1',
+  })[datasetType];
+  const evidenceRef = [...prompt.matchAll(/"(?:refId|evidenceRef)"\s*:\s*"([^"]+)"/g)][0]?.[1];
   const content = schemaVersion && evidenceRef
     ? JSON.stringify({
         schemaVersion,

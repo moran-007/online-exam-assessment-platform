@@ -27,6 +27,7 @@
     "codemirror": "^6.0.2",
     "echarts": "^6.1.0",
     "element-plus": "^2.9.0",
+    "exceljs": "^4.4.0",
     "highlight.js": "^11.11.1",
     "katex": "^0.17.0",
     "markdown-it": "^14.2.0",

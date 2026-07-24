@@ -4,11 +4,8 @@ import {
   attendanceList,
 } from '../../api/generated/academic-operations-attendance/academic-operations-attendance';
 import {
-  lessonCatalogCourseUnits,
-  lessonCatalogCreateCourseUnit,
   lessonCatalogCreateLessonType,
   lessonCatalogLessonTypes,
-  lessonCatalogUpdateCourseUnit,
   lessonCatalogUpdateLessonType,
 } from '../../api/generated/academic-operations-catalog/academic-operations-catalog';
 import {
@@ -29,21 +26,21 @@ import {
   lessonScheduleUpdateRule,
 } from '../../api/generated/academic-operations-schedule/academic-operations-schedule';
 import { classesList } from '../../api/generated/classes/classes';
-import { coursesList } from '../../api/generated/course/course';
 import { asGenerated, generatedData } from '../../api/generated-data';
+import { apiMutator } from '../../api/generated-mutator';
 
 export interface AcademicOperationRecord {
   id: string;
   classId: string;
   courseId: string;
+  teacherId: string | null;
   lessonTypeId: string;
-  unitTemplateId: string | null;
+  knowledgePointId: string | null;
   studentId: string;
   studentName: string;
   username: string;
   realName: string;
   name: string;
-  courseName: string;
   className: string;
   classroom: string;
   lessonTypeName: string;
@@ -53,9 +50,6 @@ export interface AcademicOperationRecord {
   type: string;
   note: string;
   description: string;
-  category: string;
-  stage: string;
-  teachingContent: string;
   startsAt: string;
   endsAt: string;
   createdAt: string;
@@ -75,17 +69,20 @@ export interface AcademicOperationRecord {
   weekday: number;
   startMinute: number;
   endMinute: number;
-  unitNo: number;
+  sequence: number;
+  role: string;
   countInStatistics: boolean;
   active: boolean;
-  legacyUnscoped: boolean;
   legacyBaseline: boolean;
   draftStatus: string;
   classGroup: AcademicOperationRecord;
   teacher: AcademicOperationRecord | null;
   lessonType: AcademicOperationRecord;
-  unitTemplate: AcademicOperationRecord | null;
+  knowledgePoint: AcademicOperationRecord | null;
+  course: AcademicOperationRecord | null;
   session: AcademicOperationRecord;
+  teachers: AcademicOperationRecord[];
+  knowledgePoints: AcademicOperationRecord[];
   records: AcademicOperationRecord[];
   items: AcademicOperationRecord[];
   passed: boolean;
@@ -99,17 +96,14 @@ type AcademicOperationPage = { items: AcademicOperationRecord[]; total: number }
 const data = <T>(request: Promise<unknown>) => generatedData(asGenerated<T>(request));
 
 export const listClasses = () => data<AcademicOperationPage>(classesList({ pageSize: 100 }));
-export const listCourses = () => data<AcademicOperationPage>(coursesList({ pageSize: 100 }));
 export const listLessonTypes = () => data<AcademicOperationPage>(lessonCatalogLessonTypes({ pageSize: 100 }));
 export const createLessonType = (body: AcademicOperationBody) =>
   data<AcademicOperationRecord>(lessonCatalogCreateLessonType(body as never));
 export const updateLessonType = (id: string, body: AcademicOperationBody) =>
   data<AcademicOperationRecord>(lessonCatalogUpdateLessonType(id, body as never));
-export const listCourseUnits = () => data<AcademicOperationPage>(lessonCatalogCourseUnits({ pageSize: 100 }));
-export const createCourseUnit = (body: AcademicOperationBody) =>
-  data<AcademicOperationRecord>(lessonCatalogCreateCourseUnit(body as never));
-export const updateCourseUnit = (id: string, body: AcademicOperationBody) =>
-  data<AcademicOperationRecord>(lessonCatalogUpdateCourseUnit(id, body as never));
+export const getScheduleContext = (classId: string) => data<AcademicOperationRecord>(
+  apiMutator(`/api/v1/schedule-context?classId=${encodeURIComponent(classId)}`, { method: 'GET' }),
+);
 
 export const listRules = (classId?: string) =>
   data<AcademicOperationPage>(lessonScheduleRules({ pageSize: 100, classId }));

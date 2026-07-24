@@ -26,13 +26,12 @@ export const parentMenuItems = [
 
 export const adminMenuItems = [
   { path: '/dashboard', label: '融合看板', icon: 'DataBoard', permissions: ['dashboard:read'], section: 'overview' },
-  { path: '/courses', label: '课程', icon: 'Collection', permissions: ['course:read'], section: 'academics' },
+  { path: '/courses', label: '课程与知识点', icon: 'Collection', permissions: ['course:read', 'knowledge-point:read'], section: 'academics' },
   { path: '/classes', label: '班级', icon: 'UserFilled', permissions: ['class:read'], section: 'academics' },
   { path: '/users', label: '用户权限', icon: 'Setting', userTypes: ['SUPER_ADMIN'], section: 'platform' },
   { path: '/academic-profiles', label: '教务档案', icon: 'Postcard', userTypes: ['SUPER_ADMIN', 'ADMIN'], section: 'academics' },
-  { path: '/ai-settings', label: 'AI 配置', icon: 'Setting', userTypes: ['SUPER_ADMIN', 'ADMIN', 'TEACHER', 'ASSISTANT'], section: 'platform' },
+  { path: '/ai-settings', label: 'AI 中心', icon: 'Setting', userTypes: ['SUPER_ADMIN', 'ADMIN', 'TEACHER', 'ASSISTANT'], section: 'platform' },
   { path: '/teaching-operations', label: '教学运营', icon: 'Calendar', permissions: academicReadPermissions, section: 'academics' },
-  { path: '/knowledge', label: '课程知识点', icon: 'Share', permissions: ['knowledge-point:read'], section: 'assessment' },
   { path: '/tags', label: '标签', icon: 'PriceTag', permissions: ['tag:read'], section: 'assessment' },
   { path: '/questions', label: '题库', icon: 'EditPen', permissions: ['question:read'], section: 'assessment' },
   { path: '/question-import', label: '题目导入', icon: 'Upload', permissions: ['question:create'], section: 'assessment' },
@@ -46,12 +45,12 @@ export const adminMenuItems = [
 ];
 
 const menuSections = {
-  overview: { label: '概览', icon: 'DataBoard' },
-  academics: { label: '教务与学习', icon: 'Reading' },
-  assessment: { label: '测评中心', icon: 'Document' },
-  insights: { label: '数据与导出', icon: 'TrendCharts' },
-  platform: { label: '平台设置', icon: 'Setting' },
-  account: { label: '个人中心', icon: 'User' },
+  overview: { label: '概览' },
+  academics: { label: '教务与学习' },
+  assessment: { label: '测评中心' },
+  insights: { label: '数据与导出' },
+  platform: { label: '平台设置' },
+  account: { label: '个人中心' },
 };
 
 export function isStudent(user) {

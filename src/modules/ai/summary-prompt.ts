@@ -9,6 +9,11 @@ export class SummaryParseError extends Error {
   }
 }
 
+export function summaryPromptFacts<T extends { evidenceIndex: unknown }>(dataset: T): Omit<T, 'evidenceIndex'> {
+  const { evidenceIndex: _evidenceIndex, ...facts } = dataset;
+  return facts;
+}
+
 export function parseSummaryJson(content: string, schemaVersion: string): unknown {
   try {
     const parsed = JSON.parse(content) as unknown;

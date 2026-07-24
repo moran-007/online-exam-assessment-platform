@@ -3,7 +3,6 @@ import { ElMessage, ElMessageBox } from 'element-plus';
 import { getCurrentUser } from '../../../api';
 import {
   createAiConfiguration,
-  generateAiSummary,
   listAiConfigurations,
   listAiPresets,
   removeAiConfiguration,
@@ -21,7 +20,11 @@ const emptyForm = (scope: 'system' | 'personal'): AiConfigForm => ({
 });
 
 export function useAiSettingsPage() {
-  const canCreateSystem = getCurrentUser()?.userType === 'SUPER_ADMIN';
+  const userType = getCurrentUser()?.userType;
+  const userPermissions = new Set(getCurrentUser()?.permissions ?? []);
+  const canCreateSystem = userType === 'SUPER_ADMIN';
+  const canManageSummaryPresets = ['SUPER_ADMIN', 'ADMIN'].includes(userType ?? '');
+  const canReadQuality = userType === 'SUPER_ADMIN' || userPermissions.has('ai.quality.read');
   const defaultScope = canCreateSystem ? 'system' : 'personal';
   const loading = ref(false);
   const saving = ref(false);
@@ -31,29 +34,14 @@ export function useAiSettingsPage() {
   const presets = ref<AiProviderPreset[]>([]);
   const selectedPresetProvider = ref('');
   const form = reactive<AiConfigForm>(emptyForm(defaultScope));
-  const summaryForm = reactive<{ configId: string; content: string; instruction: string; maxTokens?: number }>({
-    configId: '', content: '', instruction: '', maxTokens: undefined,
-  });
-  const summaryResult = ref('');
-  const summaryMeta = ref('');
-  const summaryLoading = ref(false);
-  const activeConfigurations = computed(() => configurations.value.filter((item) => item.enabled));
-  const summaryOutputLimitHint = computed(() => {
-    const selected = activeConfigurations.value.find((item) => item.id === summaryForm.configId)
-      ?? activeConfigurations.value.find((item) => item.isDefault)
-      ?? activeConfigurations.value[0];
-    const requested = optionalOutputLimit(summaryForm.maxTokens).maxTokens;
-    return outputLimitHint(selected?.maxTokens, requested);
-  });
-
+  const modelOptions = computed(() => [...new Set([
+    ...configurations.value.filter((item) => item.provider === form.provider).map((item) => item.model),
+    ...presets.value.filter((item) => item.provider === form.provider).flatMap((item) => item.models),
+  ].filter(Boolean))]);
   async function load() {
     loading.value = true;
     try {
       [presets.value, configurations.value] = await Promise.all([listAiPresets(), listAiConfigurations()]);
-      if (!summaryForm.configId) {
-        summaryForm.configId = configurations.value.find((item) => item.isDefault && item.enabled)?.id
-          || activeConfigurations.value[0]?.id || '';
-      }
     } catch (error: unknown) {
       ElMessage.error(message(error, 'AI 配置加载失败'));
     } finally {
@@ -148,42 +136,17 @@ export function useAiSettingsPage() {
       await ElMessageBox.confirm(`确认删除 AI 配置“${row.name}”？`, '删除 AI 配置', { type: 'warning' });
       await removeAiConfiguration(row.id);
       ElMessage.success('AI 配置已删除');
-      if (summaryForm.configId === row.id) summaryForm.configId = '';
       await load();
     } catch (error: unknown) {
       if (error !== 'cancel') ElMessage.error(message(error, 'AI 配置删除失败'));
     }
   }
 
-  async function summarize() {
-    if (!summaryForm.content.trim()) {
-      ElMessage.warning('请先填写待总结内容');
-      return;
-    }
-    summaryLoading.value = true;
-    summaryResult.value = '';
-    try {
-      const result = await generateAiSummary({
-        configId: summaryForm.configId || undefined,
-        content: summaryForm.content.trim(),
-        instruction: summaryForm.instruction.trim() || undefined,
-        ...optionalOutputLimit(summaryForm.maxTokens),
-      });
-      summaryResult.value = result.summary;
-      const limit = result.outputLimitTokens === null ? '未显式限制' : `${result.outputLimitTokens} Token`;
-      summaryMeta.value = `${result.provider} / ${result.model} · 供应商输出上限 ${limit} · ${result.durationMs}ms · 输入 ${result.usage.promptTokens} / 输出 ${result.usage.completionTokens} / 合计 ${result.usage.totalTokens} tokens · ${formatTokenQuota(result.tokenQuota)}`;
-    } catch (error: unknown) {
-      ElMessage.error(message(error, 'AI 总结生成失败'));
-    } finally {
-      summaryLoading.value = false;
-    }
-  }
-
   onMounted(load);
   return {
-    activeConfigurations, applyPreset, canCreateSystem, configurations, dialogVisible, form, formatTokenQuota, load, loading,
-    openCreate, openEdit, presets, remove, save, saving, selectedPresetProvider, summarize,
-    summaryForm, summaryLoading, summaryMeta, summaryOutputLimitHint, summaryResult, testConnection, testingId,
+    applyPreset, canCreateSystem, canManageSummaryPresets, canReadQuality, configurations, dialogVisible, form, formatTokenQuota, load, loading,
+    modelOptions,
+    openCreate, openEdit, presets, remove, save, saving, selectedPresetProvider, testConnection, testingId,
   };
 }
 
@@ -206,13 +169,4 @@ function optionalOutputLimit(value: unknown): { maxTokens?: number } {
   if (value === undefined || value === null || value === '') return {};
   const normalized = Number(value);
   return Number.isInteger(normalized) && normalized > 0 && normalized <= 8192 ? { maxTokens: normalized } : {};
-}
-
-function outputLimitHint(configured: number | null | undefined, requested: number | undefined) {
-  if (requested !== undefined && configured !== null && configured !== undefined) {
-    return `实际不超过 ${Math.min(requested, configured)} Token（配置上限 ${configured}）`;
-  }
-  if (requested !== undefined) return `本次向供应商设置 ${requested} Token 上限`;
-  if (configured !== null && configured !== undefined) return `使用配置上限 ${configured} Token`;
-  return '不向供应商发送输出上限；用量未报告时按 8192 Token 估算预留';
 }

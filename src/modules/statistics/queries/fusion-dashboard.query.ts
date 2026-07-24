@@ -41,8 +41,11 @@ export class FusionDashboardQuery {
       confirmedAt: { not: null },
       ...(scope.studentIds === null ? {} : { studentId: { in: scope.studentIds } }),
     };
-    const ledgerScope: Prisma.LessonHourLedgerWhereInput = {
+    const periodLedgerScope: Prisma.LessonHourLedgerWhereInput = {
       ...(scope.classIds === null ? {} : { classId: { in: scope.classIds } }),
+      ...(scope.studentIds === null ? {} : { studentId: { in: scope.studentIds } }),
+    };
+    const balanceLedgerScope: Prisma.LessonHourLedgerWhereInput = {
       ...(scope.studentIds === null ? {} : { studentId: { in: scope.studentIds } }),
     };
 
@@ -84,10 +87,10 @@ export class FusionDashboardQuery {
       }),
       this.prisma.attendanceRecord.findMany({ where: attendanceWhere, select: { status: true } }),
       this.prisma.lessonHourLedger.findMany({
-        where: { ...ledgerScope, createdAt: { gte: range.from, lte: range.to } },
+        where: { ...periodLedgerScope, createdAt: { gte: range.from, lte: range.to } },
         select: { type: true, amount: true },
       }),
-      this.prisma.lessonHourLedger.findMany({ where: ledgerScope, select: { amount: true } }),
+      this.prisma.lessonHourLedger.findMany({ where: balanceLedgerScope, select: { amount: true } }),
     ]);
 
     const gradedAttempts = attempts.filter((attempt) => toApiEnum(attempt.status) === 'graded');
@@ -146,7 +149,17 @@ export class FusionDashboardQuery {
     if (query.classId) await this.dataScope.assertAcademicClassAccessible(user, query.classId);
     if (query.studentId) await this.dataScope.assertStudentAccessible(user, query.studentId);
     const classIds = query.classId ? [query.classId] : allowedClassIds;
-    const studentIds = query.studentId ? [query.studentId] : allowedStudentIds;
+    let studentIds = query.studentId ? [query.studentId] : allowedStudentIds;
+    if (query.classId && !query.studentId) {
+      const memberships = await this.prisma.classStudent.findMany({
+        where: { classId: query.classId, status: 'ACTIVE' },
+        select: { studentId: true },
+      });
+      const classStudentIds = memberships.map((item) => item.studentId);
+      studentIds = allowedStudentIds === null
+        ? classStudentIds
+        : classStudentIds.filter((studentId) => allowedStudentIds.includes(studentId));
+    }
     return {
       classIds,
       studentIds,

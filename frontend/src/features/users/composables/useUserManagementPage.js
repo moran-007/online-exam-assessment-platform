@@ -1,5 +1,6 @@
 import { computed, nextTick, onMounted, reactive, ref } from 'vue';
 import { ElMessage } from 'element-plus';
+import { useRoute } from 'vue-router';
 import {
   createRole,
   createUser,
@@ -16,6 +17,7 @@ const permissionGroupNames = {
   course: '课程', 'knowledge-point': '知识点', tag: '标签', question: '题库', paper: '试卷',
   exam: '考试', class: '班级', grading: '批改', student: '学生信息', export: '导出',
   attachment: '附件', hydro: '外部判题', statistics: '统计', 'audit-log': '审计',
+  ai: 'AI 能力',
 };
 
 export const userTypeOptions = [
@@ -35,7 +37,8 @@ export const userStatusOptions = [
 ];
 
 export function useUserManagementPage() {
-  const activeTab = ref('users');
+  const route = useRoute();
+  const activeTab = ref(route.query.section === 'roles' ? 'roles' : 'users');
   const users = ref([]);
   const roles = ref([]);
   const permissions = ref([]);
@@ -239,7 +242,7 @@ export function useUserManagementPage() {
 
   async function openPermissionDrawer(row) {
     selectedRole.value = row;
-    permissionKeyword.value = '';
+    permissionKeyword.value = typeof route.query.permission === 'string' ? route.query.permission : '';
     permissionDrawerVisible.value = true;
     await nextTick();
     permissionTreeRef.value?.setCheckedKeys(row.permissionIds || []);
@@ -289,7 +292,7 @@ function baseRoleForm() {
 function buildPermissionTree(permissions) {
   const groups = new Map();
   for (const permission of permissions) {
-    const groupCode = permission.code.split(':')[0] || 'other';
+    const groupCode = permission.code.startsWith('ai.') ? 'ai' : (permission.code.split(':')[0] || 'other');
     if (!groups.has(groupCode)) {
       groups.set(groupCode, {
         id: `group:${groupCode}`, label: permissionGroupNames[groupCode] || groupCode, group: true, children: [],

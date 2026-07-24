@@ -1,39 +1,65 @@
 <template>
-  <el-container class="app-shell" :class="{ 'side-collapsed': sideCollapsed }">
-    <el-aside :width="sideCollapsed ? '72px' : '224px'" class="side">
+  <el-config-provider :locale="zhCn">
+    <el-container class="app-shell" :class="{ 'side-collapsed': sideCollapsed }">
+    <el-aside :width="sideCollapsed ? '72px' : '216px'" class="side">
       <div class="brand">
         <div class="brand-mark">
           <el-icon><Reading /></el-icon>
-          <span v-show="!sideCollapsed">智能测评</span>
+          <div v-show="!sideCollapsed" class="brand-copy">
+            <strong>智能测评</strong>
+            <small>教学管理平台</small>
+          </div>
         </div>
-        <el-tooltip :content="sideCollapsed ? '展开侧边栏' : '收起侧边栏'" placement="right">
-          <el-button class="side-toggle" text :icon="sideCollapsed ? Expand : Fold" @click="toggleSide" />
-        </el-tooltip>
       </div>
-      <el-menu :default-active="$route.path" :default-openeds="defaultOpenGroups" router unique-opened class="side-menu" :collapse="sideCollapsed" :collapse-transition="false">
-        <template v-for="group in visibleMenuGroups" :key="group.id">
-          <el-menu-item v-if="group.items.length === 1" :index="group.items[0].path">
-            <el-icon><component :is="group.items[0].icon" /></el-icon><span>{{ group.items[0].label }}</span>
-          </el-menu-item>
-          <el-sub-menu v-else :index="`group:${group.id}`" :data-testid="`menu-group-${group.id}`">
-            <template #title><el-icon><component :is="group.icon" /></el-icon><span>{{ group.label }}</span></template>
-            <el-menu-item v-for="item in group.items" :key="item.path" :index="item.path">
-              <el-icon><component :is="item.icon" /></el-icon><span>{{ item.label }}</span>
+      <el-menu :default-active="$route.path" router class="side-menu" :collapse="sideCollapsed" :collapse-transition="false">
+        <div v-for="group in visibleMenuGroups" :key="group.id" class="menu-section" :data-testid="`menu-group-${group.id}`">
+          <div v-if="!sideCollapsed" class="menu-section-label">{{ group.label }}</div>
+          <div v-else class="menu-section-divider" aria-hidden="true" />
+          <el-tooltip
+            v-for="item in group.items"
+            :key="item.path"
+            :content="item.label"
+            placement="right"
+            :disabled="!sideCollapsed"
+            :show-after="180"
+          >
+            <el-menu-item :index="item.path" :aria-label="item.label" :title="sideCollapsed ? item.label : undefined">
+              <el-icon><component :is="menuIcon(item.icon)" /></el-icon>
+              <span>{{ item.label }}</span>
             </el-menu-item>
-          </el-sub-menu>
-        </template>
+          </el-tooltip>
+        </div>
       </el-menu>
     </el-aside>
     <el-container>
       <el-header class="topbar">
-        <div>
-          <strong>{{ user?.realName || user?.username || '访客' }}</strong>
-          <span class="muted">{{ roleName }}</span>
+        <div class="topbar-context">
+          <el-tooltip :content="sideCollapsed ? '展开导航栏' : '收起导航栏'" placement="bottom">
+            <el-button
+              class="side-toggle"
+              text
+              :icon="sideCollapsed ? Expand : Fold"
+              :aria-label="sideCollapsed ? '展开导航栏' : '收起导航栏'"
+              @click="toggleSide"
+            />
+          </el-tooltip>
+          <span class="topbar-divider" aria-hidden="true" />
+          <span class="route-copy">
+            <strong>{{ currentMenuItem?.label || '智能测评' }}</strong>
+            <small>{{ currentMenuGroup?.label || roleName }}</small>
+          </span>
         </div>
         <div class="topbar-actions">
           <el-badge v-if="user" :value="notificationUnread" :hidden="!notificationUnread" :max="99">
             <el-button :icon="Bell" @click="openNotifications">通知</el-button>
           </el-badge>
+          <div class="user-summary">
+            <span class="user-avatar">{{ (user?.realName || user?.username || '访').slice(0, 1) }}</span>
+            <span class="user-copy">
+              <strong>{{ user?.realName || user?.username || '访客' }}</strong>
+              <small>{{ roleName }}</small>
+            </span>
+          </div>
           <el-button :icon="SwitchButton" @click="user ? logout() : login()">{{ user ? '退出' : '登录' }}</el-button>
         </div>
       </el-header>
@@ -64,14 +90,40 @@
         </div>
       </div>
     </el-drawer>
-  </el-container>
+    </el-container>
+  </el-config-provider>
 </template>
 
 <script setup>
+import zhCn from 'element-plus/es/locale/lang/zh-cn';
 import { computed, onMounted, onUnmounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { ElMessage } from 'element-plus';
-import { Bell, Expand, Fold, Reading, SwitchButton } from '@element-plus/icons-vue';
+import {
+  Bell,
+  Calendar,
+  Checked,
+  Collection,
+  DataBoard,
+  Document,
+  Download,
+  EditPen,
+  Expand,
+  Fold,
+  Link,
+  Notebook,
+  Postcard,
+  PriceTag,
+  Reading,
+  Setting,
+  Share,
+  SwitchButton,
+  Timer,
+  TrendCharts,
+  Upload,
+  User,
+  UserFilled,
+} from '@element-plus/icons-vue';
 import { menuGroupsForUser } from '../access';
 import {
   clearSession,
@@ -97,9 +149,30 @@ const notificationUnread = ref(0);
 const notificationsLoading = ref(false);
 const sideCollapsed = ref(localStorage.getItem('smart-assessment-side-collapsed') === 'true');
 const visibleMenuGroups = computed(() => menuGroupsForUser(user.value));
-const defaultOpenGroups = computed(() => visibleMenuGroups.value
-  .filter((group) => group.items.length > 1 && group.items.some((item) => item.path === route.path))
-  .map((group) => `group:${group.id}`));
+const currentMenuGroup = computed(() => visibleMenuGroups.value
+  .find((group) => group.items.some((item) => item.path === route.path)));
+const currentMenuItem = computed(() => currentMenuGroup.value?.items.find((item) => item.path === route.path));
+const menuIcons = {
+  Calendar,
+  Checked,
+  Collection,
+  DataBoard,
+  Document,
+  Download,
+  EditPen,
+  Link,
+  Notebook,
+  Postcard,
+  PriceTag,
+  Reading,
+  Setting,
+  Share,
+  Timer,
+  TrendCharts,
+  Upload,
+  User,
+  UserFilled,
+};
 const roleName = computed(() => {
   const names = {
     SUPER_ADMIN: '超级管理员',
@@ -156,6 +229,10 @@ function login() {
 function toggleSide() {
   sideCollapsed.value = !sideCollapsed.value;
   localStorage.setItem('smart-assessment-side-collapsed', String(sideCollapsed.value));
+}
+
+function menuIcon(name) {
+  return menuIcons[name] || Document;
 }
 
 async function loadNotificationCount() {

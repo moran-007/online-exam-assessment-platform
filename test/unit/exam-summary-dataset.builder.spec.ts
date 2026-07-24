@@ -38,13 +38,14 @@ describe('ExamSummaryDatasetBuilder', () => {
         averageScore: 8, discrimination: 0.4, anomalyCount: 0,
       }]),
     };
-    return { prisma, dataScope, statistics };
+    const aiDataPermissions = { assertSummaryAllowed: jest.fn().mockResolvedValue(undefined) };
+    return { prisma, dataScope, statistics, aiDataPermissions };
   }
 
   it('builds a deterministic, evidence-backed, permission-scoped dataset', async () => {
     const deps = dependencies();
     const builder = new ExamSummaryDatasetBuilder(
-      deps.prisma as never, deps.dataScope as never, deps.statistics as never,
+      deps.prisma as never, deps.dataScope as never, deps.statistics as never, deps.aiDataPermissions as never,
     );
     const dataset = await builder.build(examId, user);
     expect(deps.dataScope.assertExamAccessible).toHaveBeenCalledWith(user, examId);
@@ -76,7 +77,7 @@ describe('ExamSummaryDatasetBuilder', () => {
     const deps = dependencies();
     deps.dataScope.assertExamAccessible.mockRejectedValue(new Error('forbidden'));
     const builder = new ExamSummaryDatasetBuilder(
-      deps.prisma as never, deps.dataScope as never, deps.statistics as never,
+      deps.prisma as never, deps.dataScope as never, deps.statistics as never, deps.aiDataPermissions as never,
     );
     await expect(builder.build(examId, user)).rejects.toThrow('forbidden');
     expect(deps.prisma.exam.findFirst).not.toHaveBeenCalled();

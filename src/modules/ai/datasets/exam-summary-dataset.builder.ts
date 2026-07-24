@@ -1,4 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
+import { AiSummaryType } from '@prisma/client';
 import { RequestUser } from '../../../common/interfaces/request-user.interface';
 import { DataScopeService } from '../../data-scope/data-scope.service';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -8,6 +9,7 @@ import { StatisticsService } from '../../statistics/statistics.service';
 import { assertSummaryDataset } from './dataset-validator';
 import { EvidenceCollector } from './evidence-collector';
 import type { ExamSummaryDataset } from './summary-dataset';
+import { AiDataPermissionService } from '../ai-data-permission.service';
 
 @Injectable()
 export class ExamSummaryDatasetBuilder {
@@ -15,9 +17,11 @@ export class ExamSummaryDatasetBuilder {
     private readonly prisma: PrismaService,
     private readonly dataScope: DataScopeService,
     private readonly statistics: StatisticsService,
+    private readonly aiDataPermissions: AiDataPermissionService,
   ) {}
 
   async build(examId: string, user: RequestUser): Promise<ExamSummaryDataset> {
+    await this.aiDataPermissions.assertSummaryAllowed(AiSummaryType.EXAM, user);
     await this.dataScope.assertExamAccessible(user, examId);
     const exam = await this.prisma.exam.findFirst({
       where: { id: examId, deletedAt: null },

@@ -5,8 +5,19 @@
  * Online exam and intelligent assessment platform API
  * OpenAPI spec version: 1.0
  */
+import type { IntegratedSummaryPreviewClassSummaryDomainsItem } from './integratedSummaryPreviewClassSummaryDomainsItem';
 
 export type IntegratedSummaryPreviewClassParams = {
 from?: string;
 to?: string;
+/**
+ * 班级总结内容，可单选或多选；不传时包含上课、考试和作业
+ * @minItems 1
+ */
+summaryDomains?: IntegratedSummaryPreviewClassSummaryDomainsItem[];
+/**
+ * 时间筛选后取最近 N 场考试；不传时不限制考试数量
+ * @minimum 1
+ */
+recentExamCount?: number;
 };

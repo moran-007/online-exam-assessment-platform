@@ -6,6 +6,8 @@ import type {
   StudentSummaryBatchEstimateDto,
   UpdateAiProviderConfigDto,
   RegenerateAiSummaryDto,
+  AiSummaryPresetResponseDto,
+  UpdateAiSummaryPresetDto,
 } from '../../../api/generated/models';
 
 export type {
@@ -38,6 +40,8 @@ export type StudentSummaryBatchEstimate = Omit<StudentSummaryBatchEstimateDto, '
   requestedOutputTokensPerTask: number | null;
   reservationOutputTokensPerTask: number;
 };
+export type AiSummaryPreset = AiSummaryPresetResponseDto;
+export type UpdateAiSummaryPreset = UpdateAiSummaryPresetDto;
 
 export type AiSummaryClaim = { text: string; evidenceRefs: string[] };
 export type AiStructuredSummaryContent = {

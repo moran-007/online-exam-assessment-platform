@@ -13,7 +13,8 @@ describe('exam summary prompt boundary', () => {
     } as never);
     expect(prompt).toContain('schemaVersion="exam-summary-output/v1"');
     expect(prompt).toContain('"headline"');
-    expect(prompt).toContain('evidenceIndex 中真实存在的 refId');
+    expect(prompt).toContain('evidenceRef 字段给出的真实 refId');
+    expect(prompt).not.toContain('"evidenceIndex"');
     expect(prompt).toContain('actions 不超过 3 条');
   });
 

@@ -10,6 +10,7 @@ import type { AiEvidenceRefDto } from './aiEvidenceRefDto';
 import type { AiStudentAttendanceFactDto } from './aiStudentAttendanceFactDto';
 import type { AiStudentContextDto } from './aiStudentContextDto';
 import type { AiStudentCoverageMetricsDto } from './aiStudentCoverageMetricsDto';
+import type { AiStudentExamAttemptDto } from './aiStudentExamAttemptDto';
 import type { AiStudentExamPerformanceDto } from './aiStudentExamPerformanceDto';
 import type { AiStudentKnowledgePointFactDto } from './aiStudentKnowledgePointFactDto';
 import type { AiStudentLessonFactDto } from './aiStudentLessonFactDto';
@@ -26,6 +27,7 @@ export interface StudentSummaryDatasetPreviewDto {
   dataCoverage: AiDataCoverageDto;
   datasetVersion: string;
   evidence: AiEvidenceRefDto[];
+  examAttemptHistory: AiStudentExamAttemptDto[];
   examPerformance: AiStudentExamPerformanceDto[];
   generatedAt: string;
   generationMode: StudentSummaryDatasetPreviewDtoGenerationMode;

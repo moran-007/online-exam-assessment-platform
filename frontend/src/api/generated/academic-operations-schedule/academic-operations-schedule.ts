@@ -10,6 +10,7 @@ import type {
   CancelSessionDto,
   CreateSessionDto,
   GenerateSessionsDto,
+  LessonScheduleContextParams,
   LessonScheduleRulesParams,
   LessonScheduleSessionsParams,
   MakeupSessionDto,
@@ -439,6 +440,82 @@ export const lessonScheduleGenerate = async (generateSessionsDto: GenerateSessio
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...options?.headers },
     body: JSON.stringify(generateSessionsDto)
+  }
+);}
+
+
+export type lessonScheduleContextResponse200 = {
+  data: void
+  status: 200
+}
+
+export type lessonScheduleContextResponse400 = {
+  data: ApiErrorResponse
+  status: 400
+}
+
+export type lessonScheduleContextResponse401 = {
+  data: ApiErrorResponse
+  status: 401
+}
+
+export type lessonScheduleContextResponse403 = {
+  data: ApiErrorResponse
+  status: 403
+}
+
+export type lessonScheduleContextResponse404 = {
+  data: ApiErrorResponse
+  status: 404
+}
+
+export type lessonScheduleContextResponse409 = {
+  data: ApiErrorResponse
+  status: 409
+}
+
+export type lessonScheduleContextResponse429 = {
+  data: ApiErrorResponse
+  status: 429
+}
+
+export type lessonScheduleContextResponse500 = {
+  data: ApiErrorResponse
+  status: 500
+}
+
+export type lessonScheduleContextResponseSuccess = (lessonScheduleContextResponse200) & {
+  headers: Headers;
+};
+export type lessonScheduleContextResponseError = (lessonScheduleContextResponse400 | lessonScheduleContextResponse401 | lessonScheduleContextResponse403 | lessonScheduleContextResponse404 | lessonScheduleContextResponse409 | lessonScheduleContextResponse429 | lessonScheduleContextResponse500) & {
+  headers: Headers;
+};
+
+export type lessonScheduleContextResponse = (lessonScheduleContextResponseSuccess | lessonScheduleContextResponseError)
+
+export const getLessonScheduleContextUrl = (params: LessonScheduleContextParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/v1/schedule-context?${stringifiedParams}` : `/api/v1/schedule-context`
+}
+
+export const lessonScheduleContext = async (params: LessonScheduleContextParams, options?: RequestInit): Promise<lessonScheduleContextResponse> => {
+
+  return apiMutator<lessonScheduleContextResponse>(getLessonScheduleContextUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
   }
 );}
 

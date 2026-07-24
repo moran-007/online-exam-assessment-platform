@@ -1,5 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsBoolean, IsIn, IsInt, IsNotEmpty, IsNumber, IsOptional, IsString, IsUUID, Max, MaxLength, Min } from 'class-validator';
+import { Type } from 'class-transformer';
+import { ArrayMaxSize, IsArray, IsBoolean, IsIn, IsInt, IsNotEmpty, IsNumber, IsOptional, IsString, IsUUID, Max, MaxLength, Min, ValidateNested } from 'class-validator';
 import { MAX_AI_OUTPUT_TOKENS } from '../ai-summary-limits';
 
 export class CreateAiProviderConfigDto {
@@ -84,18 +85,36 @@ export class UpdateAiProviderConfigDto {
   outputCostPerMillion?: number;
 }
 
+export class AiChatHistoryMessageDto {
+  @ApiProperty({ enum: ['user', 'assistant'] })
+  @IsIn(['user', 'assistant'])
+  role: 'user' | 'assistant';
+
+  @ApiProperty({ maxLength: 20000 })
+  @IsString() @IsNotEmpty() @MaxLength(20000)
+  content: string;
+}
+
 export class GenerateAiSummaryDto {
   @ApiPropertyOptional({ format: 'uuid' })
   @IsOptional() @IsUUID()
   configId?: string;
 
-  @ApiProperty({ description: '待总结内容，最多 20000 字符' })
+  @ApiProperty({ description: '问答测试问题，最多 20000 字符；不会自动读取平台业务数据' })
   @IsString() @IsNotEmpty() @MaxLength(20000)
   content: string;
 
-  @ApiPropertyOptional({ description: '附加总结要求，最多 500 字符' })
+  @ApiPropertyOptional({ description: '补充背景或回答要求，最多 500 字符' })
   @IsOptional() @IsString() @MaxLength(500)
   instruction?: string;
+
+  @ApiPropertyOptional({
+    type: () => [AiChatHistoryMessageDto],
+    maxItems: 20,
+    description: '当前页面会话的最近消息；仅用于连续问答，不持久化',
+  })
+  @IsOptional() @IsArray() @ArrayMaxSize(20) @ValidateNested({ each: true }) @Type(() => AiChatHistoryMessageDto)
+  history?: AiChatHistoryMessageDto[];
 
   @ApiPropertyOptional({
     description: '本次输出上限；不传时仅使用显式配置上限，二者均为空则由供应商决定',
@@ -111,6 +130,7 @@ export class AiProviderPresetDto {
   @ApiProperty() name: string;
   @ApiProperty() baseUrl: string;
   @ApiProperty() model: string;
+  @ApiProperty({ type: [String], description: '该预设已登记的可选模型；model 为默认值' }) models: string[];
   @ApiProperty() documentationUrl: string;
   @ApiProperty() note: string;
 }
@@ -184,4 +204,14 @@ export class AiSummaryResultDto {
   @ApiProperty({ type: () => AiUsageDto }) usage: AiUsageDto;
   @ApiProperty({ type: () => AiTokenQuotaDto }) tokenQuota: AiTokenQuotaDto;
   @ApiProperty() durationMs: number;
+  @ApiProperty({ type: () => [AiChatContextSourceDto] }) contextSources: AiChatContextSourceDto[];
+  @ApiProperty({ description: '当前角色是否允许 AI 直接给出答案' }) directAnswerAllowed: boolean;
+  @ApiProperty({ description: '当前角色是否允许脱离平台题目和试卷回答通用知识' }) generalKnowledgeAllowed: boolean;
+}
+
+export class AiChatContextSourceDto {
+  @ApiProperty({ enum: ['question', 'paper', 'class', 'student', 'teacher', 'schedule', 'exam'] })
+  type: 'question' | 'paper' | 'class' | 'student' | 'teacher' | 'schedule' | 'exam';
+  @ApiProperty({ format: 'uuid' }) id: string;
+  @ApiProperty() name: string;
 }

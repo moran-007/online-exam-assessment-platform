@@ -27,7 +27,7 @@ export class StudentSummaryTaskUseCases {
     return this.coordinator.create({
       type: AiSummaryType.STUDENT,
       subjectId: dto.studentId,
-      scope: this.scope(dto),
+      scope: this.scope(dto, dataset.scope?.summaryDomains, dataset.scope?.recentExamCount),
       dataset,
       templateCode: 'student-summary',
       schemaVersion: STUDENT_SUMMARY_OUTPUT_SCHEMA_VERSION,
@@ -37,13 +37,19 @@ export class StudentSummaryTaskUseCases {
     }, user, withRetryConfirmation(options, dto.confirmRetry));
   }
 
-  private scope(dto: CreateStudentSummaryTaskDto): Prisma.InputJsonObject {
+  private scope(
+    dto: CreateStudentSummaryTaskDto,
+    summaryDomains?: string[],
+    recentExamCount?: number | null,
+  ): Prisma.InputJsonObject {
     return {
       studentId: dto.studentId,
       ...(dto.courseId ? { courseId: dto.courseId } : {}),
       ...(dto.examIds ? { examIds: dto.examIds } : {}),
       ...(dto.from ? { from: dto.from } : {}),
       ...(dto.to ? { to: dto.to } : {}),
+      ...(summaryDomains?.length ? { summaryDomains } : {}),
+      ...(recentExamCount ? { recentExamCount } : {}),
     };
   }
 }

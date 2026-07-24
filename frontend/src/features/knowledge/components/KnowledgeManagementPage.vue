@@ -1,5 +1,5 @@
 <template>
-  <div class="page knowledge-page">
+  <div class="knowledge-page" :class="{ page: !embedded, 'knowledge-page--embedded': embedded }">
     <div class="page-head">
       <h1 class="page-title">课程知识点管理</h1>
       <div class="toolbar">
@@ -50,12 +50,28 @@
           </div>
         </div>
         <div class="knowledge-tree-shell">
+          <div v-if="treeOptions.length" class="knowledge-tree-header" aria-hidden="true">
+            <span>知识点</span>
+            <span>教案状态</span>
+            <span>教案入口</span>
+            <span>知识点管理</span>
+          </div>
           <el-tree v-if="treeOptions.length" :data="treeOptions" node-key="value" default-expand-all class="knowledge-tree">
             <template #default="{ data }">
               <span class="knowledge-node">
                 <span class="knowledge-node-main">
                   <strong>{{ data.raw.name }}</strong>
                   <small>{{ data.raw.code || '自动编码' }} · 排序 {{ data.raw.sortOrder ?? 0 }}</small>
+                </span>
+                <span class="knowledge-node-status">
+                  <el-tag size="small" :type="lessonPlanMeta(data.raw.id).type" effect="plain">
+                    {{ lessonPlanMeta(data.raw.id).label }}
+                  </el-tag>
+                </span>
+                <span class="knowledge-node-entry">
+                  <el-button link type="primary" @click.stop="openLessonPlan(data.raw)">
+                    {{ lessonPlanMeta(data.raw.id).plan ? `查看 ${lessonPlanMeta(data.raw.id).count} 份` : '创建教案' }}
+                  </el-button>
                 </span>
                 <span class="knowledge-node-actions">
                   <el-button v-if="canCreateKnowledge" size="small" link :icon="Plus" @click.stop="openCreateKnowledge(data.raw)">添加子级</el-button>
@@ -163,13 +179,22 @@
 
 <script setup>
 import { Delete, DocumentCopy, Edit, Plus, Refresh, Upload, View } from '@element-plus/icons-vue';
+import { computed, onMounted } from 'vue';
+import { useRouter } from 'vue-router';
 import { getCurrentUser } from '../../../api';
 import { hasAnyPermission } from '../../../access';
+import { isLessonPlanReady, useLessonPlanCatalog } from '../../lesson-records/composables/useLessonPlanCatalog';
 import { useKnowledgeManagementPage } from '../composables/useKnowledgeManagementPage';
 
+defineProps({
+  embedded: { type: Boolean, default: false },
+});
+
 const currentUser = getCurrentUser();
+const router = useRouter();
 const canCreateKnowledge = hasAnyPermission(currentUser, ['knowledge-point:create']);
 const canUpdateKnowledge = hasAnyPermission(currentUser, ['knowledge-point:update']);
+const { plans, load: loadLessonPlans } = useLessonPlanCatalog();
 const {
   batchCourseId,
   batchErrorSummary,
@@ -201,4 +226,55 @@ const {
   treeOptions,
   visibleCourseGroups,
 } = useKnowledgeManagementPage();
+
+const lessonPlanMetaMap = computed(() => {
+  const result = new Map();
+  plans.value.forEach((plan) => {
+    if (!plan.knowledgePointId) return;
+    const current = result.get(plan.knowledgePointId) || [];
+    current.push(plan);
+    result.set(plan.knowledgePointId, current);
+  });
+  result.forEach((items, knowledgePointId) => {
+    items.sort((left, right) => {
+      const leftMine = left.source === 'PERSONAL' && left.authorId === currentUser?.id;
+      const rightMine = right.source === 'PERSONAL' && right.authorId === currentUser?.id;
+      return Number(rightMine) - Number(leftMine) || Date.parse(right.updatedAt) - Date.parse(left.updatedAt);
+    });
+    result.set(knowledgePointId, {
+      plans: items,
+      plan: items[0],
+      complete: items.some(isLessonPlanReady),
+    });
+  });
+  return result;
+});
+
+onMounted(() => {
+  void loadLessonPlans().catch(() => undefined);
+});
+
+function lessonPlanMeta(knowledgePointId) {
+  const meta = lessonPlanMetaMap.value.get(knowledgePointId);
+  if (!meta) return { label: '未创建', type: 'info', plan: null, count: 0 };
+  return {
+    label: `${meta.plans.length} 份 · ${meta.complete ? '已完成' : '待完善'}`,
+    type: meta.complete ? 'success' : 'warning',
+    plan: meta.plan,
+    count: meta.plans.length,
+  };
+}
+
+function openLessonPlan(point) {
+  const plan = lessonPlanMeta(point.id).plan;
+  router.push({
+    path: '/courses',
+    query: {
+      section: 'lesson-plans',
+      courseId: point.courseId || courseId.value,
+      knowledgePointId: point.id,
+      ...(plan ? { planId: plan.id } : {}),
+    },
+  });
+}
 </script>

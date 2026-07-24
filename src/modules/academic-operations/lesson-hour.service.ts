@@ -186,7 +186,7 @@ export class LessonHourService {
     }
     return {
       studentId: query.studentId ?? (studentIds === null ? undefined : { in: studentIds }),
-      classId: query.classId ?? (classIds === null ? undefined : { in: classIds }),
+      classId: query.classId,
       type: query.type,
     };
   }

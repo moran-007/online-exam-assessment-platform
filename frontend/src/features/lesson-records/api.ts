@@ -51,8 +51,9 @@ export interface LessonSessionView {
   status: string;
   startsAt: string;
   endsAt: string;
-  classGroup: { id: string; name: string };
+  classGroup: { id: string; name: string; course?: { id: string; name: string } | null };
   lessonType: { id: string; name: string };
+  knowledgePoint?: { id: string; name: string } | null;
 }
 
 export interface PortalStudent {
@@ -87,7 +88,66 @@ export interface PortalSummary {
   publishedAt: string;
 }
 
+export type LessonPlanPromptTemplateSource = 'SYSTEM' | 'PERSONAL';
+
+export interface LessonPlanPromptTemplate {
+  id: string;
+  name: string;
+  templateContent: string;
+  maxTokens: number | null;
+  source: LessonPlanPromptTemplateSource;
+  canManage: boolean;
+  createdAt: string | null;
+  updatedAt: string | null;
+}
+
+export interface LessonPlanProcessPresetStage {
+  title: string;
+  duration: number;
+}
+
+export interface LessonPlanProcessPreset {
+  id: string;
+  name: string;
+  stages: LessonPlanProcessPresetStage[];
+  source: LessonPlanPromptTemplateSource;
+  canManage: boolean;
+  createdAt: string | null;
+  updatedAt: string | null;
+}
+
 const data = async <T>(request: Promise<unknown>) => ((await request) as { data: T }).data;
+
+export const listLessonPlans = () => data<unknown[]>(apiWire('/lesson-plans'));
+export const createLessonPlan = (body: Record<string, unknown>) =>
+  data<unknown>(apiWire('/lesson-plans', { method: 'POST', body }));
+export const updateLessonPlan = (id: string, body: Record<string, unknown>) =>
+  data<unknown>(apiWire(`/lesson-plans/${id}`, { method: 'PATCH', body }));
+export const removeLessonPlan = (id: string) =>
+  data<boolean>(apiWire(`/lesson-plans/${id}`, { method: 'DELETE' }));
+
+export const listLessonPlanPromptTemplates = () =>
+  data<LessonPlanPromptTemplate[]>(apiWire('/lesson-plan-prompt-templates'));
+export const createLessonPlanPromptTemplate = (body: { name: string; templateContent: string; maxTokens: number | null }) =>
+  data<LessonPlanPromptTemplate>(apiWire('/lesson-plan-prompt-templates', { method: 'POST', body }));
+export const updateLessonPlanPromptTemplate = (
+  id: string,
+  body: { name: string; templateContent: string; maxTokens: number | null },
+) =>
+  data<LessonPlanPromptTemplate>(apiWire(`/lesson-plan-prompt-templates/${id}`, { method: 'PATCH', body }));
+export const removeLessonPlanPromptTemplate = (id: string) =>
+  data<boolean>(apiWire(`/lesson-plan-prompt-templates/${id}`, { method: 'DELETE' }));
+
+export const listLessonPlanProcessPresets = () =>
+  data<LessonPlanProcessPreset[]>(apiWire('/lesson-plan-process-presets'));
+export const createLessonPlanProcessPreset = (body: { name: string; stages: LessonPlanProcessPresetStage[] }) =>
+  data<LessonPlanProcessPreset>(apiWire('/lesson-plan-process-presets', { method: 'POST', body }));
+export const updateLessonPlanProcessPreset = (
+  id: string,
+  body: { name: string; stages: LessonPlanProcessPresetStage[] },
+) => data<LessonPlanProcessPreset>(apiWire(`/lesson-plan-process-presets/${id}`, { method: 'PATCH', body }));
+export const removeLessonPlanProcessPreset = (id: string) =>
+  data<boolean>(apiWire(`/lesson-plan-process-presets/${id}`, { method: 'DELETE' }));
 
 export const getLessonRecord = (sessionId: string, studentId?: string) =>
   data<LessonRecordDetail>(apiWire(`/lesson-records/${sessionId}${studentId ? `?studentId=${encodeURIComponent(studentId)}` : ''}`));

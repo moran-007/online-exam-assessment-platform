@@ -1,5 +1,6 @@
 import { Prisma } from '@prisma/client';
 import type { StudentAnswerFact } from './student-summary-aggregates';
+import type { SummaryDataDomain } from './summary-scope';
 
 export const MAX_SELECTED_EXAMS = 20;
 
@@ -102,12 +103,16 @@ export type NormalizedStudentSummaryScope = {
   examIds: string[];
   from?: Date;
   to?: Date;
+  summaryDomains: SummaryDataDomain[];
+  recentExamCount?: number;
 };
 
 export type StudentSummaryDatasetInput = {
   studentId: string;
+  studentAlias: string;
   scope: NormalizedStudentSummaryScope;
   exams: StudentExam[];
+  attempts: StudentAttempt[];
   latestAttempts: Map<string, StudentAttempt>;
   gradedAttempts: StudentAttempt[];
   answers: StudentAnswerFact[];

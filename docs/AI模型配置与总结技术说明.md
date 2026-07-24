@@ -16,7 +16,7 @@
 | 厂商 | Base URL | 当前预设模型 | 官方文档 |
 | --- | --- | --- | --- |
 | DeepSeek | `https://api.deepseek.com` | `deepseek-v4-flash` | [DeepSeek API](https://api-docs.deepseek.com/) |
-| 阿里云百炼/通义千问 | `https://dashscope.aliyuncs.com/compatible-mode/v1` | `qwen3.6-plus` | [百炼 Base URL](https://help.aliyun.com/zh/model-studio/base-url) |
+| 阿里云百炼/通义千问 | `https://dashscope.aliyuncs.com/compatible-mode/v1` | `qwen3.7-plus` | [百炼 Base URL](https://help.aliyun.com/zh/model-studio/base-url) |
 | 火山方舟/豆包 | `https://ark.cn-beijing.volces.com/api/v3` | `doubao-seed-2-0-lite-260215` | [方舟 OpenAI SDK](https://www.volcengine.com/docs/82379/1795150) |
 | 智谱 GLM | `https://open.bigmodel.cn/api/paas/v4` | `glm-5.1` | [智谱 OpenAI SDK](https://docs.bigmodel.cn/cn/guide/develop/openai/introduction) |
 | Moonshot/Kimi | `https://api.moonshot.cn/v1` | `kimi-k2.6` | [Kimi Quickstart](https://platform.kimi.com/docs/api/quickstart) |
@@ -60,6 +60,8 @@ flowchart LR
 
 同一用户可以保存多份个人配置，其中一份作为自动选择的默认模型，生成时也可手动指定其他可用配置。接口永远不返回 API Key 或密文，只返回固定掩码和 `hasApiKey`。更新时 API Key 留空表示保持原密钥。删除配置会直接删除密文，不维护明文或双轨字段。
 
+每个厂商预设同时提供默认 `model` 与可选 `models[]`。新建配置时选择厂商后，模型下拉会列出该厂商已登记的多个模型；对于火山方舟接入点、私有部署或账户专属模型，仍可直接输入控制台给出的模型 ID。
+
 ## 5. API
 
 | 方法 | 路径 | 用途 |
@@ -71,6 +73,9 @@ flowchart LR
 | DELETE | `/api/v1/ai/configurations/:id` | 删除配置 |
 | POST | `/api/v1/ai/configurations/:id/test` | 发送一次 `只回复：OK` 的 4 Token 小上限连接测试；厂商成功响应但 Token 过少未形成正文时仍视为连接成功 |
 | POST | `/api/v1/ai/summary` | 生成管理员文本总结 |
+| GET | `/api/v1/ai/summary-presets` | 管理员查看 AI 总结 Prompt 预设及历史版本 |
+| PATCH | `/api/v1/ai/summary-presets/:id` | 基于指定版本创建新的 Prompt 版本，可立即启用 |
+| POST | `/api/v1/ai/summary-presets/:id/activate` | 切换启用指定历史 Prompt 版本 |
 | POST | `/api/v1/ai-summaries/exams` | 生成或幂等复用考试总结草稿 |
 | GET | `/api/v1/ai-summaries/exams/:examId/preview` | 获取不调用模型的确定性数据集预览 |
 | GET | `/api/v1/exams/:examId/ai-summaries` | 获取授权范围内的考试总结历史 |
@@ -78,6 +83,10 @@ flowchart LR
 | GET | `/api/v1/me/ai-summaries` | 学生查看本人考试的已发布总结 |
 
 总结输入最多 20,000 字符，附加要求最多 500 字符。配置级 `maxTokens` 与调用级 `requestOutputTokens` 均可留空；两者都为空时，出站请求不发送 `max_tokens`。只要存在显式值，实际发送值取调用级、配置级与已登记模型能力上限中存在值的最小值。平台的 8,192 校验上界和模型能力上界用于校验显式输入，并在供应商未报告 usage 时确定保守预算预留；它们不是留空时偷偷发送给供应商的请求限制。1,000 Token 仅可作为成本估算参考，不是必填值或系统默认值。审计只记录输入字符数、模型、Token 用量、预留和耗时，不保存总结原文或待总结内容。
+
+生成总结时，前端按“模型来源 → 模型配置”两级选择。每条模型配置继续绑定一个明确的 Base URL、API Key 和模型 ID；同一来源可保存多条配置，因此既支持共享 Key 下的多模型，也支持只能调用单一模型的专用 Key，且不会把 Key 与不匹配的模型自由组合。
+
+AI 总结预设归入“AI 配置中心”，仅超级管理员和管理员可维护。提示词采用不可变版本：编辑会创建新版本，启用新版本只影响之后创建的任务，历史任务仍关联原 Prompt。输出 JSON Schema 不开放页面编辑，避免破坏结构化总结、证据引用和发布校验。
 
 结构化非流式调用会关闭已知混合思考模型的思考模式：DeepSeek 使用其兼容参数禁用思考；Qwen/阿里云百炼兼容端点发送 `enable_thinking: false`，避免思考内容占用结构化正文或与 JSON 输出冲突。模型与端点识别规则以配置和能力注册表为准，参见[阿里云思考模式说明](https://help.aliyun.com/en/model-studio/deep-thinking)。
 

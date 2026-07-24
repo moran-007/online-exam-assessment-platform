@@ -1,5 +1,6 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import {
+  AiSummaryType,
   AttemptStatus,
   AttendanceStatus,
   ClassMemberStatus,
@@ -20,6 +21,7 @@ import { assertSummaryDataset } from './dataset-validator';
 import { EvidenceCollector } from './evidence-collector';
 import {
   buildExamPerformance,
+  buildExamAttemptHistory,
   buildLessonActivity,
   buildScratchActivity,
   collectKnowledgeValue,
@@ -45,6 +47,12 @@ import {
   type StudentSummaryDatasetInput,
 } from './student-summary-data';
 import type { StudentSummaryDataset } from './summary-dataset';
+import { AiDataPermissionService } from '../ai-data-permission.service';
+import {
+  normalizeRecentExamCount,
+  normalizeSummaryDomains,
+  type SummaryDataDomain,
+} from './summary-scope';
 
 export type StudentSummaryScopeInput = {
   studentId: string;
@@ -52,6 +60,8 @@ export type StudentSummaryScopeInput = {
   examIds?: string[];
   from?: string;
   to?: string;
+  summaryDomains?: SummaryDataDomain[];
+  recentExamCount?: number;
 };
 
 @Injectable()
@@ -59,9 +69,12 @@ export class StudentSummaryDatasetBuilder {
   constructor(
     private readonly prisma: PrismaService,
     private readonly dataScope: DataScopeService,
+    private readonly aiDataPermissions: AiDataPermissionService,
   ) {}
 
   async build(input: StudentSummaryScopeInput, user: RequestUser): Promise<StudentSummaryDataset> {
+    const requestedDomains = normalizeSummaryDomains(input.summaryDomains);
+    await this.aiDataPermissions.assertSummaryAllowed(AiSummaryType.STUDENT, user, requestedDomains);
     await this.dataScope.assertStudentSummaryAccessible(user, input.studentId);
     const student = await this.prisma.user.findFirst({
       where: {
@@ -70,12 +83,15 @@ export class StudentSummaryDatasetBuilder {
         status: UserStatus.ACTIVE,
         deletedAt: null,
       },
-      select: { id: true },
+      select: { id: true, realName: true, username: true },
     });
     if (!student) throw new NotFoundException('学生不存在');
 
-    const scope = this.normalizeScope(input);
-    const exams = await this.selectExams(scope, user);
+    const scope = this.normalizeScope({ ...input, summaryDomains: requestedDomains });
+    const includesExams = scope.summaryDomains.includes('exams');
+    const includesLessons = scope.summaryDomains.includes('lessons');
+    const includesHomework = scope.summaryDomains.includes('homework');
+    const exams = includesExams ? await this.selectExams(scope, user) : [];
     const examIds = exams.map((exam) => exam.id);
     const attempts = examIds.length ? await this.prisma.examAttempt.findMany({
       where: { userId: student.id, examId: { in: examIds }, submittedAt: { not: null } },
@@ -86,24 +102,27 @@ export class StudentSummaryDatasetBuilder {
     for (const attempt of attempts) {
       if (!latestAttempts.has(attempt.examId)) latestAttempts.set(attempt.examId, attempt);
     }
-    const gradedAttempts = [...latestAttempts.values()].filter((attempt) => attempt.status === AttemptStatus.GRADED);
+    const gradedAttempts = attempts.filter((attempt) => attempt.status === AttemptStatus.GRADED);
     const answers = gradedAttempts.flatMap((attempt) => attempt.answers);
     const answerFacts = this.answerFacts(answers);
     const attemptIds = gradedAttempts.map((attempt) => attempt.id);
     const [wrongQuestions, judgeSubmissions, lessons, scratchWorks] = await Promise.all([
-      this.wrongQuestions(scope, examIds),
+      includesExams ? this.wrongQuestions(scope, examIds) : [],
       attemptIds.length ? this.prisma.judgeSubmission.findMany({
         where: { studentId: student.id, attemptId: { in: attemptIds } },
         select: { status: true, score: true },
       }) : [],
-      this.lessons(scope),
-      this.scratchWorks(scope),
+      includesLessons || includesHomework ? this.lessons(scope) : [],
+      includesHomework ? this.scratchWorks(scope) : [],
     ]);
 
+    const canUseStudentName = await this.aiDataPermissions.isAllowed('student_identity', user);
     return this.dataset({
       studentId: student.id,
+      studentAlias: canUseStudentName ? (student.realName?.trim() || student.username) : '该学生',
       scope,
       exams,
+      attempts,
       latestAttempts,
       gradedAttempts,
       answers: answerFacts,
@@ -149,7 +168,9 @@ export class StudentSummaryDatasetBuilder {
     const exams = await this.prisma.exam.findMany({
       where,
       orderBy: [{ endTime: 'desc' }, { id: 'desc' }],
-      take: requestedIds.length || MAX_SELECTED_EXAMS,
+      ...(requestedIds.length
+        ? { take: requestedIds.length }
+        : scope.recentExamCount ? { take: scope.recentExamCount } : {}),
       select: STUDENT_EXAM_SELECT,
     });
     if (requestedIds.length && exams.length !== requestedIds.length) {
@@ -174,7 +195,6 @@ export class StudentSummaryDatasetBuilder {
         } : {}),
       },
       orderBy: [{ wrongCount: 'desc' }, { lastWrongAt: 'desc' }, { id: 'asc' }],
-      take: 20,
       select: WRONG_QUESTION_SELECT,
     });
   }
@@ -194,7 +214,6 @@ export class StudentSummaryDatasetBuilder {
         },
       },
       orderBy: [{ startsAt: 'desc' }, { id: 'desc' }],
-      take: 50,
       select: {
         ...STUDENT_LESSON_SELECT,
         attendance: {
@@ -225,7 +244,6 @@ export class StudentSummaryDatasetBuilder {
         },
       },
       orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
-      take: 50,
       select: STUDENT_SCRATCH_SELECT,
     });
   }
@@ -277,37 +295,49 @@ export class StudentSummaryDatasetBuilder {
     const dataset: StudentSummaryDataset = {
       type: 'student',
       generationMode: evidenceDensity >= 3 ? 'analysis' : 'fact_card',
-      datasetVersion: 'student-summary/v2',
+      datasetVersion: 'student-summary/v4',
       generatedAt,
       dataCoverage: {
         from: input.scope.from?.toISOString() ?? null,
         to: input.scope.to?.toISOString() ?? null,
         includes: [
-          'selected_exams', 'latest_submitted_attempt_per_exam', 'graded_scores',
-          'question_type_performance', 'knowledge_point_performance',
-          'wrong_question_counters', 'programming_judge_results', 'lesson_sessions',
-          'confirmed_attendance', 'published_learning_goals', 'published_class_performance',
-          'published_homework_assignments',
-          'scratch_work_versions', 'scratch_submission_status', 'teacher_scratch_reviews',
-          'scratch_judge_status',
+          ...(input.scope.summaryDomains.includes('exams') ? [
+            'selected_exams', 'latest_submitted_attempt_per_exam', 'all_submitted_attempts_per_exam',
+            'graded_scores', 'question_type_performance', 'knowledge_point_performance',
+            'wrong_question_counters', 'programming_judge_results',
+          ] : []),
+          ...(input.scope.summaryDomains.includes('lessons') ? [
+            'lesson_sessions', 'confirmed_attendance', 'published_learning_goals', 'published_class_performance',
+          ] : []),
+          ...(input.scope.summaryDomains.includes('homework') ? [
+            'published_homework_assignments', 'scratch_work_versions', 'scratch_submission_status',
+            'teacher_scratch_reviews', 'scratch_judge_status',
+          ] : []),
         ],
         excludes: [
           'unpublished_lesson_records', 'internal_teaching_notes', 'internal_class_performance',
           'homework_submission_results', 'scratch_project_contents', 'scratch_external_identity',
           'answer_text', 'ungraded_scores', 'parent_data',
+          ...(['exams', 'lessons', 'homework'] as SummaryDataDomain[])
+            .filter((domain) => !input.scope.summaryDomains.includes(domain))
+            .map((domain) => `not_selected_${domain}`),
         ],
       },
-      student: { id: input.studentId, alias: '该学生' },
+      student: { id: input.studentId, alias: input.studentAlias },
       scope: {
         courseId: input.scope.courseId ?? null,
         courseName: input.scope.courseId
           ? course?.course.name ?? lessonCourse?.classGroup.course?.name ?? null
           : null,
         examIds: input.exams.map((exam) => exam.id),
+        summaryDomains: input.scope.summaryDomains,
+        recentExamCount: input.scope.recentExamCount ?? null,
       },
       coverage: {
         selectedExamCount: collectStudentValue(evidence, input.studentId, 'selectedExamCount', input.exams.length, 'exam'),
         gradedExamCount: collectStudentValue(evidence, input.studentId, 'gradedExamCount', statusCounts.graded, 'exam'),
+        submittedAttemptCount: collectStudentValue(evidence, input.studentId, 'submittedAttemptCount', input.attempts.length, 'attempt'),
+        gradedAttemptCount: collectStudentValue(evidence, input.studentId, 'gradedAttemptCount', input.gradedAttempts.length, 'attempt'),
         notSubmittedExamCount: collectStudentValue(evidence, input.studentId, 'notSubmittedExamCount', statusCounts.notSubmitted, 'exam'),
         ungradedExamCount: collectStudentValue(evidence, input.studentId, 'ungradedExamCount', statusCounts.ungraded, 'exam'),
         gradedAnswerCount: collectStudentValue(evidence, input.studentId, 'gradedAnswerCount', input.answers.length, 'answer'),
@@ -321,6 +351,7 @@ export class StudentSummaryDatasetBuilder {
         scratchReviewedCount: collectStudentValue(evidence, input.studentId, 'scratch.reviewedCount', scratchReviewedCount, 'review'),
       },
       examPerformance: input.exams.map((exam) => buildExamPerformance(evidence, input.studentId, exam, byExam.get(exam.id))),
+      examAttemptHistory: buildExamAttemptHistory(evidence, input.studentId, input.exams, input.attempts),
       questionTypes: questionTypes.map((item) => ({
         type: item.type,
         answerCount: collectStudentValue(evidence, input.studentId, `questionType.${item.type}.answerCount`, item.answerCount, 'answer'),
@@ -376,7 +407,15 @@ export class StudentSummaryDatasetBuilder {
     const from = this.date(input.from, '开始时间');
     const to = this.date(input.to, '结束时间');
     if (from && to && from > to) throw new BadRequestException('开始时间不能晚于结束时间');
-    return { studentId: input.studentId, courseId: input.courseId, examIds, from, to };
+    return {
+      studentId: input.studentId,
+      courseId: input.courseId,
+      examIds,
+      from,
+      to,
+      summaryDomains: normalizeSummaryDomains(input.summaryDomains),
+      recentExamCount: normalizeRecentExamCount(input.recentExamCount),
+    };
   }
 
   private date(value: string | undefined, label: string) {

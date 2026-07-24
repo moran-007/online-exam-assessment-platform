@@ -11,6 +11,7 @@ export interface AiStudentCoverageMetricsDto {
   attendanceRecordCount: AiEvidencedNumberDto;
   completedLessonCount: AiEvidencedNumberDto;
   gradedAnswerCount: AiEvidencedNumberDto;
+  gradedAttemptCount: AiEvidencedNumberDto;
   gradedExamCount: AiEvidencedNumberDto;
   homeworkAssignmentCount: AiEvidencedNumberDto;
   notSubmittedExamCount: AiEvidencedNumberDto;
@@ -20,5 +21,6 @@ export interface AiStudentCoverageMetricsDto {
   scratchSubmittedCount: AiEvidencedNumberDto;
   scratchWorkCount: AiEvidencedNumberDto;
   selectedExamCount: AiEvidencedNumberDto;
+  submittedAttemptCount: AiEvidencedNumberDto;
   ungradedExamCount: AiEvidencedNumberDto;
 }

@@ -161,6 +161,47 @@ export function buildExamPerformance(
   };
 }
 
+export function buildExamAttemptHistory(
+  evidence: EvidenceCollector,
+  studentId: string,
+  exams: StudentExam[],
+  attempts: StudentAttempt[],
+): StudentSummaryDataset['examAttemptHistory'] {
+  const examsById = new Map(exams.map((exam) => [exam.id, exam]));
+  return [...attempts]
+    .sort((left, right) => (left.submittedAt?.getTime() ?? 0) - (right.submittedAt?.getTime() ?? 0))
+    .flatMap((attempt) => {
+      const exam = examsById.get(attempt.examId);
+      if (!exam || !attempt.submittedAt) return [];
+      const graded = attempt.status === AttemptStatus.GRADED;
+      const score = graded ? Number(attempt.totalScore) : null;
+      const fullScore = Number(exam.paper.totalScore);
+      const path = `/students/${studentId}/exams/${exam.id}/attempts/${attempt.id}`;
+      return [{
+        attemptId: attempt.id,
+        examId: exam.id,
+        examName: exam.name,
+        submittedAt: attempt.submittedAt.toISOString(),
+        status: evidence.collect({
+          sourceType: 'exam_attempt', sourceId: attempt.id, metric: `student.${studentId}.historyStatus`,
+          path: `${path}/status`, value: attempt.status.toLowerCase(), unit: 'status',
+        }),
+        score: evidence.collect({
+          sourceType: 'exam_attempt', sourceId: attempt.id, metric: `student.${studentId}.historyScore`,
+          path: `${path}/score`, value: score, unit: 'score',
+        }),
+        fullScore: evidence.collect({
+          sourceType: 'exam', sourceId: exam.id, metric: `attempt.${attempt.id}.fullScore`,
+          path: `${path}/fullScore`, value: fullScore, unit: 'score',
+        }),
+        scoreRate: evidence.collect({
+          sourceType: 'exam_attempt', sourceId: attempt.id, metric: `student.${studentId}.historyScoreRate`,
+          path: `${path}/scoreRate`, value: score === null ? null : ratio(score, fullScore), unit: 'ratio',
+        }),
+      }];
+    });
+}
+
 function collectLessonRecordValue(
   evidence: EvidenceCollector,
   studentId: string,

@@ -32,6 +32,7 @@ export class AiController {
   presets() { return this.useCases.presets(); }
 
   @Get('configurations')
+  @Roles('SUPER_ADMIN', 'ADMIN', 'TEACHER', 'ASSISTANT', 'STUDENT', 'PARENT')
   @ApiOkResponse({ type: [AiProviderConfigResponseDto] })
   configurations(@CurrentUser() user: RequestUser) { return this.useCases.list(user); }
 
@@ -54,7 +55,8 @@ export class AiController {
   test(@Param('id') id: string, @CurrentUser() user: RequestUser) { return this.useCases.test(id, user); }
 
   @Post('summary')
-  @Permissions('ai.summary.exam.generate')
+  @Roles('SUPER_ADMIN', 'ADMIN', 'TEACHER', 'ASSISTANT', 'STUDENT', 'PARENT')
+  @Permissions('ai.chat.use')
   @ApiCreatedResponse({ type: AiSummaryResultDto })
   summarize(@Body() dto: GenerateAiSummaryDto, @CurrentUser() user: RequestUser) {
     return this.generation.summarize(dto, user);

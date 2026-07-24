@@ -25,6 +25,7 @@ describe('academic operations', () => {
   let courseId = '';
   let otherCourseId = '';
   let studentId = '';
+  let teacherId = '';
   let lessonTypeId = '';
 
   beforeAll(async () => {
@@ -38,6 +39,7 @@ describe('academic operations', () => {
       prisma.user.create({ data: { username: 'ops_parent', passwordHash, userType: UserType.PARENT } }),
     ]);
     studentId = student.id;
+    teacherId = teacher.id;
     const [course, otherCourse] = await Promise.all([
       prisma.course.create({ data: { name: 'Operations Course', code: 'ops_course' } }),
       prisma.course.create({ data: { name: 'Other Course', code: 'ops_other_course' } }),
@@ -126,6 +128,63 @@ describe('academic operations', () => {
     expect(second).toMatchObject({ candidates: 1, created: 0, skipped: 1 });
     const session = await prisma.lessonSession.findFirstOrThrow({ where: { scheduleRuleId: rule.id } });
     expect(session.startsAt.toISOString()).toBe('2026-07-20T10:00:00.000Z');
+  });
+
+  it('uses class course knowledge points for preset rules and sequential scheduling', async () => {
+    const chapter = await prisma.knowledgePoint.create({
+      data: { courseId, name: '第一章', code: 'ops_chapter_1', level: 1, sortOrder: 1 },
+    });
+    const knowledgePoints = await Promise.all([
+      prisma.knowledgePoint.create({
+        data: { courseId, parentId: chapter.id, name: '知识点 1', code: 'ops_kp_1', level: 2, sortOrder: 1 },
+      }),
+      prisma.knowledgePoint.create({
+        data: { courseId, parentId: chapter.id, name: '知识点 2', code: 'ops_kp_2', level: 2, sortOrder: 2 },
+      }),
+      prisma.knowledgePoint.create({
+        data: { courseId, parentId: chapter.id, name: '知识点 3', code: 'ops_kp_3', level: 2, sortOrder: 3 },
+      }),
+    ]);
+
+    const context = await api('get', `/api/v1/schedule-context?classId=${classId}`, teacherToken);
+    expect(context).toMatchObject({
+      classId,
+      course: { id: courseId, name: 'Operations Course' },
+      teachers: [expect.objectContaining({ id: teacherId })],
+    });
+    expect(context.knowledgePoints.map((item: { id: string }) => item.id)).toEqual(knowledgePoints.map((item) => item.id));
+
+    const rule = await api('post', '/api/v1/schedule-rules', teacherToken, {
+      classId,
+      teacherId,
+      lessonTypeId,
+      weekday: 1,
+      startMinute: 1080,
+      endMinute: 1200,
+      effectiveFrom: '2026-08-03',
+      effectiveTo: '2026-08-17',
+      timezone: 'Asia/Shanghai',
+      lessonHours: 1,
+      classroom: 'A102',
+    });
+    const result = await api('post', '/api/v1/lesson-sessions/generate', teacherToken, {
+      ruleId: rule.id,
+      from: '2026-08-03',
+      to: '2026-08-17',
+      startKnowledgePointId: knowledgePoints[0].id,
+      sessionCount: 3,
+    });
+    expect(result).toMatchObject({ candidates: 3, created: 3, skipped: 0 });
+
+    const page = await api(
+      'get',
+      `/api/v1/lesson-sessions?classId=${classId}&from=2026-08-03T00:00:00%2B08:00&to=2026-08-18T00:00:00%2B08:00`,
+      teacherToken,
+    );
+    expect(page.items.map((item: { title: string }) => item.title)).toEqual(['知识点 1', '知识点 2', '知识点 3']);
+    expect(page.items.map((item: { knowledgePoint: { id: string } }) => item.knowledgePoint.id))
+      .toEqual(knowledgePoints.map((item) => item.id));
+    expect(page.items.every((item: { teacherId: string }) => item.teacherId === teacherId)).toBe(true);
   });
 
   it('requires new course units to be scoped and rejects cross-course scheduling changes', async () => {
@@ -295,6 +354,43 @@ describe('academic operations', () => {
     })).toBe(3);
   });
 
+  it('sorts morning afternoon and evening sessions while rejecting teacher and classroom overlaps', async () => {
+    const base = {
+      classId,
+      lessonTypeId,
+      timezone: 'Asia/Shanghai',
+      lessonHours: 1,
+    };
+    const morning = await api('post', '/api/v1/lesson-sessions', teacherToken, {
+      ...base, teacherId, title: '上午模拟课', classroom: '冲突测试 A',
+      startsAt: '2026-08-15T01:00:00.000Z', endsAt: '2026-08-15T02:00:00.000Z',
+    });
+    const afternoon = await api('post', '/api/v1/lesson-sessions', teacherToken, {
+      ...base, teacherId, title: '下午模拟课', classroom: '冲突测试 B',
+      startsAt: '2026-08-15T06:00:00.000Z', endsAt: '2026-08-15T07:00:00.000Z',
+    });
+    const evening = await api('post', '/api/v1/lesson-sessions', teacherToken, {
+      ...base, teacherId, title: '晚上模拟课', classroom: '冲突测试 C',
+      startsAt: '2026-08-15T11:00:00.000Z', endsAt: '2026-08-15T12:00:00.000Z',
+    });
+
+    await expectApiError('post', '/api/v1/lesson-sessions', teacherToken, {
+      ...base, teacherId, title: '教师冲突课', classroom: '其他教室',
+      startsAt: '2026-08-15T01:30:00.000Z', endsAt: '2026-08-15T02:30:00.000Z',
+    }, 409, '教师在该时间段已有课程');
+    await expectApiError('post', '/api/v1/lesson-sessions', teacherToken, {
+      ...base, title: '教室冲突课', classroom: '冲突测试 B',
+      startsAt: '2026-08-15T06:30:00.000Z', endsAt: '2026-08-15T07:30:00.000Z',
+    }, 409, '教室在该时间段已被占用');
+
+    const listed = await api(
+      'get',
+      '/api/v1/lesson-sessions?from=2026-08-15T00:00:00.000Z&to=2026-08-15T23:59:59.999Z',
+      teacherToken,
+    );
+    expect(listed.items.map((item: { id: string }) => item.id)).toEqual([morning.id, afternoon.id, evening.id]);
+  });
+
   it('confirms attendance and hours in one transaction, then corrects through reversal', async () => {
     await api('post', '/api/v1/lesson-hours/adjustments', adminToken, {
       studentId,
@@ -346,14 +442,26 @@ describe('academic operations', () => {
   });
 
   it('enforces student and parent scopes and produces a zero-difference reconciliation', async () => {
-    const studentBalances = await api('get', '/api/v1/lesson-hours/balances', studentToken);
-    const parentBalances = await api('get', '/api/v1/lesson-hours/balances', parentToken);
+    await api('post', '/api/v1/lesson-hours/adjustments', adminToken, {
+      studentId,
+      type: LessonHourLedgerType.GIFT,
+      amount: 2,
+      idempotencyKey: 'integration-global-gift',
+    });
+    const [adminBalances, teacherBalances, studentBalances, parentBalances] = await Promise.all([
+      api('get', '/api/v1/lesson-hours/balances', adminToken),
+      api('get', '/api/v1/lesson-hours/balances', teacherToken),
+      api('get', '/api/v1/lesson-hours/balances', studentToken),
+      api('get', '/api/v1/lesson-hours/balances', parentToken),
+    ]);
     expect(studentBalances).toHaveLength(1);
     expect(parentBalances).toEqual(studentBalances);
-    expect(studentBalances[0]).toMatchObject({ studentId, balance: 10 });
+    expect(studentBalances[0]).toMatchObject({ studentId, balance: 12 });
+    expect(teacherBalances.find((item) => item.studentId === studentId)).toMatchObject({ studentId, balance: 12 });
+    expect(adminBalances.find((item) => item.studentId === studentId)).toMatchObject({ studentId, balance: 12 });
 
     const report = await api('post', '/api/v1/lesson-hours/reconcile', adminToken, {
-      studentId, expectedBalance: 10,
+      studentId, expectedBalance: 12,
     });
     expect(report).toMatchObject({ passed: true, invalidReversalCount: 0 });
     expect(report.items[0]).toMatchObject({ studentId, difference: 0, passed: true });

@@ -8,6 +8,10 @@ export class QueryScheduleRuleDto extends PaginationQueryDto {
   @IsOptional() @IsEnum(ScheduleRuleStatus) status?: ScheduleRuleStatus;
 }
 
+export class QueryScheduleContextDto {
+  @IsUUID() classId: string;
+}
+
 export class SaveScheduleRuleDto {
   @IsUUID() classId: string;
   @IsOptional() @IsUUID() teacherId?: string;
@@ -29,6 +33,8 @@ export class GenerateSessionsDto {
   @IsDateString() to: string;
   @IsOptional() @IsUUID() ruleId?: string;
   @IsOptional() @IsUUID() classId?: string;
+  @IsOptional() @IsUUID() startKnowledgePointId?: string;
+  @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(366) sessionCount?: number;
 }
 
 export class QuerySessionDto extends PaginationQueryDto {
@@ -44,6 +50,7 @@ export class CreateSessionDto {
   @IsOptional() @IsUUID() teacherId?: string;
   @IsUUID() lessonTypeId: string;
   @IsOptional() @IsUUID() unitTemplateId?: string;
+  @IsOptional() @IsUUID() knowledgePointId?: string;
   @IsString() @MaxLength(180) title: string;
   @IsOptional() @IsEnum(LessonSessionKind) kind?: LessonSessionKind;
   @IsDateString() startsAt: string;

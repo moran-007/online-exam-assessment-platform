@@ -10,6 +10,8 @@ export interface AiProviderPresetDto {
   baseUrl: string;
   documentationUrl: string;
   model: string;
+  /** 该预设已登记的可选模型；model 为默认值 */
+  models: string[];
   name: string;
   note: string;
   provider: string;

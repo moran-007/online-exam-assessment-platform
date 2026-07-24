@@ -23,6 +23,10 @@ describe('integrated summary dataset builders', () => {
     assertAcademicClassAccessible: jest.fn().mockResolvedValue(undefined),
     assertStudentSummaryAccessible: jest.fn().mockResolvedValue(undefined),
   };
+  const aiDataPermissions = {
+    assertSummaryAllowed: jest.fn().mockResolvedValue(undefined),
+    isAllowed: jest.fn().mockResolvedValue(false),
+  };
 
   it('builds class aggregates without individual student identity', async () => {
     const prisma = {
@@ -54,14 +58,22 @@ describe('integrated summary dataset builders', () => {
         attendance: [{ status: AttendanceStatus.PRESENT }, { status: AttendanceStatus.ABSENT }],
       }]) },
     };
-    const dataset = await new ClassSummaryDatasetBuilder(prisma as never, scope as never)
+    const dataset = await new ClassSummaryDatasetBuilder(prisma as never, scope as never, aiDataPermissions as never)
       .build({ classId: 'class-1' }, user);
 
     expect(dataset.coverage.studentCount.value).toBe(2);
     expect(dataset.attendance.attendanceRate.value).toBe(0.5);
     expect(dataset.lessons.completedHours.value).toBe(2);
+    expect(prisma.exam.findMany.mock.calls[0][0]).not.toHaveProperty('take');
     expect(dataset.dataCoverage.excludes).toContain('student_names');
     expect(JSON.stringify(dataset)).not.toContain('student-secret');
+
+    const examOnly = await new ClassSummaryDatasetBuilder(prisma as never, scope as never, aiDataPermissions as never)
+      .build({ classId: 'class-1', summaryDomains: ['exams'], recentExamCount: 2 }, user);
+    expect(prisma.exam.findMany.mock.calls[1][0]).toMatchObject({ take: 2 });
+    expect(prisma.lessonSession.findMany).toHaveBeenCalledTimes(1);
+    expect(examOnly.scope).toEqual({ summaryDomains: ['exams'], recentExamCount: 2 });
+    expect(examOnly.dataCoverage.excludes).toContain('not_selected_homework');
   });
 
   it('honors score visibility and excludes internal lesson notes from parent reports', async () => {
@@ -74,7 +86,7 @@ describe('integrated summary dataset builders', () => {
         submittedAt: new Date('2026-07-18T08:00:00Z'),
         exam: {
           id: 'exam-1', name: '周测', showScoreMode: ShowScoreMode.AFTER_EXAM_END,
-          endTime: new Date('2026-07-20T08:00:00Z'),
+          endTime: new Date('2099-07-20T08:00:00Z'),
         },
       }]) },
       lessonSession: { findMany: jest.fn().mockResolvedValue([{
@@ -87,7 +99,7 @@ describe('integrated summary dataset builders', () => {
         },
       }]) },
     };
-    const dataset = await new ParentReportDatasetBuilder(prisma as never, scope as never)
+    const dataset = await new ParentReportDatasetBuilder(prisma as never, scope as never, aiDataPermissions as never)
       .build({ studentId: 'student-1' }, user);
 
     expect(dataset.exams[0]).toMatchObject({
@@ -95,7 +107,40 @@ describe('integrated summary dataset builders', () => {
       scoreVisible: { value: false },
     });
     expect(dataset.publishedLessons[0].homework.value).toBe('循环练习');
+    expect(prisma.examAttempt.findMany.mock.calls[0][0]).not.toHaveProperty('take');
+    expect(prisma.examAttempt.findMany.mock.calls[0][0]).not.toHaveProperty('distinct');
+    expect(prisma.lessonSession.findMany.mock.calls[0][0]).not.toHaveProperty('take');
     expect(JSON.stringify(dataset)).not.toContain('internalTeachingNotes');
+
+    const homeworkOnly = await new ParentReportDatasetBuilder(prisma as never, scope as never, aiDataPermissions as never)
+      .build({ studentId: 'student-1', summaryDomains: ['homework'] }, user);
+    expect(prisma.examAttempt.findMany).toHaveBeenCalledTimes(1);
+    expect(homeworkOnly.exams).toHaveLength(0);
+    expect(homeworkOnly.scope).toEqual({ summaryDomains: ['homework'], recentExamCount: null });
+    expect(homeworkOnly.dataCoverage.excludes).toContain('not_selected_exams');
+  });
+
+  it('keeps all attempts belonging to the selected recent parent-report exams', async () => {
+    const attempt = (id: string, examId: string, submittedAt: string) => ({
+      id, status: AttemptStatus.GRADED, totalScore: new Prisma.Decimal(80), submittedAt: new Date(submittedAt),
+      exam: {
+        id: examId, name: examId, showScoreMode: ShowScoreMode.AFTER_SUBMIT,
+        endTime: new Date('2026-07-20T08:00:00Z'),
+      },
+    });
+    const prisma = {
+      user: { findFirst: jest.fn().mockResolvedValue({ id: 'student-1' }) },
+      examAttempt: { findMany: jest.fn().mockResolvedValue([
+        attempt('a1', 'exam-new', '2026-07-20T10:00:00Z'),
+        attempt('a2', 'exam-new', '2026-07-19T10:00:00Z'),
+        attempt('a3', 'exam-old', '2026-06-01T10:00:00Z'),
+      ]) },
+      lessonSession: { findMany: jest.fn() },
+    };
+    const dataset = await new ParentReportDatasetBuilder(prisma as never, scope as never, aiDataPermissions as never)
+      .build({ studentId: 'student-1', summaryDomains: ['exams'], recentExamCount: 1 }, user);
+    expect(dataset.exams.map((item) => item.attemptId)).toEqual(['a1', 'a2']);
+    expect(prisma.lessonSession.findMany).not.toHaveBeenCalled();
   });
 
   it('keeps internal notes only in the teacher lesson-assistant draft dataset', async () => {
@@ -109,7 +154,7 @@ describe('integrated summary dataset builders', () => {
         internalTeachingNotes: '下次增加演示', internalClassPerformance: '节奏稍快',
       },
     }) } };
-    const dataset = await new LessonAssistantDatasetBuilder(prisma as never, scope as never)
+    const dataset = await new LessonAssistantDatasetBuilder(prisma as never, scope as never, aiDataPermissions as never)
       .build('lesson-1', user);
 
     expect(dataset.currentRecord.internalTeachingNotes.value).toBe('下次增加演示');

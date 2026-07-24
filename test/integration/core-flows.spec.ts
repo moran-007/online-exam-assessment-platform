@@ -165,6 +165,19 @@ describe('core API flows', () => {
     expect(stored.apiKeyIv).toBeTruthy();
     expect(stored.apiKeyAuthTag).toBeTruthy();
     expect(stored.monthlyTokenBudget).toBe(5000);
+    await prisma.aiUsageEvent.create({
+      data: {
+        providerConfigId: created.id,
+        operation: 'integration-delete-guard',
+        correlationId: `integration-delete-${created.id}`,
+        reservationOutputTokens: 1,
+        inputTokens: 0,
+        outputTokens: 0,
+        totalTokens: 0,
+        usageReported: false,
+        createdBy: stored.createdBy!,
+      },
+    });
 
     const providerDefaultLimit = await api('post', '/api/v1/ai/configurations', adminToken, {
       name: 'Integration Provider Default Limit',
@@ -206,7 +219,13 @@ describe('core API flows', () => {
 
     await api('delete', `/api/v1/ai/configurations/${providerDefaultLimit.id}`, adminToken);
     await api('delete', `/api/v1/ai/configurations/${created.id}`, adminToken);
-    expect(await prisma.aiProviderConfig.count({ where: { id: created.id } })).toBe(0);
+    const visibleAfterDelete = await api('get', '/api/v1/ai/configurations', adminToken);
+    expect(visibleAfterDelete.some((item: { id: string }) => item.id === created.id)).toBe(false);
+    const retired = await prisma.aiProviderConfig.findUniqueOrThrow({ where: { id: created.id } });
+    expect(retired).toMatchObject({ enabled: false, isDefault: false });
+    expect(retired.deletedAt).toBeInstanceOf(Date);
+    expect(retired.apiKeyCiphertext).not.toBe(stored.apiKeyCiphertext);
+    expect(await prisma.aiUsageEvent.count({ where: { providerConfigId: created.id } })).toBe(1);
   });
 
   it('runs question, paper, exam, autosave and objective grading lifecycle', async () => {
@@ -432,7 +451,7 @@ describe('core API flows', () => {
       'get', `/api/v1/ai-summaries/students/${student.id}/preview?examIds=${exam.id}`, adminToken,
     );
     expect(studentPreview).toMatchObject({
-      datasetVersion: 'student-summary/v2',
+      datasetVersion: 'student-summary/v4',
       student: { id: student.id },
       coverage: { selectedExamCount: { value: 1 }, gradedExamCount: { value: 1 } },
     });

@@ -27,8 +27,12 @@ export default defineConfig(({ command }) => ({
     rollupOptions: {
       output: {
         manualChunks(id) {
+          // CSS is extracted independently by Vite. Assigning it to a JavaScript
+          // vendor chunk makes service styles pull the whole library into entry.
+          if (/\.css(?:$|\?)/.test(id)) return undefined;
           if (!id.includes('node_modules')) return undefined;
           if (id.includes('/echarts/') || id.includes('\\echarts\\')) return 'vendor-echarts';
+          if (id.includes('/exceljs/') || id.includes('\\exceljs\\')) return 'vendor-exceljs';
           const codeMirrorLanguage = id.match(/@codemirror[/\\]lang-([^/\\]+)/);
           if (codeMirrorLanguage) return `codemirror-language-${codeMirrorLanguage[1]}`;
           if (id.includes('/@codemirror/') || id.includes('\\@codemirror\\') || /[/\\]codemirror[/\\]/.test(id)) {

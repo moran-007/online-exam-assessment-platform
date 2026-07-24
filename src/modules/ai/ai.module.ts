@@ -32,6 +32,10 @@ import { AiQualityController } from './ai-quality.controller';
 import { AiFeedbackUseCases } from './ai-feedback.use-cases';
 import { AiQualityDashboardUseCases } from './ai-quality-dashboard.use-cases';
 import { AiRegressionUseCases } from './ai-regression.use-cases';
+import { AiSummaryPresetController } from './ai-summary-preset.controller';
+import { AiSummaryPresetUseCases } from './ai-summary-preset.use-cases';
+import { AiDataPermissionService } from './ai-data-permission.service';
+import { AiLearningContextService } from './ai-learning-context.service';
 
 @Module({
   imports: [AuditModule, StatisticsModule],
@@ -41,6 +45,7 @@ import { AiRegressionUseCases } from './ai-regression.use-cases';
     AiSummaryLifecycleController,
     IntegratedSummaryController,
     AiQualityController,
+    AiSummaryPresetController,
   ],
   providers: [
     AiProviderGateway,
@@ -69,6 +74,9 @@ import { AiRegressionUseCases } from './ai-regression.use-cases';
     AiFeedbackUseCases,
     AiQualityDashboardUseCases,
     AiRegressionUseCases,
+    AiSummaryPresetUseCases,
+    AiDataPermissionService,
+    AiLearningContextService,
   ],
   exports: [
     AiProviderGateway,

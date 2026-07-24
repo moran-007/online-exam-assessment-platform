@@ -1,6 +1,8 @@
-import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsBoolean, IsDateString, IsInt, IsOptional, IsUUID, Max, Min } from 'class-validator';
+import { Transform } from 'class-transformer';
+import { ApiProperty, ApiPropertyOptional, IntersectionType } from '@nestjs/swagger';
+import { ArrayMinSize, ArrayUnique, IsArray, IsBoolean, IsDateString, IsIn, IsInt, IsOptional, IsUUID, Max, Min } from 'class-validator';
 import { MAX_AI_OUTPUT_TOKENS, MIN_AI_OUTPUT_TOKENS } from '../ai-summary-limits';
+import { SUMMARY_DATA_DOMAINS, type SummaryDataDomain } from '../datasets/summary-scope';
 
 export class IntegratedSummaryRangeDto {
   @ApiPropertyOptional({ format: 'date-time' })
@@ -11,6 +13,31 @@ export class IntegratedSummaryRangeDto {
   @IsOptional() @IsDateString()
   to?: string;
 }
+
+class SummarySelectionDto {
+  @ApiPropertyOptional({
+    type: [String], enum: SUMMARY_DATA_DOMAINS,
+    description: '班级总结内容，可单选或多选；不传时包含上课、考试和作业',
+  })
+  @Transform(({ value }) => normalizeArray(value))
+  @IsOptional() @IsArray() @ArrayMinSize(1) @ArrayUnique() @IsIn(SUMMARY_DATA_DOMAINS, { each: true })
+  summaryDomains?: SummaryDataDomain[];
+
+  @ApiPropertyOptional({ minimum: 1, description: '时间筛选后取最近 N 场考试；不传时不限制考试数量' })
+  @Transform(({ value }) => value === '' || value === undefined ? undefined : Number(value))
+  @IsOptional() @IsInt() @Min(1)
+  recentExamCount?: number;
+}
+
+export class ClassSummaryRangeDto extends IntersectionType(
+  IntegratedSummaryRangeDto,
+  SummarySelectionDto,
+) {}
+
+export class ReportSummaryRangeDto extends IntersectionType(
+  IntegratedSummaryRangeDto,
+  SummarySelectionDto,
+) {}
 
 class IntegratedGenerationOptionsDto extends IntegratedSummaryRangeDto {
   @ApiPropertyOptional({ format: 'uuid', description: '不传时按个人默认、系统默认顺序自动选择' })
@@ -33,13 +60,19 @@ class IntegratedGenerationOptionsDto extends IntegratedSummaryRangeDto {
   confirmRetry?: boolean;
 }
 
-export class CreateClassSummaryTaskDto extends IntegratedGenerationOptionsDto {
+export class CreateClassSummaryTaskDto extends IntersectionType(
+  IntegratedGenerationOptionsDto,
+  SummarySelectionDto,
+) {
   @ApiProperty({ format: 'uuid' })
   @IsUUID()
   classId: string;
 }
 
-export class CreateParentReportTaskDto extends IntegratedGenerationOptionsDto {
+export class CreateParentReportTaskDto extends IntersectionType(
+  IntegratedGenerationOptionsDto,
+  SummarySelectionDto,
+) {
   @ApiProperty({ format: 'uuid' })
   @IsUUID()
   studentId: string;
@@ -56,4 +89,10 @@ export class IntegratedSummaryDatasetPreviewDto {
   @ApiProperty() datasetVersion: string;
   @ApiProperty({ type: 'object', additionalProperties: true })
   dataset: Record<string, unknown>;
+}
+
+function normalizeArray(value: unknown) {
+  if (Array.isArray(value)) return value;
+  if (typeof value !== 'string') return value;
+  return value.split(',').map((item) => item.trim()).filter(Boolean);
 }

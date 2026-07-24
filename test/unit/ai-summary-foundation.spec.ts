@@ -50,6 +50,14 @@ describe('AI summary foundation', () => {
     expect(routed).toMatchObject({ baseUrl: 'https://openrouter.ai/api/v1', model: 'tencent/hy3' });
   });
 
+  it('provides every preset with selectable models including its default', () => {
+    const deepSeek = AI_PROVIDER_PRESETS.find((item) => item.provider === 'deepseek');
+    const zhipu = AI_PROVIDER_PRESETS.find((item) => item.provider === 'zhipu');
+    expect(deepSeek?.models).toEqual(expect.arrayContaining(['deepseek-v4-flash', 'deepseek-v4-pro']));
+    expect(zhipu?.models.length).toBeGreaterThan(1);
+    for (const preset of AI_PROVIDER_PRESETS) expect(preset.models).toContain(preset.model);
+  });
+
   it('matches provider model globs without treating model text as a regular expression', () => {
     expect(matchesModelPattern('qwen3.*', 'qwen3.6-plus')).toBe(true);
     expect(matchesModelPattern('deepseek-?-flash', 'deepseek-v-flash')).toBe(true);

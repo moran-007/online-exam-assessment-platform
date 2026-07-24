@@ -44,6 +44,11 @@ import {
   aiQualityResolveFeedback,
   aiQualityRunRegression,
 } from '../../../api/generated/ai-quality/ai-quality';
+import {
+  aiSummaryPresetActivate,
+  aiSummaryPresetList,
+  aiSummaryPresetRevise,
+} from '../../../api/generated/ai-summary-preset/ai-summary-preset';
 import type {
   AiProviderConfig,
   AiProviderPreset,
@@ -63,6 +68,8 @@ import type {
   AiQualityDashboard,
   AiFeedbackList,
   AiRegressionRun,
+  AiSummaryPreset,
+  UpdateAiSummaryPreset,
 } from '../models';
 
 export const listAiPresets = () => generatedData(asGenerated<AiProviderPreset[]>(aiPresets()));
@@ -141,4 +148,10 @@ export const listAiRegressions = () =>
   generatedData(asGenerated<AiRegressionRun[]>(aiQualityRegressions()));
 export const runAiRegression = (body: Parameters<typeof aiQualityRunRegression>[0]) =>
   generatedData(asGenerated<AiRegressionRun>(aiQualityRunRegression(body)));
+export const listAiSummaryPresets = () =>
+  generatedData(asGenerated<AiSummaryPreset[]>(aiSummaryPresetList()));
+export const reviseAiSummaryPreset = (id: string, body: UpdateAiSummaryPreset) =>
+  generatedData(asGenerated<AiSummaryPreset>(aiSummaryPresetRevise(id, body)));
+export const activateAiSummaryPreset = (id: string) =>
+  generatedData(asGenerated<AiSummaryPreset>(aiSummaryPresetActivate(id)));
 export const listPublishedExamSummaries = listPublishedSummaries;

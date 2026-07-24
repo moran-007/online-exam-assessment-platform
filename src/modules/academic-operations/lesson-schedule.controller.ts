@@ -8,6 +8,7 @@ import {
   CreateSessionDto,
   GenerateSessionsDto,
   MakeupSessionDto,
+  QueryScheduleContextDto,
   QueryScheduleRuleDto,
   QuerySessionDto,
   RescheduleSessionDto,
@@ -20,6 +21,12 @@ import { LessonScheduleService } from './lesson-schedule.service';
 @Controller()
 export class LessonScheduleController {
   constructor(private readonly schedule: LessonScheduleService) {}
+
+  @Get('schedule-context')
+  @Permissions('schedule:read')
+  context(@Query() query: QueryScheduleContextDto, @CurrentUser() actor: RequestUser) {
+    return this.schedule.context(query.classId, actor);
+  }
 
   @Get('schedule-rules')
   @Permissions('schedule:read')

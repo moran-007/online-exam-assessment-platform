@@ -5,16 +5,22 @@
  * Online exam and intelligent assessment platform API
  * OpenAPI spec version: 1.0
  */
+import type { AiChatHistoryMessageDto } from './aiChatHistoryMessageDto';
 
 export interface GenerateAiSummaryDto {
   configId?: string;
   /**
-     * 待总结内容，最多 20000 字符
+     * 问答测试问题，最多 20000 字符；不会自动读取平台业务数据
      * @maxLength 20000
      */
   content: string;
   /**
-     * 附加总结要求，最多 500 字符
+     * 当前页面会话的最近消息；仅用于连续问答，不持久化
+     * @maxItems 20
+     */
+  history?: AiChatHistoryMessageDto[];
+  /**
+     * 补充背景或回答要求，最多 500 字符
      * @maxLength 500
      */
   instruction?: string;

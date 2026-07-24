@@ -1,5 +1,20 @@
 <template>
-  <div class="page library-page">
+  <div class="page library-page course-catalog-page">
+    <div class="page-head course-catalog-head">
+      <div>
+        <h1 class="page-title">课程、知识点与教案</h1>
+        <p class="muted course-catalog-description">在同一工作区维护课程目录、知识点和可复用的预设教案。</p>
+      </div>
+    </div>
+    <el-tabs v-model="activeSection" class="course-catalog-tabs" @tab-change="handleSectionChange">
+      <el-tab-pane v-if="canReadCourse" label="课程管理" name="courses" />
+      <el-tab-pane v-if="canReadKnowledge" label="课程知识点" name="knowledge" />
+      <el-tab-pane v-if="canReadCourse" label="教案" name="lesson-plans" />
+    </el-tabs>
+
+    <KnowledgeManagementPage v-if="activeSection === 'knowledge'" embedded />
+    <LessonPlanLibrary v-else-if="activeSection === 'lesson-plans'" :courses="lessonPlanCourses.length ? lessonPlanCourses : items" />
+    <template v-else>
     <div class="page-head">
       <h1 class="page-title">课程管理</h1>
       <div class="toolbar">
@@ -166,22 +181,33 @@
         <el-button type="primary" :icon="Upload" :loading="importing" @click="importBatch">批量导入</el-button>
       </template>
     </el-dialog>
+    </template>
   </div>
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue';
+import { computed, reactive, ref, watch } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { DocumentCopy, Edit, Plus, Refresh, Search, Upload, View } from '@element-plus/icons-vue';
 import { getCurrentUser } from '../api';
 import { hasAnyPermission } from '../access';
 import { createCourse, listCourses, removeCourse, updateCourse } from '../features/platform/api';
+import KnowledgeManagementPage from '../features/knowledge/components/KnowledgeManagementPage.vue';
+import LessonPlanLibrary from '../features/lesson-records/components/LessonPlanLibrary.vue';
 import { useResponsiveColumns } from '../composables/useResponsiveColumns';
 
 const currentUser = getCurrentUser();
+const route = useRoute();
+const router = useRouter();
+const canReadCourse = hasAnyPermission(currentUser, ['course:read']);
+const canReadKnowledge = hasAnyPermission(currentUser, ['knowledge-point:read']);
 const canCreateCourse = hasAnyPermission(currentUser, ['course:create']);
 const canUpdateCourse = hasAnyPermission(currentUser, ['course:update']);
+const activeSection = ref('courses');
+const courseListLoaded = ref(false);
 const items = ref([]);
+const lessonPlanCourses = ref([]);
 const { showMediumColumns, showLowColumns } = useResponsiveColumns();
 const keyword = ref('');
 const statusFilter = ref('');
@@ -215,7 +241,31 @@ async function load() {
   pagination.page = data.page;
   pagination.pageSize = data.pageSize;
   pagination.total = data.total;
+  courseListLoaded.value = true;
   previewBatch(false);
+}
+
+function resolveSection(section) {
+  if (section === 'knowledge' && canReadKnowledge) return 'knowledge';
+  if (section === 'lesson-plans' && canReadCourse) return 'lesson-plans';
+  return canReadCourse ? 'courses' : 'knowledge';
+}
+
+async function handleSectionChange(section) {
+  const nextSection = resolveSection(String(section));
+  activeSection.value = nextSection;
+  if (['courses', 'lesson-plans'].includes(nextSection) && !courseListLoaded.value) await load();
+  if (nextSection === 'lesson-plans') await loadLessonPlanCourses();
+  const query = { ...route.query };
+  if (nextSection === 'knowledge' || nextSection === 'lesson-plans') query.section = nextSection;
+  else delete query.section;
+  await router.replace({ path: '/courses', query });
+}
+
+async function loadLessonPlanCourses() {
+  if (lessonPlanCourses.value.length) return;
+  const data = await listCourses({ pageSize: 100 });
+  lessonPlanCourses.value = data.items;
 }
 
 function loadFirstPage() {
@@ -492,5 +542,15 @@ function formatDateTime(value) {
   return new Date(value).toLocaleString('zh-CN', { hour12: false });
 }
 
-onMounted(load);
+watch(
+  () => route.query.section,
+  (section) => {
+    const nextSection = resolveSection(section);
+    activeSection.value = nextSection;
+    if (['courses', 'lesson-plans'].includes(nextSection) && !courseListLoaded.value) void load();
+    if (nextSection === 'lesson-plans') void loadLessonPlanCourses();
+  },
+  { immediate: true },
+);
+
 </script>

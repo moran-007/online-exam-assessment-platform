@@ -65,6 +65,7 @@ describe('AiSummaryTaskCoordinator', () => {
       runner as never,
       { quota: jest.fn().mockResolvedValue({ usedTokens: 20, remainingTokens: 9980 }) } as never,
       { recordAiSummary: jest.fn() } as never,
+      { assertSummaryAllowed: jest.fn().mockResolvedValue(undefined) } as never,
     );
     return { prisma, runner, service };
   }

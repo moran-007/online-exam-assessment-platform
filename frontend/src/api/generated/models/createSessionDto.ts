@@ -13,6 +13,7 @@ export interface CreateSessionDto {
   classroom?: string;
   endsAt: string;
   kind?: CreateSessionDtoKind;
+  knowledgePointId?: string;
   /** @minimum 0 */
   lessonHours: number;
   lessonTypeId: string;

@@ -90,7 +90,7 @@ const summaryTypes = [
 </script>
 
 <style scoped>
-.ai-quality-panel { flex: none; }
+.ai-quality-panel { height: 100%; min-height: 0; overflow-y: auto; overscroll-behavior: contain; box-shadow: none; border: 0; padding: 0; }
 .quality-metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; margin-bottom: 12px; }
 .regression-toolbar { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 12px; }
 </style>

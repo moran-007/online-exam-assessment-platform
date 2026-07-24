@@ -322,6 +322,11 @@ enum LessonRecordStatus {
   PUBLISHED @map("published")
 }
 
+enum LessonPlanSource {
+  SYSTEM   @map("system")
+  PERSONAL @map("personal")
+}
+
 enum LessonRecordVersionAction {
   SAVE_DRAFT   @map("save_draft")
   SUBMIT       @map("submit")
@@ -409,6 +414,7 @@ model User {
   childParents          ParentStudent[]        @relation("ParentStudentStudent")
   scheduleRulesTaught   ClassScheduleRule[]    @relation("ScheduleRuleTeacher")
   lessonSessionsTaught  LessonSession[]        @relation("LessonSessionTeacher")
+  lessonPlansAuthored   LessonPlan[]           @relation("LessonPlanAuthor")
   attendanceRecords     AttendanceRecord[]     @relation("AttendanceStudent")
   attendanceConfirmed   AttendanceRecord[]     @relation("AttendanceConfirmer")
   attendanceRevisions   AttendanceRevision[]   @relation("AttendanceCorrector")
@@ -549,6 +555,7 @@ model Course {
   classes           ClassGroup[]
   unitTemplates     CourseUnitTemplate[]
   lessonHourEntries LessonHourLedger[]
+  lessonPlans       LessonPlan[]
 
   @@index([status])
   @@map("courses")
@@ -762,34 +769,36 @@ model ClassScheduleRule {
 }
 
 model LessonSession {
-  id              String              @id @default(uuid()) @db.Uuid
-  classId         String              @map("class_id") @db.Uuid
-  teacherId       String?             @map("teacher_id") @db.Uuid
-  lessonTypeId    String              @map("lesson_type_id") @db.Uuid
-  unitTemplateId  String?             @map("unit_template_id") @db.Uuid
-  scheduleRuleId  String?             @map("schedule_rule_id") @db.Uuid
-  sourceSessionId String?             @map("source_session_id") @db.Uuid
-  generationKey   String              @unique @map("generation_key") @db.VarChar(180)
-  title           String              @db.VarChar(180)
-  kind            LessonSessionKind   @default(REGULAR)
-  status          LessonSessionStatus @default(PLANNED)
-  startsAt        DateTime            @map("starts_at") @db.Timestamptz(3)
-  endsAt          DateTime            @map("ends_at") @db.Timestamptz(3)
-  timezone        String              @default("Asia/Shanghai") @db.VarChar(64)
-  lessonHours     Decimal             @default(1) @map("lesson_hours") @db.Decimal(8, 2)
-  classroom       String?             @db.VarChar(128)
-  cancelReason    String?             @map("cancel_reason") @db.Text
-  sourceSystem    String?             @map("source_system") @db.VarChar(64)
-  legacyId        String?             @map("legacy_id") @db.VarChar(128)
-  createdBy       String?             @map("created_by") @db.Uuid
-  updatedBy       String?             @map("updated_by") @db.Uuid
-  createdAt       DateTime            @default(now()) @map("created_at")
-  updatedAt       DateTime            @updatedAt @map("updated_at")
+  id               String              @id @default(uuid()) @db.Uuid
+  classId          String              @map("class_id") @db.Uuid
+  teacherId        String?             @map("teacher_id") @db.Uuid
+  lessonTypeId     String              @map("lesson_type_id") @db.Uuid
+  unitTemplateId   String?             @map("unit_template_id") @db.Uuid
+  knowledgePointId String?             @map("knowledge_point_id") @db.Uuid
+  scheduleRuleId   String?             @map("schedule_rule_id") @db.Uuid
+  sourceSessionId  String?             @map("source_session_id") @db.Uuid
+  generationKey    String              @unique @map("generation_key") @db.VarChar(180)
+  title            String              @db.VarChar(180)
+  kind             LessonSessionKind   @default(REGULAR)
+  status           LessonSessionStatus @default(PLANNED)
+  startsAt         DateTime            @map("starts_at") @db.Timestamptz(3)
+  endsAt           DateTime            @map("ends_at") @db.Timestamptz(3)
+  timezone         String              @default("Asia/Shanghai") @db.VarChar(64)
+  lessonHours      Decimal             @default(1) @map("lesson_hours") @db.Decimal(8, 2)
+  classroom        String?             @db.VarChar(128)
+  cancelReason     String?             @map("cancel_reason") @db.Text
+  sourceSystem     String?             @map("source_system") @db.VarChar(64)
+  legacyId         String?             @map("legacy_id") @db.VarChar(128)
+  createdBy        String?             @map("created_by") @db.Uuid
+  updatedBy        String?             @map("updated_by") @db.Uuid
+  createdAt        DateTime            @default(now()) @map("created_at")
+  updatedAt        DateTime            @updatedAt @map("updated_at")
 
   classGroup         ClassGroup                @relation(fields: [classId], references: [id])
   teacher            User?                     @relation("LessonSessionTeacher", fields: [teacherId], references: [id])
   lessonType         LessonType                @relation(fields: [lessonTypeId], references: [id])
   unitTemplate       CourseUnitTemplate?       @relation(fields: [unitTemplateId], references: [id])
+  knowledgePoint     KnowledgePoint?           @relation(fields: [knowledgePointId], references: [id], onDelete: SetNull)
   scheduleRule       ClassScheduleRule?        @relation(fields: [scheduleRuleId], references: [id])
   sourceSession      LessonSession?            @relation("SessionDerivation", fields: [sourceSessionId], references: [id])
   derivedSessions    LessonSession[]           @relation("SessionDerivation")
@@ -803,6 +812,7 @@ model LessonSession {
   @@index([teacherId, startsAt])
   @@index([status, startsAt])
   @@index([scheduleRuleId, startsAt])
+  @@index([knowledgePointId])
   @@map("lesson_sessions")
 }
 
@@ -837,6 +847,28 @@ model LessonRecord {
   @@unique([sourceSystem, legacyId])
   @@index([status, publishedAt])
   @@map("lesson_records")
+}
+
+model LessonPlan {
+  id               String           @id @default(uuid()) @db.Uuid
+  source           LessonPlanSource
+  courseId         String           @map("course_id") @db.Uuid
+  knowledgePointId String?          @map("knowledge_point_id") @db.Uuid
+  authorId         String           @map("author_id") @db.Uuid
+  theme            String           @db.VarChar(200)
+  content          Json
+  createdAt        DateTime         @default(now()) @map("created_at")
+  updatedAt        DateTime         @updatedAt @map("updated_at")
+  deletedAt        DateTime?        @map("deleted_at")
+
+  course         Course          @relation(fields: [courseId], references: [id], onDelete: Restrict)
+  knowledgePoint KnowledgePoint? @relation(fields: [knowledgePointId], references: [id], onDelete: SetNull)
+  author         User            @relation("LessonPlanAuthor", fields: [authorId], references: [id], onDelete: Restrict)
+
+  @@index([courseId, knowledgePointId])
+  @@index([source, authorId])
+  @@index([updatedAt])
+  @@map("lesson_plans")
 }
 
 model LessonRecordVersion {
@@ -1224,10 +1256,12 @@ model KnowledgePoint {
   updatedAt DateTime             @updatedAt @map("updated_at")
   deletedAt DateTime?            @map("deleted_at")
 
-  course    Course                   @relation(fields: [courseId], references: [id])
-  parent    KnowledgePoint?          @relation("KnowledgePointTree", fields: [parentId], references: [id])
-  children  KnowledgePoint[]         @relation("KnowledgePointTree")
-  questions QuestionKnowledgePoint[]
+  course         Course                   @relation(fields: [courseId], references: [id])
+  parent         KnowledgePoint?          @relation("KnowledgePointTree", fields: [parentId], references: [id])
+  children       KnowledgePoint[]         @relation("KnowledgePointTree")
+  questions      QuestionKnowledgePoint[]
+  lessonSessions LessonSession[]
+  lessonPlans    LessonPlan[]
 
   @@unique([courseId, code])
   @@index([courseId])
@@ -1958,6 +1992,7 @@ model AiPromptTemplate {
   code            String   @unique @db.VarChar(64)
   type            String   @db.VarChar(64)
   templateContent String   @map("template_content") @db.Text
+  configJson      Json?    @map("config_json")
   status          String   @default("active") @db.VarChar(32)
   createdBy       String?  @map("created_by") @db.Uuid
   createdAt       DateTime @default(now()) @map("created_at")
@@ -2080,6 +2115,7 @@ model AiProviderConfig {
   lastTestAt           DateTime?             @map("last_test_at")
   createdBy            String?               @map("created_by") @db.Uuid
   updatedBy            String?               @map("updated_by") @db.Uuid
+  deletedAt            DateTime?             @map("deleted_at")
   createdAt            DateTime              @default(now()) @map("created_at")
   updatedAt            DateTime              @updatedAt @map("updated_at")
 
@@ -2091,7 +2127,25 @@ model AiProviderConfig {
   @@index([enabled, isDefault])
   @@index([provider])
   @@index([scope, ownerUserId, enabled])
+  @@index([deletedAt])
   @@map("ai_provider_configs")
+}
+
+model AiDataPermission {
+  id              String   @id @default(uuid()) @db.Uuid
+  domain          String   @unique @db.VarChar(64)
+  enabled         Boolean  @default(true)
+  allowSuperAdmin Boolean  @default(true) @map("allow_super_admin")
+  allowAdmin      Boolean  @default(false) @map("allow_admin")
+  allowTeacher    Boolean  @default(false) @map("allow_teacher")
+  allowAssistant  Boolean  @default(false) @map("allow_assistant")
+  changeReason    String?  @map("change_reason") @db.VarChar(300)
+  updatedBy       String?  @map("updated_by") @db.Uuid
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  @@index([enabled])
+  @@map("ai_data_permissions")
 }
 
 model AiUsageEvent {

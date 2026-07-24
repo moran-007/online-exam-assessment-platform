@@ -19,6 +19,7 @@ describe('AiProviderConfigAccessService', () => {
     await expect(service.resolve(teacher)).resolves.toMatchObject({ id: 'personal' });
     expect(findMany).toHaveBeenCalledWith({ where: {
       enabled: true,
+      deletedAt: null,
       OR: [
         { scope: AiProviderConfigScope.SYSTEM },
         { scope: AiProviderConfigScope.PERSONAL, ownerUserId: teacher.id },
@@ -39,7 +40,7 @@ describe('AiProviderConfigAccessService', () => {
 
   it('hides another user personal config instead of leaking its existence', async () => {
     const service = new AiProviderConfigAccessService({
-      aiProviderConfig: { findUnique: jest.fn().mockResolvedValue(
+      aiProviderConfig: { findFirst: jest.fn().mockResolvedValue(
         config('private', AiProviderConfigScope.PERSONAL, 'another-user', false, now),
       ) },
     } as never);

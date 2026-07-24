@@ -37,4 +37,36 @@ describe('AiConfigUseCases connection usage', () => {
       usage: { promptTokens: 0, completionTokens: 0, totalTokens: 0, reported: false },
     }));
   });
+
+  it('retires a configuration without deleting its historical row', async () => {
+    const existing = {
+      id: 'config-1', name: 'Retired model', provider: 'custom', baseUrl: 'https://example.com/v1',
+      model: 'model', scope: 'SYSTEM', ownerUserId: null, enabled: true, isDefault: true,
+      inputCostPerMillion: 0, outputCostPerMillion: 0,
+    };
+    const update = jest.fn().mockResolvedValue({ ...existing, deletedAt: new Date() });
+    const encrypt = jest.fn().mockReturnValue({
+      ciphertext: 'retired-cipher', iv: 'retired-iv', authTag: 'retired-tag', keyVersion: 2,
+    });
+    const audit = { log: jest.fn() };
+    const service = new AiConfigUseCases(
+      { aiProviderConfig: { update } } as never,
+      { encrypt } as never,
+      {} as never,
+      audit as never,
+      {} as never,
+      { requireManageable: jest.fn().mockResolvedValue(existing) } as never,
+    );
+
+    await expect(service.remove(existing.id, { id: 'user-1' } as never))
+      .resolves.toEqual({ id: existing.id, deleted: true });
+    expect(update).toHaveBeenCalledWith({
+      where: { id: existing.id },
+      data: expect.objectContaining({
+        apiKeyCiphertext: 'retired-cipher', enabled: false, isDefault: false,
+        deletedAt: expect.any(Date), updatedBy: 'user-1',
+      }),
+    });
+    expect(audit.log).toHaveBeenCalledWith(expect.objectContaining({ action: 'ai:config-delete' }));
+  });
 });
