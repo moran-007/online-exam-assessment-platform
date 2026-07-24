@@ -57,6 +57,15 @@ Stop-Port 3000
 Stop-Port 5173
 Stop-Port 5174
 
+$remainingListeners = foreach ($port in @(3000, 5173, 5174)) {
+  Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue
+}
+if ($remainingListeners) {
+  $details = ($remainingListeners | ForEach-Object { "$($_.LocalPort)/PID $($_.OwningProcess)" }) -join ", "
+  Write-Error "Platform processes are still listening: $details"
+  exit 1
+}
+
 if (!$KeepPostgres) {
   $resolvedPgBin = Resolve-PostgresBin $PostgresBin
   $resolvedPgData = if ($PostgresData) { $PostgresData } else { "D:\PostgreSQL\data" }

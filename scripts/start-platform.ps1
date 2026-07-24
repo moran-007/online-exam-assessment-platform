@@ -219,6 +219,7 @@ if (!(Test-Path (Join-Path $Root "node_modules"))) {
 Write-Step "Syncing database"
 Invoke-Checked $pnpm -ArgumentList @("prisma:generate")
 Invoke-Checked $pnpm -ArgumentList @("exec", "prisma", "migrate", "deploy")
+Invoke-Checked $pnpm -ArgumentList @("permissions:sync")
 
 $userCount = Get-UserCount
 if ($Seed -or $userCount -eq 0) {

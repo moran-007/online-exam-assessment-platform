@@ -14,7 +14,7 @@ import * as bcrypt from 'bcryptjs';
 
 const prisma = new PrismaClient();
 
-const permissions = [
+export const permissions = [
   ['course:read', '查看课程'], ['course:create', '新增课程'], ['course:update', '修改课程'],
   ['knowledge-point:read', '查看知识点'], ['knowledge-point:create', '新增知识点'], ['knowledge-point:update', '修改知识点'],
   ['tag:read', '查看标签'], ['tag:create', '新增标签'], ['tag:update', '修改标签'],
@@ -34,6 +34,19 @@ const permissions = [
   ['hydro:platform:manage', '管理 Hydro 平台'], ['hydro:problem:bind', '绑定 Hydro 题目'],
   ['hydro:account:read', '查看 Hydro 账号'], ['hydro:account:update', '修改 Hydro 账号'], ['hydro:result:write', '写入 Hydro 结果'],
   ['ai.summary.exam.generate', '生成考试总结'], ['ai.summary.student.generate', '生成学生总结'],
+  ['ai.chat.use', '使用 AI 问答助手'],
+  ['ai.chat.general-knowledge', 'AI 通用知识问答'],
+  ['ai.data.question-bank', 'AI 读取题库'],
+  ['ai.data.papers', 'AI 读取试卷'],
+  ['ai.data.classes', 'AI 读取班级'],
+  ['ai.data.exams', 'AI 读取考试安排'],
+  ['ai.answer.direct', 'AI 直接给出答案'],
+  ['ai.data.grade-history', 'AI 读取成绩历史'],
+  ['ai.data.attendance', 'AI 读取出勤情况'],
+  ['ai.data.schedule', 'AI 读取排课情况'],
+  ['ai.data.student-identity', 'AI 使用学生实名'],
+  ['ai.data.teacher-identity', 'AI 使用教师实名'],
+  ['ai.data.teacher-materials', 'AI 读取教师教学资料'],
   ['ai.summary.class.generate', '生成班级总结'], ['ai.summary.parent-report.generate', '生成家长报告'],
   ['ai.summary.lesson.generate', '生成课堂助手草稿'],
   ['ai.summary.review', '审核 AI 总结'], ['ai.summary.publish', '发布 AI 总结'],
@@ -151,6 +164,17 @@ async function main() {
         'statistics:read',
         'dashboard:read',
         'ai.summary.exam.generate',
+        'ai.chat.use',
+        'ai.chat.general-knowledge',
+        'ai.data.question-bank',
+        'ai.data.papers',
+        'ai.data.classes',
+        'ai.data.exams',
+        'ai.answer.direct',
+        'ai.data.grade-history',
+        'ai.data.attendance',
+        'ai.data.schedule',
+        'ai.data.teacher-materials',
         'ai.summary.student.generate',
         'ai.summary.class.generate',
         'ai.summary.parent-report.generate',
@@ -192,7 +216,7 @@ async function main() {
       code: 'student',
       name: '学生',
       permissions: [
-        'course:read', 'knowledge-point:read', 'tag:read', 'ai.summary.view-own', 'ai.feedback.create', 'academic-profile:read', 'dashboard:read',
+        'course:read', 'knowledge-point:read', 'tag:read', 'ai.chat.use', 'ai.chat.general-knowledge', 'ai.data.question-bank', 'ai.data.papers', 'ai.summary.view-own', 'ai.feedback.create', 'academic-profile:read', 'dashboard:read',
         'schedule:read', 'attendance:read', 'lesson-hour:read', 'lesson-record:read', 'lesson-asset:download',
         'scratch-assignment:read', 'scratch-work:read', 'scratch-work:save', 'scratch-work:submit', 'scratch-asset:download',
       ],
@@ -201,7 +225,7 @@ async function main() {
       code: 'parent',
       name: '家长',
       permissions: [
-        'academic-profile:read', 'ai.summary.view-own', 'ai.feedback.create', 'dashboard:read', 'schedule:read', 'attendance:read', 'lesson-hour:read',
+        'academic-profile:read', 'ai.chat.use', 'ai.chat.general-knowledge', 'ai.data.question-bank', 'ai.data.papers', 'ai.answer.direct', 'ai.summary.view-own', 'ai.feedback.create', 'dashboard:read', 'schedule:read', 'attendance:read', 'lesson-hour:read',
         'lesson-record:read', 'lesson-asset:download', 'scratch-assignment:read', 'scratch-work:read', 'scratch-asset:download',
       ],
     },
@@ -735,11 +759,13 @@ async function main() {
   }
 }
 
-main()
-  .catch((error) => {
-    console.error(error);
-    process.exitCode = 1;
-  })
-  .finally(async () => {
-    await prisma.$disconnect();
-  });
+if (require.main === module) {
+  main()
+    .catch((error) => {
+      console.error(error);
+      process.exitCode = 1;
+    })
+    .finally(async () => {
+      await prisma.$disconnect();
+    });
+}

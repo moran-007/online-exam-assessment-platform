@@ -9,7 +9,7 @@
     "node": ">=22 <25"
   },
   "scripts": {
-    "build": "nest build",
+    "build": "pnpm permissions:check && nest build",
     "dev": "nest start --watch",
     "frontend:dev": "pnpm --dir frontend dev",
     "frontend:build": "pnpm --dir frontend build",
@@ -25,6 +25,8 @@
     "prisma:migrate": "prisma migrate dev",
     "prisma:studio": "prisma studio",
     "db:seed": "tsx prisma/seed.ts",
+    "permissions:sync": "tsx scripts/sync-permissions.ts",
+    "permissions:check": "tsx scripts/check-permission-catalog.ts",
     "db:reseed-curriculum": "tsx prisma/reseed-curriculum.ts",
     "db:baseline": "tsx scripts/db-performance-baseline.ts",
     "assets:migrate": "tsx scripts/migrate-legacy-assets.ts",
